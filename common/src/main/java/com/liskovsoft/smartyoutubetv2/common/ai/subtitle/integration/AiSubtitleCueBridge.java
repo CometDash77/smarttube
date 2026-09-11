@@ -17,7 +17,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.BooleanSupplier;
 
 /**
  * Renderer-facing bridge between SmartTube's decoded cue list and the AI subtitle feature.
@@ -34,7 +33,7 @@ public class AiSubtitleCueBridge {
     private static AiSubtitleCueBridge sInstance;
     private static Context sContext;
 
-    private final BooleanSupplier mEnabledSupplier;
+    private final EnableState mEnabledState;
     private final TranslationProvider mProvider;
     private final Map<String, String> mCompleted = new HashMap<>();
     private final Map<String, PendingRequest> mInFlight = new HashMap<>();
@@ -43,6 +42,14 @@ public class AiSubtitleCueBridge {
     private long mRequestIdSeed;
     private boolean mPaused;
     private boolean mWasEnabled;
+
+    /**
+     * Minimum-SDK-safe enable-state seam. {@code java.util.function} types are API 24+, which
+     * exceeds the app's API 17 floor.
+     */
+    interface EnableState {
+        boolean isEnabled();
+    }
 
     /**
      * Production constructor: reads the persisted opt-in switch through the dedicated
@@ -57,8 +64,8 @@ public class AiSubtitleCueBridge {
      * tests and integration permit.
      */
     @VisibleForTesting
-    AiSubtitleCueBridge(BooleanSupplier enabledSupplier, TranslationProvider provider) {
-        mEnabledSupplier = enabledSupplier;
+    AiSubtitleCueBridge(EnableState enabledState, TranslationProvider provider) {
+        mEnabledState = enabledState;
         mProvider = provider;
     }
 
@@ -82,7 +89,8 @@ public class AiSubtitleCueBridge {
     /**
      * Decorates the already-normalized cue list on its way to the subtitle view.
      * Returns the input unchanged while no valid translation exists, and never throws
-     * into the renderer.
+     * into the renderer. When the configured provider completes synchronously, the
+     * decorated cue is returned on this same call.
      */
     public synchronized List<Cue> process(List<Cue> processedSourceCues) {
         try {
@@ -90,7 +98,7 @@ public class AiSubtitleCueBridge {
                 return processedSourceCues;
             }
 
-            if (!mEnabledSupplier.getAsBoolean()) {
+            if (!mEnabledState.isEnabled()) {
                 if (mWasEnabled) {
                     invalidate();
                     mWasEnabled = false;
@@ -161,6 +169,19 @@ public class AiSubtitleCueBridge {
         }
     }
 
+    /**
+     * Explicit enable-state notification for the settings entry point. Disabling behaves like
+     * an invalidating event: in-flight calls are cancelled and prior results are dropped
+     * immediately, before the settings callback returns, without waiting for another cue.
+     * Enabling requires no action here because {@link #process} admits new work on demand.
+     */
+    public synchronized void onEnabledChanged(boolean enabled) {
+        if (!enabled) {
+            invalidate();
+            mWasEnabled = false;
+        }
+    }
+
     private Cue decorate(Cue cue) {
         if (cue == null) {
             return null;
@@ -204,13 +225,17 @@ public class AiSubtitleCueBridge {
         TranslationRequest request = new TranslationRequest(generation, requestId, source, null, null);
 
         try {
-            pending.call = mProvider.translate(request, new BridgeCallback(source, requestId, generation, epoch));
+            pending.mCall = mProvider.translate(request, new BridgeCallback(source, requestId, generation, epoch));
         } catch (Exception e) {
             mInFlight.remove(source);
             return null;
         }
 
-        return null;
+        // The configured provider may complete synchronously (the production Fake does): its
+        // callback has already passed every identity guard and populated the cache, so the
+        // result can be consumed in this same call. Deferred providers return null here and
+        // stay source-only until a later rendering opportunity.
+        return mCompleted.get(source);
     }
 
     private void invalidate() {
@@ -221,9 +246,9 @@ public class AiSubtitleCueBridge {
 
     private void cancelInFlight() {
         for (PendingRequest pending : mInFlight.values()) {
-            if (pending.call != null) {
+            if (pending.mCall != null) {
                 try {
-                    pending.call.cancel();
+                    pending.mCall.cancel();
                 } catch (Exception ignored) {
                     // Cancellation is best-effort; the identity guards above stay authoritative.
                 }
@@ -234,16 +259,16 @@ public class AiSubtitleCueBridge {
     }
 
     private static final class PendingRequest {
-        private final long requestId;
-        private final long generation;
-        private final long epoch;
-        private TranslationCall call;
+        private final long mRequestId;
+        private final long mGeneration;
+        private final long mEpoch;
+        private TranslationCall mCall;
 
         private PendingRequest(long requestId, long generation, long epoch, TranslationCall call) {
-            this.requestId = requestId;
-            this.generation = generation;
-            this.epoch = epoch;
-            this.call = call;
+            mRequestId = requestId;
+            mGeneration = generation;
+            mEpoch = epoch;
+            mCall = call;
         }
     }
 
@@ -272,9 +297,9 @@ public class AiSubtitleCueBridge {
                 // The callback applies only when both generation and request id still
                 // belong to the active request of the current session and epoch.
                 if (pending == null
-                        || pending.requestId != mRequestId
-                        || pending.generation != mRequestGeneration
-                        || pending.epoch != mRequestEpoch
+                        || pending.mRequestId != mRequestId
+                        || pending.mGeneration != mRequestGeneration
+                        || pending.mEpoch != mRequestEpoch
                         || mGeneration != mRequestGeneration
                         || mEpoch != mRequestEpoch
                         || result.getGeneration() != mRequestGeneration
@@ -292,7 +317,7 @@ public class AiSubtitleCueBridge {
             synchronized (AiSubtitleCueBridge.this) {
                 PendingRequest pending = mInFlight.get(mSource);
 
-                if (pending != null && pending.requestId == mRequestId) {
+                if (pending != null && pending.mRequestId == mRequestId) {
                     mInFlight.remove(mSource);
                 }
             }

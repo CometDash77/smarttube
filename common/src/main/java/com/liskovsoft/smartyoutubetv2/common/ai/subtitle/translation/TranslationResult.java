@@ -2,8 +2,6 @@ package com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation;
 
 import androidx.annotation.NonNull;
 
-import java.util.Objects;
-
 /**
  * Immutable result of one translation request. Generation and request id must be validated by
  * the caller before the text is applied anywhere.
@@ -43,11 +41,24 @@ public final class TranslationResult {
         TranslationResult other = (TranslationResult) o;
         return mGeneration == other.mGeneration
                 && mRequestId == other.mRequestId
-                && Objects.equals(mTranslatedText, other.mTranslatedText);
+                && sameValue(mTranslatedText, other.mTranslatedText);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mGeneration, mRequestId, mTranslatedText);
+        // Explicit Java 6-compatible hashing: java.util.Objects is API 19+ and the app's
+        // minimum SDK is 17.
+        int result = (int) (mGeneration ^ (mGeneration >>> 32));
+        result = 31 * result + (int) (mRequestId ^ (mRequestId >>> 32));
+        result = 31 * result + valueHash(mTranslatedText);
+        return result;
+    }
+
+    private static boolean sameValue(Object first, Object second) {
+        return first == null ? second == null : first.equals(second);
+    }
+
+    private static int valueHash(Object value) {
+        return value != null ? value.hashCode() : 0;
     }
 }

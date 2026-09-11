@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Pure-JVM tests: the bridge is exercised through its Android-free constructor.
@@ -76,6 +77,24 @@ public class AiSubtitleCueBridgeTest {
 
         assertSame("nothing to decorate yet", input, first);
         assertEquals(1, mProvider.getTranslateCallCount());
+    }
+
+    @Test
+    public void immediateFakeDecoratesOnTheFirstAndOnlyProcessCall() {
+        enable();
+        FakeTranslationProvider immediateProvider = new FakeTranslationProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, immediateProvider);
+
+        List<Cue> output = bridge.process(cues("Hello"));
+
+        assertEquals("production Fake output must appear on this same call",
+                "Hello\n[ZH] Hello", output.get(0).text.toString());
+        assertEquals(1, immediateProvider.getTranslateCallCount());
+
+        List<Cue> second = bridge.process(cues("Hello"));
+
+        assertEquals("Hello\n[ZH] Hello", second.get(0).text.toString());
+        assertEquals("cached; no duplicate request", 1, immediateProvider.getTranslateCallCount());
     }
 
     @Test
@@ -211,12 +230,47 @@ public class AiSubtitleCueBridgeTest {
     }
 
     @Test
+    public void disablingImmediatelyCancelsInFlightWork() {
+        CancelTrackingProvider provider = new CancelTrackingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider);
+        enable();
+
+        bridge.process(cues("Hello"));
+
+        mEnabled.set(false);
+        bridge.onEnabledChanged(false);
+
+        assertTrue("in-flight call must be cancelled during the disable notification",
+                provider.isCancelled());
+    }
+
+    @Test
+    public void stubbornLateCallbackAfterDisableIsRejected() {
+        StubbornProvider provider = new StubbornProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider);
+        enable();
+
+        bridge.process(cues("Hello"));
+
+        mEnabled.set(false);
+        bridge.onEnabledChanged(false);
+        provider.deliverAll();
+
+        enable();
+        List<Cue> output = bridge.process(cues("Hello"));
+
+        assertEquals("late result after disable must not leak", "Hello", output.get(0).text.toString());
+        assertEquals("re-enable starts from clean state", 2, provider.getCallCount());
+    }
+
+    @Test
     public void disablingTheSettingClearsStateAndRestoresSourceOnly() {
         enable();
         mBridge.process(cues("Hello"));
         mProvider.flushPending();
 
         mEnabled.set(false);
+        mBridge.onEnabledChanged(false);
         List<Cue> input = cues("Hello");
         List<Cue> disabled = mBridge.process(input);
         assertSame(input, disabled);
@@ -267,6 +321,34 @@ public class AiSubtitleCueBridgeTest {
         @Override
         public TranslationCall translate(TranslationRequest request, TranslationCallback callback) {
             throw new IllegalStateException("synthetic provider crash");
+        }
+    }
+
+    /** Never completes and exposes the issued call so tests can prove cancellation on disable. */
+    private static final class CancelTrackingProvider implements TranslationProvider {
+        private final CancelTrackingCall mCall = new CancelTrackingCall();
+
+        @Override
+        public TranslationCall translate(TranslationRequest request, TranslationCallback callback) {
+            return mCall;
+        }
+
+        boolean isCancelled() {
+            return mCall.mCancelled;
+        }
+
+        private static final class CancelTrackingCall implements TranslationCall {
+            private boolean mCancelled;
+
+            @Override
+            public void cancel() {
+                mCancelled = true;
+            }
+
+            @Override
+            public boolean isCancelled() {
+                return mCancelled;
+            }
         }
     }
 

@@ -42,19 +42,19 @@ public class AiSubtitleControllerTest {
         mController.onTrackSelected(subtitleItem("en", "42"));
         mController.onNewVideo(Video.from("video-2"));
 
-        assertEquals(Arrays.asList("track:subtitle:en:42", "video:video-2"), mBridge.calls);
+        assertEquals(Arrays.asList("track:subtitle:en:42", "video:video-2"), mBridge.mCalls);
 
         // After a video change the same track identity must be forwarded again.
         mController.onTrackSelected(subtitleItem("en", "42"));
 
-        assertEquals(Arrays.asList("track:subtitle:en:42", "video:video-2", "track:subtitle:en:42"), mBridge.calls);
+        assertEquals(Arrays.asList("track:subtitle:en:42", "video:video-2", "track:subtitle:en:42"), mBridge.mCalls);
     }
 
     @Test
     public void nullVideoIsTolerated() {
         mController.onNewVideo(null);
 
-        assertEquals(Arrays.asList("video:null"), mBridge.calls);
+        assertEquals(Arrays.asList("video:null"), mBridge.mCalls);
     }
 
     @Test
@@ -62,7 +62,7 @@ public class AiSubtitleControllerTest {
         mController.onTrackSelected(subtitleItem("en", "42"));
         mController.onTrackChanged(subtitleItem("en", "42"));
 
-        assertEquals(Arrays.asList("track:subtitle:en:42"), mBridge.calls);
+        assertEquals(Arrays.asList("track:subtitle:en:42"), mBridge.mCalls);
     }
 
     @Test
@@ -70,7 +70,7 @@ public class AiSubtitleControllerTest {
         mController.onTrackSelected(subtitleItem("en", "42"));
         mController.onTrackSelected(subtitleItem("nl", "43"));
 
-        assertEquals(Arrays.asList("track:subtitle:en:42", "track:subtitle:nl:43"), mBridge.calls);
+        assertEquals(Arrays.asList("track:subtitle:en:42", "track:subtitle:nl:43"), mBridge.mCalls);
     }
 
     @Test
@@ -78,7 +78,7 @@ public class AiSubtitleControllerTest {
         mController.onTrackSelected(videoItem());
         mController.onTrackChanged(audioItem());
 
-        assertTrue(mBridge.calls.isEmpty());
+        assertTrue(mBridge.mCalls.isEmpty());
     }
 
     @Test
@@ -86,7 +86,7 @@ public class AiSubtitleControllerTest {
         mController.onTrackSelected(null);
         mController.onTrackChanged(null);
 
-        assertTrue(mBridge.calls.isEmpty());
+        assertTrue(mBridge.mCalls.isEmpty());
     }
 
     @Test
@@ -94,14 +94,14 @@ public class AiSubtitleControllerTest {
         mController.onTrackSelected(subtitleItem("en", "42"));
         mController.onTrackSelected(subtitleOffItem());
 
-        assertEquals(Arrays.asList("track:subtitle:en:42", "track:" + AiSubtitleController.IDENTITY_NONE), mBridge.calls);
+        assertEquals(Arrays.asList("track:subtitle:en:42", "track:" + AiSubtitleController.IDENTITY_NONE), mBridge.mCalls);
 
         mController.onTrackSelected(subtitleItem("en", "42"));
 
         assertEquals(Arrays.asList(
                 "track:subtitle:en:42",
                 "track:" + AiSubtitleController.IDENTITY_NONE,
-                "track:subtitle:en:42"), mBridge.calls);
+                "track:subtitle:en:42"), mBridge.mCalls);
     }
 
     @Test
@@ -109,7 +109,7 @@ public class AiSubtitleControllerTest {
         mController.onSeekPositionChanged(1200);
         mController.onSeekEnd();
 
-        assertEquals(Arrays.asList("seek:1200", "seek:-1"), mBridge.calls);
+        assertEquals(Arrays.asList("seek:1200", "seek:-1"), mBridge.mCalls);
     }
 
     @Test
@@ -117,7 +117,7 @@ public class AiSubtitleControllerTest {
         mController.onPause();
         mController.onPlay();
 
-        assertEquals(Arrays.asList("pause", "play"), mBridge.calls);
+        assertEquals(Arrays.asList("pause", "play"), mBridge.mCalls);
     }
 
     @Test
@@ -126,7 +126,7 @@ public class AiSubtitleControllerTest {
         mController.onFinish();
         mController.onEngineReleased();
 
-        assertEquals(Arrays.asList("release", "release", "release"), mBridge.calls);
+        assertEquals(Arrays.asList("release", "release", "release"), mBridge.mCalls);
     }
 
     private static FormatItem subtitleItem(String language, String formatId) {
@@ -218,7 +218,7 @@ public class AiSubtitleControllerTest {
     }
 
     private static final class RecordingBridge extends AiSubtitleCueBridge {
-        private final List<String> calls = new ArrayList<>();
+        private final List<String> mCalls = new ArrayList<>();
 
         private RecordingBridge() {
             super(() -> true, new FakeTranslationProvider());
@@ -226,32 +226,32 @@ public class AiSubtitleControllerTest {
 
         @Override
         void onNewVideo(String videoId) {
-            calls.add("video:" + videoId);
+            mCalls.add("video:" + videoId);
         }
 
         @Override
         void onSubtitleTrackChanged(String trackIdentity) {
-            calls.add("track:" + trackIdentity);
+            mCalls.add("track:" + trackIdentity);
         }
 
         @Override
         void onSeek(long positionMs) {
-            calls.add("seek:" + positionMs);
+            mCalls.add("seek:" + positionMs);
         }
 
         @Override
         void onPause() {
-            calls.add("pause");
+            mCalls.add("pause");
         }
 
         @Override
         void onPlay() {
-            calls.add("play");
+            mCalls.add("play");
         }
 
         @Override
         void onRelease() {
-            calls.add("release");
+            mCalls.add("release");
         }
     }
 }

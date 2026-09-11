@@ -3,8 +3,6 @@ package com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
-import java.util.Objects;
-
 /**
  * Immutable identity and payload of one translation request.
  */
@@ -58,13 +56,28 @@ public final class TranslationRequest {
         TranslationRequest other = (TranslationRequest) o;
         return mGeneration == other.mGeneration
                 && mRequestId == other.mRequestId
-                && Objects.equals(mSourceText, other.mSourceText)
-                && Objects.equals(mSourceLanguage, other.mSourceLanguage)
-                && Objects.equals(mTargetLanguage, other.mTargetLanguage);
+                && sameValue(mSourceText, other.mSourceText)
+                && sameValue(mSourceLanguage, other.mSourceLanguage)
+                && sameValue(mTargetLanguage, other.mTargetLanguage);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mGeneration, mRequestId, mSourceText, mSourceLanguage, mTargetLanguage);
+        // Explicit Java 6-compatible hashing: java.util.Objects is API 19+ and the app's
+        // minimum SDK is 17.
+        int result = (int) (mGeneration ^ (mGeneration >>> 32));
+        result = 31 * result + (int) (mRequestId ^ (mRequestId >>> 32));
+        result = 31 * result + valueHash(mSourceText);
+        result = 31 * result + valueHash(mSourceLanguage);
+        result = 31 * result + valueHash(mTargetLanguage);
+        return result;
+    }
+
+    private static boolean sameValue(Object first, Object second) {
+        return first == null ? second == null : first.equals(second);
+    }
+
+    private static int valueHash(Object value) {
+        return value != null ? value.hashCode() : 0;
     }
 }
