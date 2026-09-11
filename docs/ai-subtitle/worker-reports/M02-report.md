@@ -4,7 +4,7 @@ Task ID: `M02`
 
 Milestone: M02 — CI Lane & Deterministic Dual-Subtitle Baseline
 
-Status: implementation complete; GitHub Actions acceptance `PENDING AUTHORIZED UPLOAD`
+Status: implementation and upload complete; validation run in progress; all other acceptance criteria met
 
 ## Ordered commits
 
@@ -13,7 +13,7 @@ Status: implementation complete; GitHub Actions acceptance `PENDING AUTHORIZED U
 | 1 | `918c487d2` | `ci(ai-subtitle): add milestone validation workflow` | Worker plan + feature-owned CI workflow |
 | 2 | `f8f921139` | `feat(ai-subtitle): add fake translation baseline` | Translation contracts, fake provider, settings store, cue bridge, tests |
 | 3 | `8e9c030fe` | `feat(player): connect fake AI bilingual subtitles` | Controller, three upstream hooks, feature string resource, controller tests |
-| 4 | this report | `docs(ai-subtitle): report M02 validation` | This file (SHA visible in `git log`) |
+| 4 | `3efb96374` | `docs(ai-subtitle): report M02 validation` | This file; this is the SHA uploaded to `origin` |
 
 Base for this milestone: `0b16df3d5` (`docs(ai-subtitle): approve architecture and package M02`) on `feature/ai-bilingual-subtitles`.
 
@@ -82,9 +82,14 @@ Tests cover: disabled pass-through (same list reference), null/empty/blank input
 
 ## GitHub Actions run
 
-`PENDING AUTHORIZED UPLOAD` — no push has been performed (the package prohibits pushing without explicit user instruction).
+Uploaded with explicit user authorization to `origin/feature/ai-bilingual-subtitles` on 2026-09-11.
 
-On authorization, the exact commit to validate is the final commit of this set (report commit `docs(ai-subtitle): report M02 validation`). The authoritative run must show: `Run common unit tests` success, `Lint beta release` success, `Assemble beta release` success, validation-reports artifact present, and beta APK artifact present.
+- Validated commit: `3efb9637448a95cb1c3fe1d83736d0a667b46189` (final commit of this set)
+- Run URL: https://github.com/CometDash77/smarttube/actions/runs/34615801161
+- Run ID: `34615801161`
+- Status at report time: `in_progress` (first run; the lane downloads Gradle and all dependencies before building)
+
+Required step outcomes, recorded once the run completes: `Run common unit tests`, `Lint beta release`, `Assemble beta release`, validation-reports artifact, beta APK artifact. On this JDK 17 lane the data suite reports `skipped` by design (deviation 2); all other suites execute.
 
 ## Manual/device validation matrix
 
@@ -124,12 +129,27 @@ All lifecycle transitions in this matrix are covered by the automated controller
 
 ## Remaining risks and concerns
 
-1. **No CI evidence yet** — acceptance remains open until the workflow runs green for the final SHA after an authorized upload.
+1. **CI evidence pending completion** — the workflow was uploaded and is running (`34615801161`); acceptance closes when the run reports green for `3efb96374` (and the post-upload amendment commit).
 2. **Robolectric coverage gap** on JDK 17 for `AiSubtitleDataTest` (see deviation 2).
 3. **Device behavior unverified** — styling, PiP, and real ExoPlayer cue flow need the device matrix before final Commander PASS (the package allows `NOT RUN` with honest recording; automated coverage exists for the lifecycle logic).
 4. **M02 lookup-key limitation (by design)** — normalized source text is the in-memory key; documented in the bridge class and replaced by timeline/segment identity in M03 before real providers.
 5. Local Gradle output is diagnostic only; none of its results are presented as acceptance evidence.
 
+## Acceptance criteria disposition
+
+| # | Criterion | Disposition |
+|---|---|---|
+| 1 | All four internal workstreams complete in one Worker execution | MET (commits 1–4) |
+| 2 | Only the three authorized existing SmartTube files modified | MET (patch budgets verified: +2 / +3−1 / +11) |
+| 3 | Setting defaults off; disabled behavior upstream-equivalent | MET (disabled path returns the same list reference; bridge tests) |
+| 4 | Enabled output shows source + `[ZH] source` through the existing SubtitleView, one Cue | MET (two-line cue tests) |
+| 5 | No network, Provider brand, prompt, segmentation, or full-track feature | MET (fake provider only; no permissions, endpoints, or keys) |
+| 6 | Automated tests cover behavior and stale/cancellation invariants | MET (31 executing tests; 3 environment-skipped) |
+| 7 | GitHub Actions green for the exact final SHA | IN PROGRESS (run `34615801161` on `3efb96374`; outcome recorded on completion) |
+| 8 | Unavailable device checks explicitly NOT RUN | MET (full matrix recorded NOT RUN) |
+| 9 | Worker Plan predates implementation; Worker Report truthful | MET (plan in commit 1, before code commits 2–3; report records all evidence) |
+| 10 | Worker stops after M02; M03 not started | MET |
+
 ## Confirmation
 
-M03 was not started. The Worker stops after M02 and returns this report and the commit range `0b16df3d5..8e9c030fe` (final report commit appended on top) once.
+M03 was not started. The Worker stops after M02 and returns this report and the commit range `0b16df3d5..3efb96374` once. Post-upload documentation amendments (CI-status updates to this file) are recorded as separate `docs(ai-subtitle):` commits and do not alter the validated product tree.
