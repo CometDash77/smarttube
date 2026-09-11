@@ -1,8 +1,8 @@
 # AI Subtitle Upstream Modification Ledger
 
-Status: Phase 0 planning ledger
+Status: M02 implementation present; Commander acceptance pending corrections
 
-Actual existing SmartTube files modified by AI Subtitle: **0**
+Actual existing SmartTube files modified by AI Subtitle: **3**
 
 Planned unconditional existing-file hooks: **3**
 
@@ -14,9 +14,9 @@ Only modifications to files inherited from official SmartTube belong here. New f
 
 | Existing upstream file | Status | Intended patch surface | Merge risk |
 |---|---|---:|---:|
-| `common/.../app/presenters/PlaybackPresenter.java` | Planned | Import + one controller registration | Low |
-| `common/.../exoplayer/other/SubtitleManager.java` | Planned | One cue-bridge invocation and, only if required, a narrow decorated-style branch | Low–Medium |
-| `common/.../app/presenters/settings/SubtitleSettingsPresenter.java` | Planned | One AI subtitle settings entry | Low |
+| `common/.../app/presenters/PlaybackPresenter.java` | Implemented in M02; acceptance pending | Import + one controller registration | Low |
+| `common/.../exoplayer/other/SubtitleManager.java` | Implemented in M02; acceptance pending | One cue-bridge invocation | Low–Medium |
+| `common/.../app/presenters/settings/SubtitleSettingsPresenter.java` | Implemented in M02; correction pending | One AI subtitle settings entry; M02-FIX-01 may add immediate-disable notification inside the same helper | Low |
 | `common/.../playback/controllers/VideoLoaderController.java` | Conditional | One format-info callback/handoff only if the adapter-only source spike fails | Medium |
 
 No modifications are planned in `MediaServiceCore`, `SharedModules`, `exoplayer-amzn-2.10.6`, `PlayerData.java`, player layouts, `EmbedPlayerView`, or `SubtitlePainter`.

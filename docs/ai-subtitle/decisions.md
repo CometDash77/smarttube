@@ -144,6 +144,22 @@ Consequences: Commander review occurs at the Milestone boundary. Packages must p
 
 Upstream impact: none.
 
+## ADR-010 — Keep JDK 17 authoritative and isolate legacy Robolectric execution
+
+Status: Accepted by Commander technical ruling
+
+Date: 2026-09-11
+
+Decision: GitHub Actions continues to use Temurin JDK 17 for normal unit tests, lint, and APK assembly. Until the inherited Robolectric 4.6.1 dependency is upgraded in an explicitly authorized later task, a supplementary JDK 11 job may execute only the Robolectric-backed `AiSubtitleDataTest` suite required by M02.
+
+Reason: Robolectric 4.6.1 cannot complete its runner lifecycle on JDK 17 because its bundled bytecode tooling rejects Java 17 class files. Silently ignoring the suite does not satisfy the M02 persistence-test requirement, while changing Gradle dependencies is outside the approved M02 patch boundary. AGP 7.4 and Gradle 7.5 support the narrow JDK 11 test lane.
+
+Alternatives: treat skipped tests as accepted; upgrade Robolectric in M02; lower the entire authoritative workflow to JDK 11; replace the Android persistence test with a mock that never exercises SharedPreferences. All are rejected for M02.
+
+Consequences: reports must distinguish the supplementary compatibility-test job from the JDK 17 acceptance job and record real executed test counts. The supplementary job does not authorize builds, lint, releases, or general test execution on JDK 11. A later planned dependency/toolchain task should remove this exception once Robolectric is upgraded.
+
+Upstream impact: none; feature-owned workflow only.
+
 ## Open rulings
 
 - M02 evidence will decide whether ADR-005 can remain hook-free.
