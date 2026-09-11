@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.content.Context;
 
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemMetadata;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration.AiSubtitleController;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Playlist;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.BasePlayerController;
@@ -58,6 +59,7 @@ public class PlaybackPresenter extends BasePresenter<PlaybackView> implements Pl
         mEventListeners.add(new VideoStateController());
         mEventListeners.add(new SuggestionsController());
         mEventListeners.add(new VideoLoaderController());
+        mEventListeners.add(new AiSubtitleController());
         mEventListeners.add(new ErrorFixerController());
         mEventListeners.add(new PlayerUIController());
         mEventListeners.add(new RemoteController(context));

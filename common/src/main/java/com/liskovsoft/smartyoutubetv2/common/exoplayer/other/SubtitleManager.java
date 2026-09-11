@@ -17,6 +17,7 @@ import com.google.android.exoplayer2.text.TextOutput;
 import com.google.android.exoplayer2.ui.SubtitleView;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.smartyoutubetv2.common.R;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration.AiSubtitleCueBridge;
 import com.liskovsoft.smartyoutubetv2.common.prefs.AppPrefs;
 import com.liskovsoft.smartyoutubetv2.common.prefs.common.DataChangeBase.OnDataChange;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
@@ -72,7 +73,7 @@ public class SubtitleManager implements TextOutput, OnDataChange {
     @Override
     public void onCues(List<Cue> cues) {
         if (mSubtitleView != null) {
-            mSubtitleView.setCues(forceCenterAlignment(cues));
+            mSubtitleView.setCues(AiSubtitleCueBridge.instance(mContext).process(forceCenterAlignment(cues)));
         }
     }
 

@@ -2,6 +2,7 @@ package com.liskovsoft.smartyoutubetv2.common.app.presenters.settings;
 
 import android.content.Context;
 import com.liskovsoft.smartyoutubetv2.common.R;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.AiSubtitleData;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.OptionCategory;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.UiOptionItem;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
@@ -26,6 +27,7 @@ public class SubtitleSettingsPresenter extends BasePresenter<Void> {
         AppDialogPresenter settingsPresenter = AppDialogPresenter.instance(getContext());
 
         settingsPresenter.appendSingleSwitch(AppDialogUtil.createSubtitleChannelOption(getContext()));
+        appendAiSubtitleSwitch(settingsPresenter);
         // Can't work properly. There is no robust language detection.
         //appendSubtitleLanguageCategory(settingsPresenter);
         //appendMoreSubtitlesSwitch(settingsPresenter);
@@ -63,6 +65,15 @@ public class SubtitleSettingsPresenter extends BasePresenter<Void> {
     //
     //    settingsPresenter.appendRadioCategory(subtitleLanguageTitle, options);
     //}
+
+    private void appendAiSubtitleSwitch(AppDialogPresenter settingsPresenter) {
+        AiSubtitleData aiSubtitleData = AiSubtitleData.instance(getContext());
+
+        settingsPresenter.appendSingleSwitch(UiOptionItem.from(
+                getContext().getString(R.string.ai_subtitle_enable_test_provider),
+                option -> aiSubtitleData.setEnabled(option.isSelected()),
+                aiSubtitleData.isEnabled()));
+    }
 
     private void appendSubtitleStyleCategory(AppDialogPresenter settingsPresenter) {
         OptionCategory category = AppDialogUtil.createSubtitleStylesCategory(getContext());
