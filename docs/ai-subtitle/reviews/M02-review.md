@@ -72,3 +72,58 @@ M02 Settings requirement 4 says switching off immediately cancels and clears AI 
 2. Push only after all corrections and report amendments are ready, so one replacement CI run validates the final product SHA.
 3. Obtain a green run covering unit tests, the legacy Robolectric preference suite, lint, assembly, reports, and APK artifact.
 4. Return the amended `M02-report.md` once. Commander will re-review M02; M03 remains blocked.
+
+---
+
+# M02 Commander Review — Second Pass
+
+Review status: **CHANGES REQUIRED**
+
+Date: 2026-09-11
+
+Reviewed range: `0b16df3d5...be02bc2b3`; correction commit `69f644f4a`; reviewed tip `be02bc2b3`.
+
+Verified CI evidence: [Run 34618112103](https://github.com/CometDash77/smartube/actions/runs/34618112103) and [Run 34618912621](https://github.com/CometDash77/smartube/actions/runs/34618912621).
+
+Second-pass verdict, recorded verbatim as returned by the Commander:
+
+> 复核结论：**CHANGES REQUIRED**。原 Commander 的 6 项发现均已实质修正，CI 证据也成立；但复核发现 3 个阻塞项，M02 暂不能 PASS，M03 继续保持未开始。
+
+## Standards
+
+- **P2 — `SubtitleSettingsPresenter.java` 混用换行符。** 基线为 87 行 CRLF / 0 行 LF；当前为 90 行 CRLF / 12 行 LF。新增方法 [SubtitleSettingsPresenter.java](<D:/obsidian/工程/VIBECODING项目/smartube/SmartTube/common/src/main/java/com/liskovsoft/smartyoutubetv2/common/app/presenters/settings/SubtitleSettingsPresenter.java:70>) 使用 LF，与文件原有 CRLF 风格不一致，也使报告中"已恢复原始样式"的表述不准确。应只修正该新增段的换行符，不改变语义。
+
+::code-comment{title="[P2] 新增段混用 LF/CRLF" body="该 CRLF 文件中的新增方法使用了 12 个 LF-only 换行；请仅将新增段恢复为 CRLF，并同步修正报告中"已完全恢复原始样式"的表述。" file="D:/obsidian/工程/VIBECODING项目/smartube/SmartTube/common/src/main/java/com/liskovsoft/smartyoutubetv2/common/app/presenters/settings/SubtitleSettingsPresenter.java" start=70 end=81 priority=2}
+
+非阻塞判断项：
+
+- `TranslationRequest` 与 `TranslationResult` 重复了相同的 API-17-safe equality/hash helper。
+- `(requestId, generation, epoch)` 在 bridge 内形成数据簇。两项均可留待后续重构，不建议为 M02 扩大补丁面。
+
+## Spec
+
+- **P2 — re-enable 测试只证明重新发起请求，没有证明能够再次完成翻译。** [AiSubtitleCueBridgeTest.java](<D:/obsidian/工程/VIBECODING项目/smartube/SmartTube/common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/integration/AiSubtitleCueBridgeTest.java:248>) 应在第二次请求后投递回调，再次 `process()`，断言精确输出 `Hello\n[ZH] Hello` 且不存在第三次请求。
+
+::code-comment{title="[P2] 未验证重新启用后翻译成功" body="当前测试只断言 disable/re-enable 后发出了第二个请求；若所有 re-enable 后回调都被错误拒绝，测试仍会通过。请投递第二次回调并断言双行输出以及请求数仍为 2。" file="D:/obsidian/工程/VIBECODING项目/smartube/SmartTube/common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/integration/AiSubtitleCueBridgeTest.java" start=248 end=264 priority=2}
+
+- **P2 — 报告夸大自动化覆盖。** [M02-report.md](<D:/obsidian/工程/VIBECODING项目/smartube/SmartTube/docs/ai-subtitle/worker-reports/M02-report.md:131>) 称设备矩阵"全部"由自动化覆盖，但 background/foreground、PiP 等没有对应测试，且第 150 行承认 PiP 未验证。应改为只列举实际覆盖的生命周期事件。
+
+::code-comment{title="[P2] 自动化覆盖表述过度" body="自动化测试没有覆盖矩阵中的 background/foreground 与 PiP。请把"全部覆盖"改成对实际已覆盖事件的准确描述，并保留设备矩阵 NOT RUN。" file="D:/obsidian/工程/VIBECODING项目/smartube/SmartTube/docs/ai-subtitle/worker-reports/M02-report.md" start=131 priority=2}
+
+其余规格检查通过：首次调用即时译文、取消与顽固晚到回调、API 17 修正、JDK 11 持久化测试、文件范围、提交数量及 M03 边界均符合要求。
+
+验证证据：
+
+- [Run 34618112103](https://github.com/CometDash77/smartube/actions/runs/34618112103) 与 [Run 34618912621](https://github.com/CometDash77/smartube/actions/runs/34618912621) 的 SHA 和所有关键步骤均核实为成功。
+- Artifact XML 实测：bridge 19/19、controller 10/10、provider 5/5；JDK 17 data 3 skipped，JDK 11 data 3/3 passed。
+- 本地重跑 34 个 JVM 测试通过；工作区干净且本地 tip 与 origin 一致。
+- 本次依照 [using-superpowers](C:/Users/77182/.agents/skills/using-superpowers/SKILL.md) 与 [code-review](C:/Users/77182/.agents/skills/code-review/SKILL.md) 的双轴复核流程完成。
+
+总结：Standards 3 项（1 个硬问题、2 个判断项，最严重为混合换行）；Spec 2 项（均为 P2）；因此 M02 暂不接受。
+
+## Required correction
+
+1. Complete `M02-FIX-02` as one correction package.
+2. Push only after all corrections and report amendments are ready, so one replacement CI run validates the final product SHA.
+3. Obtain a green run covering unit tests, the supplementary preference job, lint, assembly, reports, and APK artifact.
+4. Return the amended `M02-report.md` once. Commander will re-review M02; M03 remains blocked.

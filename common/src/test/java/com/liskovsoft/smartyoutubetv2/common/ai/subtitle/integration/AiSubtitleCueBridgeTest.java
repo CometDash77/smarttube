@@ -261,6 +261,13 @@ public class AiSubtitleCueBridgeTest {
 
         assertEquals("late result after disable must not leak", "Hello", output.get(0).text.toString());
         assertEquals("re-enable starts from clean state", 2, provider.getCallCount());
+
+        provider.deliverAll();
+        List<Cue> completed = bridge.process(cues("Hello"));
+
+        assertEquals("re-enable must complete a fresh translation",
+                "Hello\n[ZH] Hello", completed.get(0).text.toString());
+        assertEquals("completed result is cached; no third request", 2, provider.getCallCount());
     }
 
     @Test

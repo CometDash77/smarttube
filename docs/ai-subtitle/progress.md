@@ -4,20 +4,20 @@ Last updated: 2026-09-11
 
 Authoritative branch: `feature/ai-bilingual-subtitles`
 
-Personal project remote: `origin` → `https://github.com/CometDash77/smarttube.git` (GitHub reported public visibility during Phase 0)
+Personal project remote: `origin` → `https://github.com/CometDash77/smartube.git` (GitHub reported public visibility during Phase 0)
 
 Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 
 ## Current state
 
 - Current milestone: M02 — CI Lane & Deterministic Dual-Subtitle Baseline
-- Current task: `M02-FIX-01 — consolidated Commander correction package`
-- Task state: CHANGES REQUIRED after Commander Review; M03 blocked
-- Production code changes: M02 implementation present but not accepted
+- Current task: `M02-FIX-02 — second-pass Commander correction package`
+- Task state: corrections landed and locally verified; replacement CI run pending the push
+- Production code changes: M02 implementation present; M02-FIX-01 corrections verified green by run `34618112103`; second-pass corrections verified locally
 - Actual upstream patch count: 3 existing SmartTube files, all inside the approved M02 budget
-- Remote sync: implementation/report through `3efb96374` uploaded; local Commander/report documentation is ahead of `origin/feature/ai-bilingual-subtitles`
-- Local compile/test status: not used as acceptance evidence by user direction
-- GitHub Actions status: run `34615801161` for `3efb96374` failed at `Lint beta release`; unit-test step ran first, assembly did not establish an accepted result
+- Remote sync: `origin/feature/ai-bilingual-subtitles` at `be02bc2b3`; the second-pass correction commit is local until pushed
+- Local compile/test status: diagnostic only (34 JVM tests green on JDK 17; see Test status)
+- GitHub Actions status: run `34618112103` green for `69f644f4a` (primary JDK 17 job plus supplementary JDK 11 preference job); run `34618912621` also verified; the second-pass replacement run is pending
 
 ## Completed work
 
@@ -36,6 +36,9 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 - [x] Recorded GitHub Actions as the authoritative build/test environment.
 - [x] Received and reviewed the first M02 Worker delivery (`918c487d2` through `3efb96374`, plus local report amendment `26693c340`).
 - [x] Persisted `M02-review.md`, ADR-010, and one consolidated `M02-FIX-01` package.
+- [x] Completed `M02-FIX-01`: first-cue immediate rendering, API 17 compatibility, immediate disable, JDK 11 preference lane; replacement run `34618112103` green.
+- [x] Received and recorded the Commander second pass: 3 blocking items (settings-helper line endings, unproven re-enable completion, overstated automation coverage) plus 2 explicitly deferred judgement items.
+- [x] Completed `M02-FIX-02` corrections: byte-level CRLF repair of the settings helper (rows 70–81), strengthened re-enable assertions with mutation evidence, and corrected report statements.
 
 ## Completed tasks
 
@@ -43,6 +46,8 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 |---|---|---|---|
 | Phase 0 reconnaissance | Accepted 2026-09-11 | `7e38c9db7` | Read-only evidence and document consistency checks |
 | M02 first Worker delivery | Changes required | `918c487d2..26693c340` | Commander code/spec review; Actions run `34615801161` failed at lint |
+| M02-FIX-01 correction | Green CI; second review required | `69f644f4a`, `be02bc2b3` | Run `34618112103` green (JDK 17 unit tests/lint/assembly + JDK 11 preference suite); Commander second pass found 3 blocking items |
+| M02-FIX-02 correction | Local corrections verified; replacement CI pending | this commit | 34 JVM tests green on JDK 17; mutation check red at `AiSubtitleCueBridgeTest:267` without the post-re-enable delivery; settings helper byte-verified at 102 CRLF / 0 LF-only |
 
 ## Accepted commits
 
@@ -54,7 +59,7 @@ None.
 
 ## Pending commits
 
-- `918c487d2` through `26693c340` — M02 implementation and report chain; not accepted until `M02-FIX-01` passes Commander re-review and authoritative CI.
+- `918c487d2` through `be02bc2b3` — M02 implementation, first correction, and report chain; not accepted until `M02-FIX-02` passes the Commander re-review and the replacement authoritative CI run.
 
 ## Open problems
 
@@ -63,10 +68,11 @@ None.
 3. The current GitHub Actions workflow does not automatically validate the feature branch or explicitly invoke unit tests. The M02 Stage Package adds an isolated validation workflow before its product changes are accepted.
 4. Android secret storage must balance Keystore protection with SmartTube's old-device support and backup/export behavior; decision deferred to a focused M04 spike.
 5. KissTranslator tests/fixtures are GPL-covered repository content; target fixtures need independent authorship/provenance.
-6. M02 synchronous Fake completion is cached but not returned on the first cue-processing call, so a one-shot caption can remain source-only.
-7. M02 production code references `BooleanSupplier` (API 24) and `Objects` (API 19) despite the API 17 floor.
-8. Turning the M02 switch off does not cancel immediately; invalidation waits for a later non-empty cue.
-9. The three required `AiSubtitleDataTest` cases are ignored on JDK 17; ADR-010 authorizes a supplementary JDK 11 execution lane.
+6. Resolved by `M02-FIX-01`: M02 synchronous Fake completion is now consumed on the first cue-processing call.
+7. Resolved by `M02-FIX-01`: no M02 production reference requires an API newer than 17 (`EnableState` seam; explicit null-safe equality).
+8. Resolved by `M02-FIX-01`: disabling the setting cancels in-flight work and clears bridge state inside the settings callback.
+9. Resolved by `M02-FIX-01`: the Robolectric preference suite executes in the supplementary JDK 11 job (3/3 passed in run `34618112103`).
+10. Open: `SubtitleSettingsPresenter.java` is CRLF in the Git object store while repository-wide `core.autocrlf=true`; any whole-file rewrite creates churn, so edits to that file must stay byte-verified and be staged with the autocrlf conversion disabled.
 
 ## Current architecture decisions
 
@@ -80,14 +86,17 @@ None.
 - Accepted: GitHub Actions is authoritative for build/test acceptance.
 - Accepted: one Stage Package and one consolidated Worker return per Milestone; internal commits do not create extra user handoffs.
 - Accepted: JDK 17 remains authoritative; a narrow JDK 11 job may execute the inherited Robolectric 4.6.1 preference suite until its dependency is upgraded.
+- Accepted: M02-FIX-02 stays inside the three-file upstream patch surface and leaves the two deferred refactors (duplicated equality helpers, bridge request-identity cluster) untouched.
 
 ## Planned next action
 
-Complete `docs/ai-subtitle/tasks/M02-FIX-01.md` as one correction package, obtain a green replacement GitHub Actions run, and return one amended M02 report. Commander then re-reviews M02 before issuing M03.
+Push the second-pass correction once, obtain a green replacement GitHub Actions run, and return one amended M02 report. Commander then re-reviews M02 before issuing M03; M03 remains blocked.
 
 ## Test status
 
 - Phase 0: no production behavior changed, so no product test was run.
-- M02 local diagnostic report: 31 pure-JVM tests passed; 3 Robolectric preference tests were skipped and are not accepted as coverage.
-- M02 authoritative run `34615801161`: FAILURE at lint; validation reports artifact exists; no accepted assembly/APK result.
-- Replacement authoritative CI baseline: pending `M02-FIX-01`.
+- M02 local diagnostic report (first delivery): 31 pure-JVM tests passed; 3 Robolectric preference tests skipped and not accepted as coverage.
+- M02 authoritative run `34615801161`: FAILURE at lint; validation-reports artifact exists; no accepted assembly/APK result.
+- M02-FIX-01 authoritative run `34618112103`: green — bridge 19/19, controller 10/10, provider 5/5 on JDK 17; preference suite 3/3 on JDK 11; lint and beta assembly pass.
+- M02-FIX-02 local diagnostics (JDK 17): 34 JVM tests green (bridge 19, controller 10, provider 5; preference suite deliberately skipped); mutation check red at `AiSubtitleCueBridgeTest:267` with the post-re-enable delivery removed and green again after restoring it; settings helper byte-verified at 102 CRLF / 0 LF-only lines with a 12/12 diff.
+- Replacement authoritative CI for M02-FIX-02: pending the correction push.
