@@ -1,0 +1,136 @@
+# AI Subtitle Decision Log
+
+This file is the authoritative decision ledger for the feature. `Proposed` decisions become `Accepted` when the Phase 0 architecture is approved; later reversals must add a superseding entry rather than erase history.
+
+## ADR-001 — Isolate the feature inside `common`
+
+Status: Proposed
+
+Date: 2026-09-11
+
+Decision: Place new AI subtitle implementation files in a dedicated package tree under SmartTube's `common` module. Do not introduce a new Gradle module in the first implementation.
+
+Reason: `common` already owns player controllers, subtitle output, preferences, presenters, MediaServiceCore access, and the existing network utilities. Package isolation gives a small upstream patch surface without new build wiring or dependency cycles.
+
+Alternatives: a separate Gradle module; implementation spread through existing player/settings classes.
+
+Consequences: architecture tests and review must enforce package boundaries because Gradle cannot enforce them. A module extraction remains possible after the seams stabilize.
+
+Upstream impact: new files plus three expected hooks in existing SmartTube files.
+
+## ADR-002 — Treat KissTranslator as a behavioral oracle, not a source donor
+
+Status: Proposed
+
+Date: 2026-09-11
+
+Decision: Re-express relevant behavior, invariants, edge cases, and tests in an independent Android implementation. Do not copy or mechanically translate KissTranslator source or fixtures into the SmartTube MIT tree without a separate legal/compliance decision.
+
+Reason: SmartTube is MIT-licensed and KissTranslator is GPL-3.0. Changing JavaScript to Java/Kotlin does not by itself remove copyright/license obligations.
+
+Alternatives: direct source port and GPL compliance for the combined distribution; obtain separate permission from copyright holders.
+
+Consequences: migration tasks must contain behavior specifications and independently authored fixtures. This is an engineering policy, not legal advice.
+
+Upstream impact: none.
+
+## ADR-003 — Five Provider Types share two protocol adapters
+
+Status: Proposed
+
+Date: 2026-09-11
+
+Decision: Expose OpenAI-Compatible, Anthropic-Compatible, OpenRouter, DeepSeek, and MiMo as user-facing Provider Types, implemented primarily by `OpenAiChatCompletionsAdapter` and `AnthropicMessagesAdapter`. Provider presets supply default URLs, authentication, discovery, headers, and parameter policies.
+
+Reason: Current official documentation shows OpenRouter, DeepSeek, and MiMo intentionally reuse one or both standard protocols. Five independent clients would duplicate serialization, SSE, error, cancellation, and model-list code.
+
+Alternatives: one client per brand; only a generic custom endpoint type.
+
+Consequences: capability checks remain runtime/profile-specific; compatibility does not imply identical optional parameters. Manual model entry is mandatory.
+
+Upstream impact: none outside new feature/settings files.
+
+## ADR-004 — Reuse the existing subtitle view before considering a renderer fork
+
+Status: Proposed
+
+Date: 2026-09-11
+
+Decision: Render source and translation as one decorated ExoPlayer `Cue` through the existing `SubtitleManager` and `SubtitleView`. Do not fork `SubtitlePainter` in the baseline.
+
+Reason: One cue preserves SmartTube timing, placement, PiP, and visibility behavior with a one-call integration hook. Historical PR #5839 proved dual-line cue composition is viable but expanded into a large renderer/player patch.
+
+Alternatives: second subtitle overlay; forked `SubtitlePainter`; parallel subtitle source merged inside ExoPlayer.
+
+Consequences: M02 must validate line styling on real devices and Robolectric. A renderer fork requires a new decision because it materially increases upstream merge cost.
+
+Upstream impact: planned narrow hook in `SubtitleManager.java`.
+
+## ADR-005 — Acquire the full source track through a feature adapter
+
+Status: Proposed
+
+Date: 2026-09-11
+
+Decision: The AI controller/source adapter will obtain SmartTube `MediaItemFormatInfo` for the active video and load the selected `MediaSubtitle` timeline independently. It will not build lookahead solely from currently displayed cues.
+
+Reason: displayed cues arrive too late for lookahead. Current `Video` and selected Exo `Format` do not expose the full timed-text source URL through a stable application API. Reusing MediaServiceCore from new files avoids modifying the submodule or widening the global player listener interface.
+
+Alternatives: a new `onFormatInfo` hook in `VideoLoaderController`; change `Video` to retain subtitles; intercept only live cues.
+
+Consequences: M02 must measure whether format-info access is cached and prove reliable matching between the active track and `MediaSubtitle`. If not, this decision is revisited before adding a narrow loader hook.
+
+Upstream impact: none in the default path; conditional low-risk hook if validation fails.
+
+## ADR-006 — Use a dedicated versioned settings repository
+
+Status: Proposed
+
+Date: 2026-09-11
+
+Decision: Persist Provider Profiles, Prompt Profiles, runtime selection, and AI subtitle preferences in a dedicated versioned `AiSubtitleData` store that reuses SmartTube persistence primitives. Do not append the whole feature schema to `PlayerData` serialization.
+
+Reason: AI settings have independent schema evolution, CRUD, secrets, and export/backup concerns. Keeping them separate prevents fragile changes to a high-churn upstream playback preference class.
+
+Alternatives: extend `PlayerData`; introduce a database; use a third-party preferences framework.
+
+Consequences: the repository needs explicit migrations, default repair, stable IDs, and separate secret handling. No new persistence dependency is planned.
+
+Upstream impact: settings entry only; new storage files/classes are feature-owned.
+
+## ADR-007 — Personal project remote and upstream relationship
+
+Status: Accepted by user
+
+Date: 2026-09-11
+
+Decision: `origin` is the user's personal project repository `https://github.com/CometDash77/smarttube.git`. `upstream` is the official SmartTube repository `https://github.com/yuliskov/SmartTube.git`. Project work occurs on `feature/ai-bilingual-subtitles`; upstream is a source for synchronization, not a delivery remote. Repository ownership/role is distinct from GitHub visibility; the GitHub API reported `isPrivate: false` during Phase 0.
+
+Reason: The user identified this personal repository as the project's durable remote storage, correcting the earlier description of it as merely a fork.
+
+Consequences: reports must distinguish personal project history from official upstream history. Never push project commits to `upstream`.
+
+Upstream impact: Git configuration only.
+
+## ADR-008 — GitHub Actions is the authoritative build and test environment
+
+Status: Accepted by user
+
+Date: 2026-09-11
+
+Decision: Compilation, lint, unit tests, and APK assembly are executed and accepted through GitHub Actions in `origin`. Local checks may provide fast diagnostics but are not the authoritative pass signal.
+
+Reason: The user explicitly assigned build and test work to GitHub Actions. This also gives reproducible evidence attached to pushed commits.
+
+Alternatives: local workstation builds as the release gate.
+
+Consequences: before production implementation, add an AI-subtitle-specific workflow as a new file rather than broadening the existing upstream `CI.yml`. It must run on the feature branch and pull requests, initialize recursive submodules, execute relevant unit tests, lint, and assemble the beta release/debug artifact as appropriate. Worker reports cite workflow URL/run ID and commit SHA.
+
+Upstream impact: none if a new feature-owned workflow file is used.
+
+## Open rulings
+
+- Approve or revise ADR-001 through ADR-006 as one Phase 0 architecture decision.
+- M02 evidence will decide whether ADR-005 can remain hook-free.
+- M04 must decide the exact Android Keystore/fallback policy after verifying minimum-API and app backup behavior.
+- A `SubtitlePainter` fork is prohibited unless ADR-004 is explicitly superseded.
