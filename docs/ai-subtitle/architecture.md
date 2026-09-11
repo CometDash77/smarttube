@@ -1,6 +1,6 @@
 # SmartTube AI Bilingual Subtitle Architecture
 
-Status: **Proposed — awaiting the Phase 0 architecture approval**
+Status: **Accepted — approved by user on 2026-09-11**
 
 Reconnaissance date: 2026-09-11
 

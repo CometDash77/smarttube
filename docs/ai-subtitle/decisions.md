@@ -1,10 +1,10 @@
 # AI Subtitle Decision Log
 
-This file is the authoritative decision ledger for the feature. `Proposed` decisions become `Accepted` when the Phase 0 architecture is approved; later reversals must add a superseding entry rather than erase history.
+This file is the authoritative decision ledger for the feature. ADR-001 through ADR-006 were accepted with the overall Phase 0 architecture approval on 2026-09-11; later reversals must add a superseding entry rather than erase history.
 
 ## ADR-001 — Isolate the feature inside `common`
 
-Status: Proposed
+Status: Accepted by user
 
 Date: 2026-09-11
 
@@ -20,7 +20,7 @@ Upstream impact: new files plus three expected hooks in existing SmartTube files
 
 ## ADR-002 — Treat KissTranslator as a behavioral oracle, not a source donor
 
-Status: Proposed
+Status: Accepted by user
 
 Date: 2026-09-11
 
@@ -36,7 +36,7 @@ Upstream impact: none.
 
 ## ADR-003 — Five Provider Types share two protocol adapters
 
-Status: Proposed
+Status: Accepted by user
 
 Date: 2026-09-11
 
@@ -52,7 +52,7 @@ Upstream impact: none outside new feature/settings files.
 
 ## ADR-004 — Reuse the existing subtitle view before considering a renderer fork
 
-Status: Proposed
+Status: Accepted by user
 
 Date: 2026-09-11
 
@@ -68,7 +68,7 @@ Upstream impact: planned narrow hook in `SubtitleManager.java`.
 
 ## ADR-005 — Acquire the full source track through a feature adapter
 
-Status: Proposed
+Status: Accepted by user
 
 Date: 2026-09-11
 
@@ -84,7 +84,7 @@ Upstream impact: none in the default path; conditional low-risk hook if validati
 
 ## ADR-006 — Use a dedicated versioned settings repository
 
-Status: Proposed
+Status: Accepted by user
 
 Date: 2026-09-11
 
@@ -128,9 +128,24 @@ Consequences: before production implementation, add an AI-subtitle-specific work
 
 Upstream impact: none if a new feature-owned workflow file is used.
 
+## ADR-009 — One Worker handoff per Milestone
+
+Status: Accepted by user
+
+Date: 2026-09-11
+
+Decision: Each implementation Milestone is delivered as one Stage Package to the external Worker and returned once as one consolidated report. A Stage Package may define several internal workstreams and a small set of logical commits, but those do not require user relay or intermediate approval.
+
+Reason: The user will transport work at milestone granularity and explicitly rejected overly atomic relay. This preserves reviewable commits without turning the user into a message queue.
+
+Alternatives: one user handoff per atomic commit/task; one unstructured package for the entire project.
+
+Consequences: Commander review occurs at the Milestone boundary. Packages must pre-authorize bounded fallback behavior and precise patch limits because the Commander will not review each internal commit before the Worker proceeds. M01 was Commander-only, leaving eight Worker handoffs for M02 through M09.
+
+Upstream impact: none.
+
 ## Open rulings
 
-- Approve or revise ADR-001 through ADR-006 as one Phase 0 architecture decision.
 - M02 evidence will decide whether ADR-005 can remain hook-free.
 - M04 must decide the exact Android Keystore/fallback policy after verifying minimum-API and app backup behavior.
 - A `SubtitlePainter` fork is prohibited unless ADR-004 is explicitly superseded.

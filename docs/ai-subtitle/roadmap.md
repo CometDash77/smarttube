@@ -1,21 +1,23 @@
 # AI Subtitle Roadmap
 
-Status: **Proposed — awaiting Phase 0 approval**
+Status: **Accepted — approved by user on 2026-09-11**
 
-Planning unit: one Worker Task = one self-contained specification, one Worker plan, one logical commit, one Worker report, one Commander review.
+Planning unit: one Milestone = one self-contained Stage Package, one Worker execution plan, a small series of internally coherent commits, one consolidated Worker report, and one Commander milestone review.
 
 ## Delivery rules
 
 - Production work starts only after the architecture/migration/roadmap approval.
+- The user transports at most one package to the Worker per Milestone. Internal workstreams and commits are not separate user handoffs.
+- M01 was completed by the Commander. The remaining implementation therefore requires eight Worker handoffs: M02 through M09.
 - `origin` is the user's personal project remote; `upstream` is read-only official SmartTube.
 - Build, lint, tests, and APK assembly are accepted only from GitHub Actions for the exact reported commit SHA.
 - New feature files are preferred over changes to upstream files. Every existing-file change is declared in its Task Package and logged in `upstream-patches.md`.
 - A milestone cannot hide failing acceptance scenarios behind a later milestone. Later milestones may deepen quality but must not repair a knowingly broken foundational lifecycle.
-- Estimated task counts are planning ranges and can change through recorded technical rulings without changing final scope.
+- Internal workstream counts are planning aids, not separate Task Packages. They can change through recorded technical rulings without changing final scope or increasing user handoffs.
 
 ## M01 — Repository reconnaissance and architecture baseline
 
-State: Phase 0 complete; overall approval pending.
+State: Complete; overall architecture approved on 2026-09-11.
 
 Deliverables:
 
@@ -26,15 +28,15 @@ Deliverables:
 - architecture, migration map, decisions, upstream strategy, roadmap, progress ledger, glossary, and M01 plan;
 - personal project `origin`, official `upstream`, and isolated feature branch.
 
-Exit: user approves Architecture + Migration Map + Roadmap as the single planned overall architecture gate.
+Exit: Architecture + Migration Map + Roadmap approved as the single planned overall architecture gate.
 
-Estimated tasks after Phase 0: 0. Any factual correction is a documentation amendment, not a production task.
+Worker handoffs: 0. Any factual correction is a documentation amendment, not a production task.
 
 ## M02 — CI lane and deterministic dual-subtitle baseline
 
 Goal: prove the SmartTube lifecycle and renderer using `FakeTranslationProvider`, independent of network/API behavior.
 
-Proposed tasks (4–6):
+One Worker Stage Package containing these internal workstreams:
 
 1. Add a feature-owned GitHub Actions workflow that runs targeted unit tests, lint, and APK assembly on the feature branch/pull requests. Record the first green baseline run.
 2. Add minimal domain IDs/models and Fake provider contracts needed by the vertical slice.
@@ -51,7 +53,7 @@ Upstream budget: two expected existing Java files; a third loader hook only if s
 
 Goal: replace vertical-slice shortcuts with stable, provider-neutral feature contracts.
 
-Proposed tasks (4–5):
+One Worker Stage Package containing these internal workstreams:
 
 1. Subtitle timeline, Translation Unit, Translation Profile, and Translation Session models.
 2. Session Generation and scheduling-epoch lifecycle with stale-result rejection.
@@ -67,7 +69,7 @@ Upstream budget: zero additional existing files.
 
 Goal: implement the five Provider Types using two shared wire protocols.
 
-Proposed tasks (7–10):
+One Worker Stage Package containing these internal workstreams:
 
 1. Versioned Provider/Profile schema, repository, migrations, and default repair.
 2. Secret storage policy spike and Android-version fallback decision.
@@ -88,7 +90,7 @@ Upstream budget: one settings-entry hook; feature-owned resource and presenter f
 
 Goal: make prompts versioned, user-manageable, independent of provider/model, and safe for cache identity.
 
-Proposed tasks (4–6):
+One Worker Stage Package containing these internal workstreams:
 
 1. Built-in and custom Prompt Profile schema/repository/migrations.
 2. Strict variable catalog and renderer with missing/unknown-variable diagnostics.
@@ -105,7 +107,7 @@ Upstream budget: no additional existing files expected.
 
 Goal: independently reimplement the KissTranslator-derived subtitle behavior on Android.
 
-Proposed tasks (7–9):
+One Worker Stage Package containing these internal workstreams:
 
 1. Minimal fixture format and provenance rules.
 2. Normalization and non-speech/duplicate handling.
@@ -125,7 +127,7 @@ Upstream budget: zero.
 
 Goal: make lookahead translation correct under real playback changes and bounded in cost.
 
-Proposed tasks (6–8):
+One Worker Stage Package containing these internal workstreams:
 
 1. Window calculation and chronological priority queue.
 2. Request deduplication and concurrency control.
@@ -144,7 +146,7 @@ Upstream budget: zero additional existing files.
 
 Goal: improve daily-use latency and quality without coupling correctness to optional optimizations.
 
-Proposed tasks (5–8):
+One Worker Stage Package containing these internal workstreams:
 
 1. Bounded video-title/description and rolling-context builder.
 2. Context fingerprinting and serialized context-dependent scheduling.
@@ -163,7 +165,7 @@ Upstream budget: zero.
 
 Goal: establish a repeatable release and future-upstream-sync safety net.
 
-Proposed tasks (5–7):
+One Worker Stage Package containing these internal workstreams:
 
 1. Full language/caption matrix: English/Japanese/Chinese, manual/ASR, word-level, fast/slow, short/2h+.
 2. Full player lifecycle matrix including background/foreground and reopen.
@@ -191,10 +193,10 @@ M01 approval
   -> M09 release/upstream gate
 ```
 
-M04 and M06 may be implemented in parallel by external Workers only after M03 interfaces are accepted, but Commander review and integration remain sequential through persisted Task Packages.
+M04 and M06 are conceptually independent after M03, but each remains a separate single-transfer Stage Package. No subtask inside a Milestone requires an additional user handoff.
 
-## First Worker Task after approval
+## First Worker Stage Package after approval
 
-`M02-T01 — Add AI Subtitle GitHub Actions validation lane`
+`M02 — CI Lane & Deterministic Dual-Subtitle Baseline`
 
-It will add a new feature-owned workflow (no production files) that runs on `feature/ai-bilingual-subtitles` and pull requests, checks out recursive submodules, runs targeted unit tests, runs lint, assembles the selected beta artifact, uploads reports/artifacts, and makes the exact commit SHA and workflow run the authoritative verification record. It will not modify the existing upstream `CI.yml` unless a later review proves reuse is safer than isolation.
+The single M02 package includes the feature-owned GitHub Actions lane, minimal persisted enable switch, FakeTranslationProvider vertical slice, controller/renderer hooks, automated tests, and the full player-lifecycle validation matrix. The Worker may create several named logical commits, but returns one plan and one consolidated milestone report.

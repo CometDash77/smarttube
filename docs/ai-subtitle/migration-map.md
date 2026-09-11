@@ -1,6 +1,6 @@
 # KissTranslator to SmartTube Migration Map
 
-Status: **Proposed — awaiting Phase 0 approval**
+Status: **Accepted — approved by user on 2026-09-11**
 
 Reference revision: KissTranslator `226e5780f5ccee1cd42d4167518632318c2f7d7b`
 
