@@ -4,7 +4,7 @@ Task ID: `M02`
 
 Milestone: M02 — CI Lane & Deterministic Dual-Subtitle Baseline
 
-Status: implementation and upload complete; validation run in progress; all other acceptance criteria met
+Status: correction (M02-FIX-01) complete; replacement CI run `34618112103` is green for `69f644f4a`; awaiting Commander re-review
 
 ## Ordered commits
 
@@ -13,14 +13,38 @@ Status: implementation and upload complete; validation run in progress; all othe
 | 1 | `918c487d2` | `ci(ai-subtitle): add milestone validation workflow` | Worker plan + feature-owned CI workflow |
 | 2 | `f8f921139` | `feat(ai-subtitle): add fake translation baseline` | Translation contracts, fake provider, settings store, cue bridge, tests |
 | 3 | `8e9c030fe` | `feat(player): connect fake AI bilingual subtitles` | Controller, three upstream hooks, feature string resource, controller tests |
-| 4 | `3efb96374` | `docs(ai-subtitle): report M02 validation` | This file; this is the SHA uploaded to `origin` |
+| 4 | `3efb96374` | `docs(ai-subtitle): report M02 validation` | First report revision (uploaded) |
+| 5 | `26693c340` | `docs(ai-subtitle): record M02 upload and CI status` | Post-upload report amendment |
+| 6 | `6e316173f` | `docs(ai-subtitle): require M02 corrections` | Commander Review + M02-FIX-01 package (Commander commit) |
+| 7 | `69f644f4a` | `fix(ai-subtitle): satisfy M02 review` | All corrections: code, tests, workflow, fix plan |
+| 8 | this revision | `docs(ai-subtitle): finalize M02 validation` | Final report revision |
 
 Base for this milestone: `0b16df3d5` (`docs(ai-subtitle): approve architecture and package M02`) on `feature/ai-bilingual-subtitles`.
 
+## Commander Review disposition
+
+Review: `docs/ai-subtitle/reviews/M02-review.md` — **CHANGES REQUIRED** over `0b16df3d5...26693c340`.
+
+Correction package: `docs/ai-subtitle/tasks/M02-FIX-01.md`; correction plan (created before code): `docs/ai-subtitle/worker-plans/M02-fix-01-plan.md`; correction commit: `69f644f4a`.
+
+### Finding corrections
+
+| Finding (severity) | Root cause | Correction |
+|---|---|---|
+| First visible translation missed (P1, Spec) | `findOrRequest()` always returned `null` after starting a request, even when a synchronous provider (the production `new FakeTranslationProvider()`) had already delivered through `BridgeCallback` and populated `mCompleted`. A caption delivered once remained source-only. | `findOrRequest()` now re-reads `mCompleted` after `translate()` returns, consuming a synchronous completion inside the same `process()` call. Deferred providers are unchanged (source-only until a later rendering opportunity). New test `immediateFakeDecoratesOnTheFirstAndOnlyProcessCall` proves one-call dual-line output and cache-hit behavior; a second call must not duplicate the request. |
+| API 17 violations (P1, Spec) | `java.util.function.BooleanSupplier` is API 24; `java.util.Objects` is API 19; the app's minimum SDK is 17. | `BooleanSupplier` replaced by the feature-owned nested interface `AiSubtitleCueBridge.EnableState` (production constructor still binds `AiSubtitleData`); `Objects` removed from `TranslationRequest`/`TranslationResult`, replaced by explicit Java 6-compatible null-safe `equals`/`hashCode`. No dependency, no suppression, no minSdk change. |
+| Disable not immediate (P2, Spec) | The settings callback only wrote the persisted preference; cancellation happened later, if and when another non-empty cue arrived. | New public bridge entry point `onEnabledChanged(boolean)`; the switch callback now notifies the bridge synchronously, so disabling cancels in-flight calls, increments generation, and clears results before the callback returns. New tests: `disablingImmediatelyCancelsInFlightWork` (captured call must be cancelled during the notification) and `stubbornLateCallbackAfterDisableIsRejected` (a provider ignoring cancellation cannot populate cache; re-enable starts clean). |
+| Persistence tests skipped (P2, Spec) | Robolectric 4.6.1 cannot complete its runner lifecycle on JDK 17. | Per **ADR-010**: a supplementary GitHub Actions job on Temurin **JDK 11** runs only `AiSubtitleDataTest` via `--tests`; it demonstrably executes all three methods and passes. JDK 17 remains authoritative for unit tests, lint, and assembly. |
+| `m`-prefix violations (P3 ×2, Standards) | `PendingRequest` members and the test helper field lacked the required prefix. | Renamed to `mRequestId`/`mGeneration`/`mEpoch`/`mCall` and `RecordingBridge.mCalls`; all usages updated. |
+| Lint failure (run `34615801161`) | Exact diagnostic: `AiSubtitleCueBridge.java:93: Error: Call requires API level 24 (current min is 17): java.util.function.BooleanSupplier#getAsBoolean [NewApi]` — 1 error, 385 warnings; `Lint found errors in the project; aborting build.` | Fixed by the API-17 correction above. Local diagnostic lint afterwards: **0 errors**, 385 pre-existing warnings; the replacement CI run's `Lint beta release` step passes. Nothing suppressed. |
+
+The correction stayed inside the authorized file set (feature-owned files plus the already-approved M02 switch helper in `SubtitleSettingsPresenter.java`). During self-review a formatting regression was caught and eliminated: an intermediate rewrite of `SubtitleSettingsPresenter.java` had converted its line endings, producing 184 lines of churn; it was restored to the original style and the final committed diff for that file is **6 lines**.
+
 ## Files created
 
-- `.github/workflows/ai-subtitle-validation.yml` — feature-owned validation lane.
+- `.github/workflows/ai-subtitle-validation.yml` — feature-owned validation lane (primary + JDK 11 preference job).
 - `docs/ai-subtitle/worker-plans/M02-plan.md` — execution plan (predates all code).
+- `docs/ai-subtitle/worker-plans/M02-fix-01-plan.md` — correction plan (predates correction code).
 - `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/translation/TranslationProvider.java`
 - `.../translation/TranslationCall.java`
 - `.../translation/TranslationCallback.java`
@@ -38,58 +62,54 @@ Base for this milestone: `0b16df3d5` (`docs(ai-subtitle): approve architecture a
 - `.../integration/AiSubtitleControllerTest.java`
 - `docs/ai-subtitle/worker-reports/M02-report.md` — this report.
 
-## Files modified (exactly the three authorized upstream files)
+## Files modified (upstream surface)
 
 | File | Logical change |
 |---|---|
 | `.../app/presenters/PlaybackPresenter.java` | One import + one registration immediately after `VideoLoaderController` (+2 lines) |
 | `.../exoplayer/other/SubtitleManager.java` | One import + one bridge call around the already normalized cue list (+3/−1) |
-| `.../app/presenters/settings/SubtitleSettingsPresenter.java` | One import + one switch entry (after the native subtitle-channel option) + its private helper (+11) |
+| `.../app/presenters/settings/SubtitleSettingsPresenter.java` | One import + one default-off switch + one narrow disable notification inside the approved helper (+5/−1 in the correction) |
 
-No other existing SmartTube file was touched; `CI.yml`, `PlayerData.java`, Gradle files, layouts, `strings.xml`, submodules, and the architecture documents are unchanged.
+No other existing SmartTube file was touched; `CI.yml`, `PlayerData.java`, Gradle files, layouts, `strings.xml`, submodules, and the architecture documents are unchanged. No new upstream hook was added by the correction.
 
 ## Implementation summary by workstream
 
-**A — CI lane.** New workflow `AI Subtitle Validation`: runs on pushes to `feature/ai-bilingual-subtitles`, pull requests, and manual dispatch; `permissions: contents: read`; 60-minute timeout; concurrency cancellation by workflow/ref; recursive submodule checkout; Temurin JDK 17 with Gradle cache; pinned action SHAs reused from `CI.yml`; three separate named steps — `:common:testStbetaDebugUnitTest`, `lintStbetaRelease`, `assembleStbetaRelease`; reports uploaded with `always()`; beta APKs only on success; no secrets, signing, version mutation, release publishing, or VirusTotal.
+**A — CI lane.** Feature-owned workflow `AI Subtitle Validation`: runs on pushes to `feature/ai-bilingual-subtitles`, pull requests, and manual dispatch; `permissions: contents: read`; concurrency cancellation by workflow/ref; recursive submodule checkout; pinned action SHAs reused from `CI.yml`. Primary job (JDK 17, 60-minute timeout): `:common:testStbetaDebugUnitTest`, `lintStbetaRelease`, `assembleStbetaRelease` as separate named steps; reports uploaded with `always()`; beta APKs only on success. Supplementary job (JDK 11, 30-minute timeout, ADR-010): only `:common:testStbetaDebugUnitTest --tests ...settings.AiSubtitleDataTest` plus its report upload. No secrets, signing, version mutation, release publishing, or VirusTotal anywhere.
 
-**B — Fake-provider core.** M02 contracts implemented exactly as specified; `FakeTranslationProvider` (deterministic `[ZH] ` prefix, blank-input failure, cancellation, deferred delivery mode); `AiSubtitleData` (dedicated named store, default off); `AiSubtitleCueBridge` (post-`forceCenterAlignment` decoration, source-only fallback, in-flight dedup, generation + epoch + request-id guards, pause admission control, no renderer-thread blocking). No network, provider brands, prompts, segmentation, or full-track parsing.
+**B — Fake-provider core.** M02 contracts implemented as specified; `FakeTranslationProvider` (deterministic `[ZH] ` prefix, blank-input failure, cancellation, deferred delivery mode); `AiSubtitleData` (dedicated named store, default off); `AiSubtitleCueBridge` (post-`forceCenterAlignment` decoration, synchronous-completion consumption, source-only fallback, in-flight dedup, generation + epoch + request-id guards, pause admission control, immediate-disable invalidation, no renderer-thread blocking). No network, provider brands, prompts, segmentation, or full-track parsing.
 
-**C — SmartTube integration.** `AiSubtitleController` maps player events: `onNewVideo`, `onTrackSelected`/`onTrackChanged` (subtitle-only, `FormatItem.TYPE_SUBTITLE`, identity `subtitle:<lang>:<formatId>`, off state `subtitle:none`), `onSeekEnd`/`onSeekPositionChanged` (epoch advance + in-flight cancellation), `onPause`/`onPlay`, `onEngineReleased`/`onFinish` (cleanup). Renderer hook passes the normalized cue list through the bridge; the settings switch persists through `AiSubtitleData` and performs no direct lifecycle calls.
+**C — SmartTube integration.** `AiSubtitleController` maps player events: `onNewVideo`, `onTrackSelected`/`onTrackChanged` (subtitle-only, `FormatItem.TYPE_SUBTITLE`, identity `subtitle:<lang>:<formatId>`, off state `subtitle:none`), `onSeekEnd`/`onSeekPositionChanged` (epoch advance + in-flight cancellation), `onPause`/`onPlay`, `onEngineReleased`/`onFinish` (cleanup). Renderer hook passes the normalized cue list through the bridge; the settings switch persists through `AiSubtitleData` and notifies the bridge on disable.
 
-## Automated tests added
+## Automated tests
 
-| Suite | Tests | Result on JDK 17 (local diagnostic) |
-|---|---:|---|
-| `FakeTranslationProviderTest` | 5 | 5 passed |
-| `AiSubtitleCueBridgeTest` | 16 | 16 passed |
-| `AiSubtitleControllerTest` | 10 | 10 passed |
-| `AiSubtitleDataTest` | 3 | 3 skipped (see deviation 2) |
+Executed counts from the artifacts of the green run `34618112103`:
 
-Red → green evidence (first workstream-B run vs final run):
+| Suite | JDK 17 primary job | JDK 11 preference job |
+|---|---|---|
+| `FakeTranslationProviderTest` | 5 passed | not run (other suite only) |
+| `AiSubtitleCueBridgeTest` | **19 passed** (16 + 3 correction tests) | not run |
+| `AiSubtitleControllerTest` | 10 passed | not run |
+| `AiSubtitleDataTest` | 3 skipped (deliberate, ADR-010) | **3 passed, 0 skipped, 0 failures** |
 
-- Red baseline (stub bridge): `24 tests completed, 11 failed, 3 skipped` — all 11 failures were assertion failures (`8× java.lang.AssertionError`, `3× org.junit.ComparisonFailure`), proving the tests actually exercise behavior.
-- Green (complete implementation): `BUILD SUCCESSFUL`; per-suite XML: bridge `tests=16 skipped=0 failures=0 errors=0`, provider `tests=5 failures=0`, controller `tests=10 failures=0`, data `tests=3 skipped=3 failures=0`.
+Correction tests added: `immediateFakeDecoratesOnTheFirstAndOnlyProcessCall`, `disablingImmediatelyCancelsInFlightWork`, `stubbornLateCallbackAfterDisableIsRejected`; `disablingTheSettingClearsStateAndRestoresSourceOnly` revised to drive the explicit notification path.
 
-Tests cover: disabled pass-through (same list reference), null/empty/blank inputs, two-line output after completion, source-only fallback on failure/exception, in-flight deduplication, stale callback rejection after video change / track change / seek (including a provider that ignores cancellation), seek keeping completed cache, pause admission control, release cleanup, disable-while-enabled state clearing, and the full controller event mapping (including deduplicated select+change pairs and non-subtitle track filtering).
+Red → green evidence from the original implementation (kept for the record): stub-bridge baseline `24 tests completed, 11 failed, 3 skipped` with all failures being assertion failures (`8× AssertionError`, `3× ComparisonFailure`); after implementation `BUILD SUCCESSFUL` with per-suite XML counts.
 
-## Static checks and results
+Tests cover: disabled pass-through (same list reference), null/empty/blank inputs, synchronous single-call dual-line output, deferred two-line output, source-only fallback on failure/exception, in-flight deduplication, stale callback rejection after video change / track change / seek (including a provider that ignores cancellation), immediate-disable cancellation and late-callback rejection, re-enable cleanliness, seek keeping completed cache, pause admission control, release cleanup, and the full controller event mapping.
 
-- `git status --short` before each commit: only declared files (verified for all four commits).
-- `git diff --check`: clean. The three upstream files are stored as CRLF in Git, and Git's default whitespace rules report their CR as trailing whitespace for any change touching them; the repository-local Git setting `core.whitespace=cr-at-eol` (Git's documented setting for CRLF repositories) makes the check accurate. No repository content is affected by this setting.
-- `.github/workflows/CI.yml`: untouched (`git diff` empty at every commit).
-- Workflow file: no tab characters; the three Gradle commands appear exactly once each with full-task names; all action references are full 40-hex commit SHAs.
-- Upstream diffs contain no formatting churn, no renames, and no mode changes (PlaybackPresenter +2, SubtitleManager +3/−1, SubtitleSettingsPresenter +11).
+## GitHub Actions runs
 
-## GitHub Actions run
+**Run 1 — `34615801161` (failed, historical):** validated `3efb96374`. `Run common unit tests` passed; `Lint beta release` failed with the API-24 diagnostic quoted above; assembly was not attempted; validation-reports artifact uploaded. This run is the evidence base for the correction.
 
-Uploaded with explicit user authorization to `origin/feature/ai-bilingual-subtitles` on 2026-09-11.
+**Run 2 — `34618112103` (green, replacement):**
 
-- Validated commit: `3efb9637448a95cb1c3fe1d83736d0a667b46189` (final commit of this set)
-- Run URL: https://github.com/CometDash77/smarttube/actions/runs/34615801161
-- Run ID: `34615801161`
-- Status at report time: `in_progress` (first run; the lane downloads Gradle and all dependencies before building)
+- URL: https://github.com/CometDash77/smarttube/actions/runs/34618112103
+- Run ID: `34618112103`; validated commit: `69f644f4a` (final product SHA of this set)
+- Primary job `Test, lint, and assemble` (JDK 17), 6m43s: `Run common unit tests` success; `Lint beta release` success; `Assemble beta release` success; validation-reports and beta-APK uploads success.
+- Supplementary job `Preference tests (JDK 11)`, 3m30s: `Run AI subtitle preference tests` success (3/3 executed); report upload success.
+- Artifacts: `ai-subtitle-validation-reports-2`, `ai-subtitle-beta-apks-2`, `ai-subtitle-preference-reports-2`.
 
-Required step outcomes, recorded once the run completes: `Run common unit tests`, `Lint beta release`, `Assemble beta release`, validation-reports artifact, beta APK artifact. On this JDK 17 lane the data suite reports `skipped` by design (deviation 2); all other suites execute.
+**JDK responsibilities (ADR-010):** JDK 17 is authoritative for normal unit tests, lint, and beta assembly. JDK 11 exists solely to execute the Robolectric-backed preference suite that Robolectric 4.6.1 cannot run on JDK 17; it runs no builds, lint, releases, or other tests. The JDK 17 job deliberately reports that class as ignored; the JDK 11 job demonstrably executes and passes it.
 
 ## Manual/device validation matrix
 
@@ -113,43 +133,55 @@ All lifecycle transitions in this matrix are covered by the automated controller
 ## Deviations from the Task Package
 
 1. **Unit-test task name.** `:common:testDebugUnitTest` does not exist for this module (three product flavors); the narrowest existing task, `:common:testStbetaDebugUnitTest`, was confirmed by `:common:tasks --all` output and is used in the workflow. Pre-authorized by the package; no Gradle change was made.
-2. **Robolectric 4.6.1 cannot run on JDK 17.** Every Robolectric test failed with `Caused by: java.lang.IllegalArgumentException: Unsupported class file major version 61` raised from `Shadows.reset` ← `AndroidTestEnvironment.resetState` ← `RobolectricTestRunner.finallyAfterTest` (Robolectric's bundled ASM cannot read JDK 17 class files; Robolectric gained JDK 17 support in later releases, which this package forbids upgrading). Consequences and handling:
-   - `AiSubtitleCueBridgeTest` and `AiSubtitleControllerTest` were written as Android-free JVM tests using a reduced-visibility constructor (`BooleanSupplier` for the enable state; explicitly permitted by the package: "visibility may be reduced where tests and integration permit"). Coverage is therefore full and real.
-   - `AiSubtitleDataTest` keeps its Robolectric implementation but runs through `JdkAwareRobolectricRunner`, which reports the tests as ignored on JDK > 16 and runs them normally on compatible JVMs. On this JDK 17 environment the suite reports `3 skipped, 0 failures`.
-   - CI (`JDK 17`, per the package and `CI.yml`) will behave identically: bridge/controller tests run, data tests skip. The `default false`/`persisted toggle` semantics of `AiSubtitleData` therefore currently lack automated execution; they remain covered by code inspection and the bridge's injected-state tests. Recommended follow-up (Commander decision, outside M02 scope): upgrade Robolectric, or run the data suite on a JDK ≤ 16 lane.
-3. **Repository-local `core.whitespace=cr-at-eol`** set in `.git/config` (not repository content) so `git diff --check` gives accurate results for CRLF-stored upstream files (see Static checks).
-4. **Local build environment** required ASCII-path mapping (`subst X: <workspace>`; the original path contains non-ASCII characters that break AGP and `protoc`) plus an explicit JDK 17 `JAVA_HOME`. Both are machine-local diagnostics only; CI needs neither.
+2. **Robolectric 4.6.1 cannot run on JDK 17** (`Unsupported class file major version 61` raised during its sandbox lifecycle). Handled per ADR-010: `AiSubtitleCueBridgeTest`/`AiSubtitleControllerTest` are Android-free JVM tests through the reduced-visibility enable-state seam; `AiSubtitleDataTest` keeps its Robolectric implementation, is reported ignored on JDK > 16, and executes fully in the JDK 11 job (3/3 passed). A later dependency/toolchain task should remove this exception once Robolectric is upgraded.
+3. **Repository-local `core.whitespace=cr-at-eol`** set in `.git/config` (not repository content) so `git diff --check` gives accurate results for CRLF-stored upstream files.
+4. **Local build environment** required ASCII-path mapping (`subst X: <workspace>`; the original path contains non-ASCII characters that break AGP and `protoc`) plus an explicit JDK 17 `JAVA_HOME`. Machine-local diagnostics only; CI needs neither.
 
 ## Unexpected discoveries
 
 1. `SubtitleManager.forceCenterAlignment()` deletes `\n` and repeated fragments for multi-line ASR text; the bridge is invoked strictly after it and never re-feeds decorated text, so the two-line output cannot be corrupted by it.
 2. `SubtitleView.setCues()` contains a local modification that keeps only the last cue of a list; the feature deliberately decorates in place and never relies on multi-cue behavior.
-3. `repo1.maven.org` direct access measured ~419 KB/s from this network versus ~9.5 MB/s through the Aliyun mirror; the 96 MB Robolectric `android-all-instrumented` jar was fetched via the mirror into the local Maven repository, turning a >30-minute stall into seconds.
-4. The three upstream files are stored as CRLF in this repository's Git object store (not LF), unlike the newly added feature files.
+3. `repo1.maven.org` direct access measured ~419 KB/s from this network versus ~9.5 MB/s through the Aliyun mirror; the 96 MB Robolectric `android-all-instrumented` jar was fetched via the mirror into the local Maven repository.
+4. The three upstream files are stored as CRLF in this repository's Git object store; a full-file rewrite silently converts them and creates whole-file churn (caught and eliminated during the correction via a restore + minimal-edit approach).
+5. A stale `GITHUB_TOKEN` environment variable can shadow the machine's valid stored Git credentials and break push authentication; excluding it restored the authenticated path without any persistent change.
 
 ## Remaining risks and concerns
 
-1. **CI evidence pending completion** — the workflow was uploaded and is running (`34615801161`); acceptance closes when the run reports green for `3efb96374` (and the post-upload amendment commit).
-2. **Robolectric coverage gap** on JDK 17 for `AiSubtitleDataTest` (see deviation 2).
-3. **Device behavior unverified** — styling, PiP, and real ExoPlayer cue flow need the device matrix before final Commander PASS (the package allows `NOT RUN` with honest recording; automated coverage exists for the lifecycle logic).
-4. **M02 lookup-key limitation (by design)** — normalized source text is the in-memory key; documented in the bridge class and replaced by timeline/segment identity in M03 before real providers.
-5. Local Gradle output is diagnostic only; none of its results are presented as acceptance evidence.
+1. **Device behavior unverified** — styling, PiP, and real ExoPlayer cue flow need the device matrix before final Commander PASS; automated coverage exists for the lifecycle logic and this limitation is honestly `NOT RUN`.
+2. **Robolectric exception is temporary** — the JDK 11 job covers the preference suite until a planned dependency/toolchain upgrade (outside M02 scope) removes the need.
+3. **M02 lookup-key limitation (by design)** — normalized source text is the in-memory key; documented in the bridge class and replaced by timeline/segment identity in M03 before real providers.
+4. Local Gradle output is diagnostic only; none of its results are presented as acceptance evidence.
 
-## Acceptance criteria disposition
+## Acceptance criteria disposition (M02)
 
 | # | Criterion | Disposition |
 |---|---|---|
-| 1 | All four internal workstreams complete in one Worker execution | MET (commits 1–4) |
-| 2 | Only the three authorized existing SmartTube files modified | MET (patch budgets verified: +2 / +3−1 / +11) |
+| 1 | All four internal workstreams complete in one Worker execution | MET (commits 1–4; correction in 7) |
+| 2 | Only the three authorized existing SmartTube files modified | MET (patch budgets verified; correction diff for the settings file is 6 lines) |
 | 3 | Setting defaults off; disabled behavior upstream-equivalent | MET (disabled path returns the same list reference; bridge tests) |
-| 4 | Enabled output shows source + `[ZH] source` through the existing SubtitleView, one Cue | MET (two-line cue tests) |
+| 4 | Enabled output shows source + `[ZH] source` through the existing SubtitleView, one Cue | MET (single-call and deferred two-line cue tests) |
 | 5 | No network, Provider brand, prompt, segmentation, or full-track feature | MET (fake provider only; no permissions, endpoints, or keys) |
-| 6 | Automated tests cover behavior and stale/cancellation invariants | MET (31 executing tests; 3 environment-skipped) |
-| 7 | GitHub Actions green for the exact final SHA | IN PROGRESS (run `34615801161` on `3efb96374`; outcome recorded on completion) |
+| 6 | Automated tests cover behavior and stale/cancellation invariants | MET (37 executing tests across two lanes; JDK 17 skips only the Robolectric class covered by the JDK 11 job) |
+| 7 | GitHub Actions green for the exact final SHA | MET (run `34618112103` green for `69f644f4a`; both jobs pass; artifacts present) |
 | 8 | Unavailable device checks explicitly NOT RUN | MET (full matrix recorded NOT RUN) |
-| 9 | Worker Plan predates implementation; Worker Report truthful | MET (plan in commit 1, before code commits 2–3; report records all evidence) |
+| 9 | Worker Plan predates implementation; Worker Report truthful | MET (M02 plan in commit 1; correction plan predates correction code; report records all evidence) |
 | 10 | Worker stops after M02; M03 not started | MET |
+
+## Acceptance criteria disposition (M02-FIX-01)
+
+| # | Criterion | Disposition |
+|---|---|---|
+| 1 | All four Commander findings corrected and covered by tests | MET (findings table above; 3 new tests) |
+| 2 | Exact lint failure documented; no M02-origin lint error remains | MET (diagnostic quoted; local 0 errors; CI lint green) |
+| 3 | No API newer than 17 referenced without an existing compatible mechanism | MET (EnableState seam; explicit hashing/equality) |
+| 4 | One-call production-Fake test proves exact dual-line output | MET |
+| 5 | No-next-cue test proves immediate disable cancellation and stale rejection | MET |
+| 6 | All three `AiSubtitleDataTest` methods execute and pass in the supplementary job | MET (JDK 11 job: 3 passed, 0 skipped) |
+| 7 | Primary JDK 17 job passes unit tests, lint, and beta assembly | MET |
+| 8 | Validation reports and beta APK artifacts present for the replacement run | MET (three artifacts listed above) |
+| 9 | Only authorized files changed; M03 untouched | MET |
+| 10 | Amended report states final SHA, run URL/ID, step outcomes, test counts/skips, artifacts, deviations, risks truthfully | MET (this revision) |
 
 ## Confirmation
 
-M03 was not started. The Worker stops after M02 and returns this report and the commit range `0b16df3d5..3efb96374` once. Post-upload documentation amendments (CI-status updates to this file) are recorded as separate `docs(ai-subtitle):` commits and do not alter the validated product tree.
+M03 was not started. The Worker stopped after M02, completed one correction package (`M02-FIX-01`), and returns this amended report and the commit range `0b16df3d5..69f644f4a` (plus this report-only finalization commit) once. The report-only finalization push may trigger a docs-only workflow run; the product-validation evidence is run `34618112103` for `69f644f4a`.
