@@ -16,7 +16,7 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSess
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionId;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionSnapshot;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.AiSubtitleData;
-import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.FakeTranslationProvider;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.ProviderProfileRuntime;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCall;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCallback;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailure;
@@ -71,7 +71,7 @@ public class AiSubtitleCueBridge {
                     "pending-model", "pending-prompt", 1, "zh");
 
     private final EnableState mEnabledState;
-    private final TranslationProvider mProvider;
+    private TranslationProvider mProvider;
     private final TranslationCache mCache = new InMemoryTranslationCache();
     private final Map<TranslationCacheKey, PendingRequest> mInFlight = new HashMap<>();
 
@@ -96,7 +96,12 @@ public class AiSubtitleCueBridge {
      * settings store.
      */
     AiSubtitleCueBridge(Context context, TranslationProvider provider) {
-        this(() -> AiSubtitleData.instance(context).isEnabled(), provider);
+        this(context, provider, DEFAULT_PROFILE);
+    }
+
+    AiSubtitleCueBridge(Context context, TranslationProvider provider,
+                        TranslationProfile profile) {
+        this(() -> AiSubtitleData.instance(context).isEnabled(), provider, profile);
     }
 
     /**
@@ -112,14 +117,17 @@ public class AiSubtitleCueBridge {
     AiSubtitleCueBridge(EnableState enabledState, TranslationProvider provider, TranslationProfile profile) {
         mEnabledState = enabledState;
         mProvider = provider;
-        mProfile = profile;
+        mProfile = profile != null ? profile : DEFAULT_PROFILE;
     }
 
     public static synchronized AiSubtitleCueBridge instance(Context context) {
         Context appContext = context.getApplicationContext();
 
         if (sInstance == null || sContext != appContext) {
-            sInstance = new AiSubtitleCueBridge(appContext, new FakeTranslationProvider());
+            ProviderProfileRuntime.ResolvedProvider resolved =
+                    AiSubtitleRuntime.resolve(appContext);
+            sInstance = new AiSubtitleCueBridge(appContext,
+                    resolved.getProvider(), resolved.getProfile());
             sContext = appContext;
         }
 
@@ -208,6 +216,26 @@ public class AiSubtitleCueBridge {
         }
     }
 
+    /**
+     * Applies the resolved provider and its Translation Profile after settings change. A
+     * null profile means resolution failed or no valid profile is selected: the bridge keeps
+     * Source-Only Fallback and drops any previous provider/session state.
+     */
+    void onProviderChanged(TranslationProvider provider, TranslationProfile profile) {
+        synchronized (this) {
+            if (profile == null) {
+                mProvider = null;
+                mProfile = DEFAULT_PROFILE;
+                dropSession();
+                return;
+            }
+
+            mProvider = provider;
+            mProfile = profile;
+            rebindSessionIfIdentityChanged();
+        }
+    }
+
     void onSeek(long positionMs) {
         synchronized (this) {
             cancelInFlight();
@@ -282,6 +310,10 @@ public class AiSubtitleCueBridge {
         TranslationSession session = mSession;
 
         if (session == null) {
+            return null;
+        }
+
+        if (mProvider == null) {
             return null;
         }
 

@@ -1,6 +1,6 @@
 # AI Subtitle Upstream Modification Ledger
 
-Status: M02 implementation present; Commander acceptance pending corrections
+Status: M04-C6 implementation present; Commander acceptance pending corrections
 
 Actual existing SmartTube files modified by AI Subtitle: **3**
 
@@ -16,7 +16,7 @@ Only modifications to files inherited from official SmartTube belong here. New f
 |---|---|---:|---:|
 | `common/.../app/presenters/PlaybackPresenter.java` | Implemented in M02; acceptance pending | Import + one controller registration | Low |
 | `common/.../exoplayer/other/SubtitleManager.java` | Implemented in M02; acceptance pending | One cue-bridge invocation | Low–Medium |
-| `common/.../app/presenters/settings/SubtitleSettingsPresenter.java` | Implemented in M02; correction pending | One AI subtitle settings entry; M02-FIX-01 may add immediate-disable notification inside the same helper | Low |
+| `common/.../app/presenters/settings/SubtitleSettingsPresenter.java` | Implemented in M04-C6; acceptance pending | One import plus one feature-owned `AiSubtitleSettingsPresenter` entry replacing the M02 test switch | Low |
 | `common/.../playback/controllers/VideoLoaderController.java` | Conditional | One format-info callback/handoff only if the adapter-only source spike fails | Medium |
 
 No modifications are planned in `MediaServiceCore`, `SharedModules`, `exoplayer-amzn-2.10.6`, `PlayerData.java`, player layouts, `EmbedPlayerView`, or `SubtitlePainter`.
@@ -51,11 +51,11 @@ WHEN UPSTREAM CHANGES: Verify ASR normalization still precedes the bridge, null/
 
 ## Planned entry: `SubtitleSettingsPresenter.java`
 
-WHY MODIFIED: Provide the user-visible entry point and enable/disable control in the existing subtitle settings area.
+WHY MODIFIED: Provide the single user-visible entry point that opens the feature-owned enable switch and Provider Profile dialogs inside the existing subtitle settings area.
 
-PATCH SURFACE: One category/option entry that opens feature-owned settings presenters. Detailed Provider, Model, Prompt, and language UI remains in new files.
+PATCH SURFACE: One import of `settings/ui/AiSubtitleSettingsPresenter` and one call `AiSubtitleSettingsPresenter.instance(getContext()).append(settingsPresenter)` inside `appendAiSubtitleSwitch`. The previous `AiSubtitleCueBridge` and `AiSubtitleData` imports and the M02 test-provider switch body are removed by the same patch.
 
-AI MODULE DEPENDENCY: `settings/AiSubtitleSettingsPresenter` and `AiSubtitleData`.
+AI MODULE DEPENDENCY: `settings/ui/AiSubtitleSettingsPresenter`.
 
 ALTERNATIVE CONSIDERED: New top-level SmartTube settings category. Rejected as wider navigation surface for one subtitle feature.
 

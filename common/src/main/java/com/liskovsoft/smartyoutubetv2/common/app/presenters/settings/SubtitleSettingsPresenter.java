@@ -2,8 +2,7 @@ package com.liskovsoft.smartyoutubetv2.common.app.presenters.settings;
 
 import android.content.Context;
 import com.liskovsoft.smartyoutubetv2.common.R;
-import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration.AiSubtitleCueBridge;
-import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.AiSubtitleData;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.ui.AiSubtitleSettingsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.OptionCategory;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.UiOptionItem;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
@@ -68,15 +67,7 @@ public class SubtitleSettingsPresenter extends BasePresenter<Void> {
     //}
 
     private void appendAiSubtitleSwitch(AppDialogPresenter settingsPresenter) {
-        AiSubtitleData aiSubtitleData = AiSubtitleData.instance(getContext());
-
-        settingsPresenter.appendSingleSwitch(UiOptionItem.from(
-                getContext().getString(R.string.ai_subtitle_enable_test_provider),
-                option -> {
-                    aiSubtitleData.setEnabled(option.isSelected());
-                    AiSubtitleCueBridge.instance(getContext()).onEnabledChanged(option.isSelected());
-                },
-                aiSubtitleData.isEnabled()));
+        AiSubtitleSettingsPresenter.instance(getContext()).append(settingsPresenter);
     }
 
     private void appendSubtitleStyleCategory(AppDialogPresenter settingsPresenter) {

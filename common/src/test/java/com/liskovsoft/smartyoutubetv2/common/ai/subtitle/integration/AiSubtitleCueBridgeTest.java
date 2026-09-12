@@ -60,6 +60,17 @@ public class AiSubtitleCueBridgeTest {
     }
 
     @Test
+    public void nullProviderStaysSourceOnlyWhenEnabled() {
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, null);
+        enable();
+        List<Cue> input = cues("Hello");
+
+        List<Cue> output = bridge.process(input);
+
+        assertSame(input, output);
+    }
+
+    @Test
     public void nullAndBlankCueTextsAreLeftUnchangedWithoutRequests() {
         enable();
         List<Cue> input = cues(null, "", "   ");
@@ -132,6 +143,20 @@ public class AiSubtitleCueBridgeTest {
         List<Cue> output = bridge.process(cues("Hello"));
 
         assertEquals("Hello", output.get(0).text.toString());
+    }
+
+    @Test
+    public void everyProviderFailureCategoryKeepsSourceOnly() {
+        for (TranslationFailureCategory category : TranslationFailureCategory.values()) {
+            AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get,
+                    new CategoryFailingProvider(category));
+            enable();
+
+            bridge.process(cues("Hello"));
+            List<Cue> output = bridge.process(cues("Hello"));
+
+            assertEquals(category.name(), "Hello", output.get(0).text.toString());
+        }
     }
 
     @Test
@@ -322,6 +347,21 @@ public class AiSubtitleCueBridgeTest {
         public TranslationCall translate(TranslationRequest request, TranslationCallback callback) {
             callback.onFailure(new TranslationFailure(
                     TranslationFailureCategory.INVALID_OUTPUT, "synthetic failure"));
+            return new NopCall();
+        }
+    }
+
+    /** Fails with a caller-selected normalized category. */
+    private static final class CategoryFailingProvider implements TranslationProvider {
+        private final TranslationFailureCategory mCategory;
+
+        CategoryFailingProvider(TranslationFailureCategory category) {
+            mCategory = category;
+        }
+
+        @Override
+        public TranslationCall translate(TranslationRequest request, TranslationCallback callback) {
+            callback.onFailure(new TranslationFailure(mCategory, "synthetic " + mCategory));
             return new NopCall();
         }
     }

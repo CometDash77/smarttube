@@ -1,4 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="ai_subtitle_enable_test_provider">AI bilingual subtitles (test provider)</string>
+    <string name="ai_subtitle_enable">AI bilingual subtitles</string>
+    <string name="ai_subtitle_provider_profiles">Provider profiles</string>
+    <string name="ai_subtitle_add_profile">Add profile</string>
+    <string name="ai_subtitle_edit_profile">Edit profile</string>
+    <string name="ai_subtitle_copy_profile">Copy profile</string>
+    <string name="ai_subtitle_delete_profile">Delete profile</string>
+    <string name="ai_subtitle_set_default">Set as default</string>
+    <string name="ai_subtitle_test_connection">Test connection</string>
+    <string name="ai_subtitle_test_connection_success">Connection test succeeded.</string>
+    <string name="ai_subtitle_test_connection_failed">Connection test failed.</string>
+    <string name="ai_subtitle_change_secret">Change secret</string>
+    <string name="ai_subtitle_choose_provider_type">Choose provider type</string>
+    <string name="ai_subtitle_profile_name">Profile name</string>
+    <string name="ai_subtitle_profile_base_url">Base URL</string>
+    <string name="ai_subtitle_profile_model">Model ID</string>
+    <string name="ai_subtitle_profile_secret">API key or secret</string>
 </resources>
