@@ -66,7 +66,7 @@ jobs:
           if-no-files-found: error
 
   preference-tests:
-    name: Preference tests (JDK 11)
+    name: Settings and secret tests (JDK 11)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -87,7 +87,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run AI subtitle preference tests
-        run: ./gradlew :common:testStbetaDebugUnitTest --tests com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.AiSubtitleDataTest
+        run: ./gradlew :common:testStbetaDebugUnitTest --tests "com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.*"
 
       - name: Upload preference test reports
         if: always()

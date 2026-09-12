@@ -85,6 +85,20 @@ public class AiSubtitleCueBridgeCacheTest {
                 3, provider.getTranslateCallCount());
     }
 
+    @Test
+    public void authFailureStillLeavesCueSourceOnly() {
+        AuthFailureProvider provider = new AuthFailureProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider);
+        bridge.onNewVideo("video-1");
+
+        List<Cue> result = bridge.process(cues("Hello"));
+
+        assertEquals("an auth failure must leave the cue source-only",
+                "Hello", result.get(0).text.toString());
+        assertEquals(1, provider.getCallCount());
+    }
+
+
     private static List<Cue> cues(String... texts) {
         List<Cue> list = new ArrayList<>();
 
@@ -94,6 +108,23 @@ public class AiSubtitleCueBridgeCacheTest {
 
         return list;
     }
+
+    private static final class AuthFailureProvider implements TranslationProvider {
+        private int mCallCount;
+
+        @Override
+        public TranslationCall translate(TranslationRequest request, TranslationCallback callback) {
+            mCallCount++;
+            callback.onFailure(new TranslationFailure(
+                    TranslationFailureCategory.AUTH, "synthetic auth failure"));
+            return new NopCall();
+        }
+
+        int getCallCount() {
+            return mCallCount;
+        }
+    }
+
 
     /** Synchronously fails every request with a normalized failure and counts them. */
     private static final class CountingFailureProvider implements TranslationProvider {

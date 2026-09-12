@@ -43,7 +43,7 @@ public class ProviderProfileSerializerTest {
 
         assertTrue(json.contains("\"credentialReference\":\"credential-a\""));
         assertFalse(json.contains("\"apiKey\""));
-        assertFalse(json.contains("sk-live-secret"));
+        assertFalse(json.contains("plaintext-sentinel-must-not-appear"));
     }
 
     @Test

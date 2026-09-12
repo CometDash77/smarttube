@@ -19,14 +19,24 @@ public final class ProviderProfileRepository {
 
     private final Store mStore;
     private final IdGenerator mIdGenerator;
+    private final SecretStore mSecretStore;
     private final ProviderProfileSerializer mSerializer;
     private final ProviderProfileMigration mMigration;
 
     public ProviderProfileRepository(Store store) {
-        this(store, new UuidIdGenerator());
+        this(store, new UuidIdGenerator(), SecretStore.NONE);
     }
 
     public ProviderProfileRepository(Store store, IdGenerator idGenerator) {
+        this(store, idGenerator, SecretStore.NONE);
+    }
+
+    public ProviderProfileRepository(Store store, SecretStore secretStore) {
+        this(store, new UuidIdGenerator(), secretStore);
+    }
+
+    public ProviderProfileRepository(Store store, IdGenerator idGenerator,
+                                     SecretStore secretStore) {
         if (store == null) {
             throw new IllegalArgumentException("store must not be null");
         }
@@ -35,6 +45,7 @@ public final class ProviderProfileRepository {
         }
         mStore = store;
         mIdGenerator = idGenerator;
+        mSecretStore = secretStore != null ? secretStore : SecretStore.NONE;
         mSerializer = new ProviderProfileSerializer();
         mMigration = new ProviderProfileMigration(mSerializer);
     }
@@ -82,6 +93,11 @@ public final class ProviderProfileRepository {
             throw new IllegalArgumentException("unknown provider profile id: " + profile.getId());
         }
 
+        ProviderProfile previous = state.getProfiles().get(index);
+        if (!sameValue(previous.getSecretReference(), profile.getSecretReference())) {
+            deleteSecret(previous.getSecretReference());
+        }
+
         List<ProviderProfile> profiles = new ArrayList<>(state.getProfiles());
         profiles.set(index, profile);
         write(new ProviderProfileState(profiles, state.getSelectedProfileId(),
@@ -96,12 +112,23 @@ public final class ProviderProfileRepository {
             return false;
         }
 
+        ProviderProfile removed = state.getProfiles().get(index);
+        deleteSecret(removed.getSecretReference());
+
         List<ProviderProfile> profiles = new ArrayList<>(state.getProfiles());
         profiles.remove(index);
         write(new ProviderProfileState(profiles, state.getSelectedProfileId(),
                 state.getDefaultProfileId()));
         load();
         return true;
+    }
+
+    public synchronized void reset() {
+        ProviderProfileState state = load();
+        for (ProviderProfile profile : state.getProfiles()) {
+            deleteSecret(profile.getSecretReference());
+        }
+        write(ProviderProfileState.empty());
     }
 
     public synchronized ProviderProfileState select(String id) {
@@ -205,6 +232,16 @@ public final class ProviderProfileRepository {
             }
         }
         return -1;
+    }
+
+    private void deleteSecret(String reference) {
+        if (reference != null) {
+            mSecretStore.delete(reference);
+        }
+    }
+
+    private static boolean sameValue(Object first, Object second) {
+        return first == null ? second == null : first.equals(second);
     }
 
     private void write(ProviderProfileState state) {

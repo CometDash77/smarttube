@@ -11,14 +11,14 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 ## Current state
 
 - Current milestone: M04 — Provider, model, persistence, and connection management (M03 self-acceptance complete; product tip `52877ed96`; exact-SHA CI `BLOCKED` at workstation API access)
-- Current task: `M04-C2 — protect provider credentials across Android versions` (M04-C0..C1 landed: policy settled; versioned non-secret provider profiles, migration/repair, stable IDs, CRUD, selections, app-profile switching, and credential-reference separation implemented; next is SecretStore/AndroidSecretStore TDD)
-- Task state: M03 complete (C0–C5; product tip `52877ed96`; exact-SHA CI still needs GitHub UI verification); M04 in progress at C2; M02 remains accepted
-- Production code changes: M02 renderer/lifecycle slice present; M03 domain/session/cache/contracts added; M04-C1 adds feature-owned Provider Profile persistence
+- Current task: `M04-C3 — add OpenAI-compatible normal responses` (M04-C0..C2 landed: policy, versioned non-secret profiles, separated credentials, deletion cleanup, API 17 fallback, masking, redaction, and auth-to-source-only evidence complete; next is the OpenAI-compatible adapter)
+- Task state: M03 complete (C0–C5; product tip `52877ed96`; exact-SHA CI still needs GitHub UI verification); M04 in progress at C3; M02 remains accepted
+- Production code changes: M02 renderer/lifecycle slice present; M03 domain/session/cache/contracts added; M04-C1 adds feature-owned Provider Profile persistence; M04-C2 adds separated Android secret storage
 - Actual upstream patch count: 3 existing SmartTube files, all inside the approved M02 budget
 - Remote sync: `feature/ai-bilingual-subtitles` tracks `origin`; M04-C0 tip `8d0c9a50e` and M04-C1 tip `3e1e1ed60` are pushed
-- Local compile/test status: diagnostic only (M04-C1 full ai-subtitle suite 193 passed / 0 failed / 6 skipped on JDK 17; settings Robolectric suite 6/6 on JDK 11; see Test status)
+- Local compile/test status: diagnostic only (M04-C2 full ai-subtitle suite 207 passed / 0 failed / 7 skipped on JDK 17; settings/secret suite 41/41 on JDK 11; see Test status)
 - GitHub Actions status: M02 run `34660051184` green for `854460bb4`; M03 and M04 exact-SHA runs remain `BLOCKED` at the workstation Actions API (404) and require GitHub UI verification
-- Forward plan: `worker-plans/M03-M06-plan.md` is the single M03–M06 Worker program. Per ADR-011 it is handed off once and returned once; the Worker self-validates by milestone during the run, then the Commander performs a separate Superpowers second review for each milestone. Execution is unblocked: M03 self-acceptance is complete; M04-C2 is next.
+- Forward plan: `worker-plans/M03-M06-plan.md` is the single M03–M06 Worker program. Per ADR-011 it is handed off once and returned once; the Worker self-validates by milestone during the run, then the Commander performs a separate Superpowers second review for each milestone. Execution is unblocked: M03 self-acceptance is complete; M04-C3 is next.
 
 ## Completed work
 
@@ -41,7 +41,7 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 - [x] Received and recorded the Commander second pass: 3 blocking items (settings-helper line endings, unproven re-enable completion, overstated automation coverage) plus 2 explicitly deferred judgement items.
 - [x] Completed `M02-FIX-02` corrections: byte-level CRLF repair of the settings helper (rows 70–81), strengthened re-enable assertions with mutation evidence, and corrected report statements; run `34660051184` green for `854460bb4`.
 - [x] Consolidated M03–M06 into one uninterrupted Worker execution plan with milestone-scoped commits, self-acceptance, exact-SHA CI evidence, subagent rules, Grill with Docs gates, live-document requirements, and post-return Commander Superpowers reviews; ADR-011 records the one-handoff/one-return policy.
-- [x] Completed M03-C0..C5 (domain/session/cache/contracts), M04-C0 (credential/capability policy), and M04-C1 (versioned non-secret Provider Profile persistence with deterministic migration/repair, stable IDs, CRUD, selections, app-profile switching, and credential-reference separation).
+- [x] Completed M03-C0..C5 (domain/session/cache/contracts), M04-C0..C1 (policy plus versioned non-secret Provider Profile persistence), and M04-C2 (separated secret storage, profile deletion/reset cleanup, API 17 fallback, masked display, redaction, and auth-to-source-only evidence).
 
 ## Completed tasks
 
@@ -54,6 +54,7 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 | M03 domain/session/cache/contracts | Self-acceptance complete; Commander review pending | `422451df8..8a4bd175b`; product tip `52877ed96` | 168 passed / 0 failed / 3 skipped on JDK 17; lint green; static gate found 0 non-feature paths; exact-SHA CI blocked at workstation API |
 | M04-C0 policy settlement | Accepted as Worker evidence | `8d0c9a50e` | G04-1/ADR-012 and G04-2 research recorded; docs-only |
 | M04-C1 provider profile persistence | Local TDD green; pushed; exact-SHA CI pending UI verification | `3e1e1ed60` | Incremental RED plus full GREEN; JDK 17 193 passed / 0 failed / 6 skipped; JDK 11 settings suite 6/6; three mutation checks each produced named failures and were reverted |
+| M04-C2 credential protection | Local TDD green; push/CI pending | `M04-C2` (tip recorded in plan ledger) | RED missing-symbol compile rounds plus API-policy RED, then full GREEN 214 total / 207 passed / 0 failed / 7 skipped on JDK 17 and 41/41 on JDK 11; cleanup and API-threshold mutations produced 3/1 named failures and were reverted; secret scan clean |
 
 ## Accepted commits
 
@@ -66,7 +67,7 @@ None.
 
 ## Pending commits
 
-- None. M03/M04 are inside the active Worker program; M04-C2 is the next implementation item, not a pending review.
+- None. M03/M04 are inside the active Worker program; M04-C3 is the next implementation item, not a pending review.
 ## Open problems
 
 1. The selected Exo subtitle format does not expose the full timed-text URL through a stable app-level API. M02 must validate track matching and format-info cache behavior before deciding whether a loader hook is unavoidable.
@@ -97,7 +98,7 @@ None.
 
 ## Planned next action
 
-M03 is self-accepted and M04 is in progress under `worker-plans/M03-M06-plan.md`; M04-C1 versioned Provider Profile persistence is green, and M04-C2 credential protection is next. After the single M03–M06 Worker return, the Commander runs four milestone-scoped Superpowers second reviews.
+M03 is self-accepted and M04 is in progress under `worker-plans/M03-M06-plan.md`; M04-C2 credential protection is green, and M04-C3 OpenAI-compatible protocol work is next. After the single M03–M06 Worker return, the Commander runs four milestone-scoped Superpowers second reviews.
 
 ## Test status
 
@@ -115,3 +116,4 @@ M03 is self-accepted and M04 is in progress under `worker-plans/M03-M06-plan.md`
 - M03-C5 static gate (local, JDK 17): `git diff --check` clean; 30 added / 9 modified files with 0 non-feature paths; host-file diff empty; brand and network-import scans clean; `:common:lintStbetaDebug` BUILD SUCCESSFUL (API 17 preserved). Exact-SHA GitHub Actions status: `BLOCKED` — the Actions API is unreadable from this workstation (404 for the private repository), so runs for the five M03 tips must be verified in the GitHub UI.
 - M04-C0 (documentation-only): no product test applicable; evidence is the G04-1 local SDK verification (`KeyGenParameterSpec`/`KeyProperties` since API 23 queried from the SDK api-versions.xml) and the G04-2 Phase 0 protocol baseline. Interruption point recorded in `worker-reports/M04-report.md`; M04 base pinned at `8a4bd175b`.
 - M04-C1 local diagnostics: witnessed RED while production types/API were absent (34 + 8 + 8 + 13 + 7 missing-symbol compile failures across the value, serializer, migration, repository, and Android-store rounds) and a 1-failure RED for invalid optional collection repair; then full ai-subtitle GREEN 199 total / 193 passed / 0 failed / 6 skipped on JDK 17, and `AiSubtitleDataTest` 6/6 with 0 skipped on JDK 11. Mutation checks: disabled default/selection repair produced 4 named failures; dropped credential-reference serialization produced 2; disabled future-schema rejection produced 1; each mutation was reverted; `:common:lintStbetaDebug` is green.
+- M04-C2 local diagnostics: initial RED was 57 missing-symbol compile failures across secret-store and repository cleanup tests, with a later 3-symbol RED for the API policy selector; full ai-subtitle GREEN is 214 total / 207 passed / 0 failed / 7 skipped on JDK 17, and the complete settings/secret suite is 41/41 with 0 skipped on JDK 11. Mutation checks skipped credential cleanup (3 named failures) and lowered the policy threshold (1 named failure), then restored the code. High-confidence repository secret scan found no real credential. `:common:lintStbetaDebug` is green.

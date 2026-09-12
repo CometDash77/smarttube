@@ -4,7 +4,7 @@ Task ID: `M04`
 
 Milestone: M04 — Provider, model, persistence, and connection management
 
-Status: **IN PROGRESS — M04-C0 and M04-C1 landed; M04-C2..C7 remain**
+Status: **IN PROGRESS — M04-C0 through M04-C2 landed; M04-C3..C7 remain**
 
 ## Task/Milestone and pinned SHAs
 
@@ -38,7 +38,7 @@ Implement five user-facing Provider Types through two shared normal-response pro
 |---|---|---|---|
 | C0 | `docs(ai-subtitle): settle provider security and capability policy` | research notes, ADR-012, M04 report start, baseline pin | MERGED (this commit) |
 | C1 | `feat(settings): version provider profile persistence` | schema/repository/serializer/migration + tests | MERGED `3e1e1ed60` |
-| C2 | `feat(settings): protect provider credentials across Android versions` | SecretStore/AndroidSecretStore + tests | NOT RUN |
+| C2 | `feat(settings): protect provider credentials across Android versions` | SecretStore/AndroidSecretStore + tests | MERGED (this commit) |
 | C3 | `feat(provider): add OpenAI-compatible normal responses` | adapter + fake-executor tests | NOT RUN |
 | C4 | `feat(provider): add Anthropic-compatible normal responses` | adapter + tests | NOT RUN |
 | C5 | `feat(provider): add presets and model discovery` | presets + ModelCatalog + ConnectionTestResult | NOT RUN |
@@ -62,7 +62,8 @@ Per the user's instruction, this section records the exact resumption state:
 ## Resumption progress (2026-09-12)
 
 - **M04-C1 completed**: versioned non-secret Provider Profile model, serializer, migration, repository, and Android app-profile storage bridge landed. Deterministic repair covers blank/duplicate IDs, invalid profile entries, dangling default/selected IDs, corrupt JSON, and older schemas; newer schemas fail closed without overwrite.
-- **Next step**: M04-C2 — `SecretStore` / `AndroidSecretStore`, credential save/read/update/delete, explicit deletion cleanup, API 17 fallback, and redaction/exception tests under ADR-012.
+- **M04-C2 completed**: `SecretStore` / `AndroidSecretStore` now keep credentials outside profile JSON, clear them on profile deletion/reset, mask display values, redact failures, and select AES-256-GCM on API 23+ or the documented app-private plaintext fallback on API 17–22.
+- **Next step**: M04-C3 — OpenAI-compatible normal-response adapter with a fake HTTP executor, path/header/body/response/error/cancellation coverage.
 - **Environment addition**: JDK 11 Temurin `11.0.32.1` is available at `C:\Users\77182\.gradle\jdks\temurin-11` for the narrow Robolectric lane; JDK 17 remains the authoritative primary lane.
 
 ## Files created
@@ -86,6 +87,14 @@ Per the user's instruction, this section records the exact resumption state:
 - `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/ProviderProfileRepository.java` — stable IDs, CRUD, selection repair, and app-profile-aware read-through.
 - Matching pure-JVM tests plus expanded `AiSubtitleDataTest` coverage.
 
+### M04-C2
+
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/SecretStore.java` — separated credential contract, safe failure vocabulary, protection levels, and masking.
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/AndroidSecretStore.java` — AndroidKeyStore AES-256-GCM implementation with API 17–22 compatibility fallback.
+- `common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/SecretStoreTest.java` — masking and safe-failure tests.
+- `common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/AndroidSecretStoreTest.java` — storage/codec, CRUD, restart, failure normalization, redaction, and API-policy tests.
+- `common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/AndroidSecretStoreRobolectricTest.java` — explicit API 17 plaintext fallback test.
+
 ## Files modified
 
 ### M04-C0
@@ -103,23 +112,32 @@ No production file changed; no existing SmartTube file touched.
 - `common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/AiSubtitleDataTest.java` — restart, enabled-flag, corrupt-payload, and multi-profile tests.
 - `docs/ai-subtitle/progress.md`, `docs/ai-subtitle/worker-plans/M03-M06-plan.md`, `docs/ai-subtitle/worker-reports/M04-report.md`, `CONTEXT.md` — live evidence/domain terminology.
 
+### M04-C2
+
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/AiSubtitleData.java` — exposes secret storage and wires it into the profile repository.
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/ProviderProfileRepository.java` — clears replaced/deleted/reset credential references.
+- `common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/ProviderProfileRepositoryTest.java` — deletion/update/reset cleanup tests.
+- `common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/integration/AiSubtitleCueBridgeCacheTest.java` — auth-failure source-only rendering test.
+- `.github/workflows/ai-subtitle-validation.yml` — JDK 11 job now runs the full settings/secret package.
+- `common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/ProviderProfileSerializerTest.java` — replaced a realistic-looking sentinel with an explicitly synthetic literal.
+
 ## Witnessed RED evidence and test inventory
 
-M04-C0 had no production code. M04-C1 followed test-first rounds: initial RED was observed as missing production types/API (34 + 8 + 8 + 13 + 7 missing-symbol compile failures across value, serializer, migration, repository, and Android-store rounds), plus a 1-failure RED for invalid optional-collection repair before implementation. GREEN evidence: full ai-subtitle suite 199 total / 193 passed / 0 failed / 6 skipped on JDK 17; `AiSubtitleDataTest` 6/6 with 0 skipped on JDK 11. Mutation checks: disabled default/selection repair produced 4 named failures; dropped credential-reference serialization produced 2; disabled future-schema rejection produced 1; every mutation was reverted.
+M04-C0 had no production code. M04-C1 followed test-first rounds: initial RED was observed as missing production types/API (34 + 8 + 8 + 13 + 7 missing-symbol compile failures), plus a 1-failure RED for invalid optional-collection repair. M04-C2 then observed 57 missing-symbol compile failures across secret-store and deletion-cleanup tests, followed by a 3-symbol RED for API policy selection. GREEN evidence for the cumulative M04 suite: 214 total / 207 passed / 0 failed / 7 skipped on JDK 17; the JDK 11 settings/secret suite is 41/41 with 0 skipped, including the explicit API 17 plaintext fallback. Mutation checks: M04-C1 selection repair / credential-reference serialization / future-schema rejection produced 4 / 2 / 1 named failures; M04-C2 skipped credential cleanup produced 3 failures and lowered the API threshold produced 1; every mutation was reverted.
 
 ## Static checks
 
-M04-C1 commit-level checks: `git diff --check` clean; `:common:lintStbetaDebug` BUILD SUCCESSFUL; no existing SmartTube host file modified; new files remain under the feature-owned `common/.../ai/subtitle/{provider,settings}` paths. The full static milestone gate remains deferred to M04-C7.
+M04-C2 commit-level checks: `git diff --check` clean; `:common:lintStbetaDebug` BUILD SUCCESSFUL; repository-wide high-confidence secret scan found no real credential and only explicit synthetic test literals; no existing SmartTube host file modified. The full static milestone gate remains deferred to M04-C7.
 
 ## GitHub Actions runs
 
 - M04-C0 tip: pushed as `8d0c9a50e`; exact-SHA Actions status cannot be read through the workstation API (404) and requires GitHub UI verification.
-- M04-C1 tip: pushed as `3e1e1ed60`; exact-SHA Actions status cannot be read through the workstation API (404) and requires GitHub UI verification.
+- M04-C1 tip: pushed as `3e1e1ed60`; M04-C2 tip is `PENDING AUTHORIZED UPLOAD`. Exact-SHA Actions status cannot be read through the workstation API (404) and requires GitHub UI verification.
 - Milestone tip (M04-C7): `NOT RUN`.
 
 ## Device matrix
 
-`NOT RUN` for all rows at M04-C0/C1; device acceptance remains deferred to M04-C7.
+`NOT RUN` for all rows at M04-C0/C1/C2; device acceptance remains deferred to M04-C7.
 
 ## Worker first-pass self-review dispositions
 
@@ -135,7 +153,7 @@ M04-C1 commit-level checks: `git diff --check` clean; `:common:lintStbetaDebug` 
 ## Deviations, unexpected discoveries, remaining risks, deferred Minor findings
 
 - Web research was unavailable from this workstation during M04-C0 (search-provider authentication failure); both notes record this explicitly and mark the re-verification requirement for the unverified platform-behavior statement.
-- Remaining risk: the API 17–22 plaintext fallback band (documented in ADR-012); decryption failure after device restore is an expected path, to be exercised by M04-C2 tests.
+- Remaining risk: the API 17–22 plaintext fallback band (documented in ADR-012) is exercised by M04-C2 tests; decryption failure after device restore remains an expected physical-device acceptance path for M04-C7.
 
 ## Acceptance-criteria table (M04 exit/self-acceptance)
 
@@ -143,7 +161,7 @@ M04-C1 commit-level checks: `git diff --check` clean; `:common:lintStbetaDebug` 
 |---|---|---|---|
 | 1 | Five Provider Types resolve through exactly two normal-response protocol adapters | NOT RUN | — |
 | 2 | Profile/schema migration and default repair are deterministic across restart/profile switch | PARTIAL — M04-C1 | 199-test M04-C1 suite with 193 executed on JDK 17 plus 6/6 Robolectric settings tests on JDK 11; restart, corrupt repair, stable IDs, CRUD, dangling selections, future-schema rejection, enabled-flag preservation, and app-profile switching covered |
-| 3 | Secrets satisfy the accepted API 17/backup/export policy and do not appear in logs/reports/artifacts | NOT RUN | — |
+| 3 | Secrets satisfy the accepted API 17/backup/export policy and do not appear in logs/reports/artifacts | PARTIAL — M04-C2 | Separated store, Keystore AES path selection, API 17 plaintext fallback, masking/redaction, deletion/reset cleanup, safe failure vocabulary, and repository secret scan covered; physical-device backup/export acceptance remains for M04-C7 |
 | 4 | Manual model entry works when discovery is unsupported or fails | NOT RUN | — |
 | 5 | Every Provider failure category proves Source-Only Fallback | NOT RUN | — |
 | 6 | No SSE, scheduler retry, prompt CRUD, or persistent translation cache was added | NOT RUN | — |
@@ -151,4 +169,4 @@ M04-C1 commit-level checks: `git diff --check` clean; `:common:lintStbetaDebug` 
 
 ## Confirmation
 
-M04-C0 and M04-C1 are complete. G04-1/G04-2 remain settled; no production network code exists yet. Versioned non-secret Provider Profile persistence is implemented and locally verified; M04-C2 (credential protection) starts next.
+M04-C0 through M04-C2 are complete. G04-1/G04-2 remain settled; no production network code exists yet. Versioned non-secret profiles and separated credential storage are implemented and locally verified; M04-C3 (OpenAI-compatible normal responses) starts next.

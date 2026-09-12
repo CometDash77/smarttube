@@ -37,7 +37,11 @@ public class AiSubtitleData extends SharedPreferencesBase
     }
 
     public ProviderProfileRepository providerProfiles() {
-        return new ProviderProfileRepository(this);
+        return new ProviderProfileRepository(this, secrets());
+    }
+
+    public SecretStore secrets() {
+        return new AndroidSecretStore(getContext());
     }
 
     @Override

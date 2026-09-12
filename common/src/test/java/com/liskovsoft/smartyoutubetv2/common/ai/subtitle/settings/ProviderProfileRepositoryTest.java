@@ -180,6 +180,48 @@ public class ProviderProfileRepositoryTest {
         assertEquals(writes, store.getWriteCount());
     }
 
+
+    @Test
+    public void deletingProfileClearsItsCredentialReference() {
+        MemoryStore store = new MemoryStore();
+        RecordingSecretStore secrets = new RecordingSecretStore();
+        ProviderProfileRepository repository = new ProviderProfileRepository(
+                store, ids("profile-a"), secrets);
+        ProviderProfile saved = repository.create(profileWithReference(null, "A", "credential-a"));
+
+        assertTrue(repository.delete(saved.getId()));
+        assertEquals(Collections.singletonList("credential-a"), secrets.deletedReferences);
+    }
+
+    @Test
+    public void updatingCredentialReferenceClearsTheOldValue() {
+        MemoryStore store = new MemoryStore();
+        RecordingSecretStore secrets = new RecordingSecretStore();
+        ProviderProfileRepository repository = new ProviderProfileRepository(
+                store, ids("profile-a"), secrets);
+        ProviderProfile saved = repository.create(profileWithReference(null, "A", "credential-a"));
+
+        repository.update(profileWithReference(saved.getId(), "A", "credential-b"));
+
+        assertEquals(Collections.singletonList("credential-a"), secrets.deletedReferences);
+    }
+
+    @Test
+    public void resetClearsEveryCredentialReference() {
+        MemoryStore store = new MemoryStore();
+        RecordingSecretStore secrets = new RecordingSecretStore();
+        ProviderProfileRepository repository = new ProviderProfileRepository(
+                store, ids("profile-a", "profile-b"), secrets);
+        repository.create(profileWithReference(null, "A", "credential-a"));
+        repository.create(profileWithReference(null, "B", "credential-b"));
+
+        repository.reset();
+
+        assertTrue(repository.load().getProfiles().isEmpty());
+        assertEquals(java.util.Arrays.asList("credential-a", "credential-b"),
+                secrets.deletedReferences);
+    }
+
     private static ProviderProfileRepository repository(MemoryStore store) {
         return repository(store, ids("generated-1", "generated-2", "generated-3"));
     }
@@ -199,6 +241,14 @@ public class ProviderProfileRepositoryTest {
         };
     }
 
+    private static ProviderProfile profileWithReference(String id, String name,
+                                                     String reference) {
+        return new ProviderProfile(id, name, ProviderType.OPENAI_COMPATIBLE,
+                ProviderProtocol.OPENAI_CHAT_COMPLETIONS, "https://api.example.com/v1",
+                reference, "model-a", Collections.singletonList("model-a"), null, null);
+    }
+
+
     private static ProviderProfile draft(String id, String name) {
         return new ProviderProfile(id, name, ProviderType.OPENAI_COMPATIBLE,
                 ProviderProtocol.OPENAI_CHAT_COMPLETIONS, "https://api.example.com/v1",
@@ -208,6 +258,25 @@ public class ProviderProfileRepositoryTest {
 
     private interface IdGenerator extends ProviderProfileRepository.IdGenerator {
     }
+
+    private static final class RecordingSecretStore implements SecretStore {
+        private final List<String> deletedReferences = new ArrayList<>();
+
+        @Override
+        public String get(String reference) {
+            return null;
+        }
+
+        @Override
+        public void put(String reference, String secret) {
+        }
+
+        @Override
+        public void delete(String reference) {
+            deletedReferences.add(reference);
+        }
+    }
+
 
     private static final class MemoryStore implements ProviderProfileRepository.Store {
         private String mFirst = null;
