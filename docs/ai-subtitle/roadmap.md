@@ -2,13 +2,13 @@
 
 Status: **Accepted — approved by user on 2026-09-11**
 
-Planning unit: one Milestone = one self-contained Stage Package, one Worker execution plan, a small series of internally coherent commits, one consolidated Worker report, and one Commander milestone review.
+Planning unit: normally one Milestone = one self-contained Stage Package, one Worker execution plan, a small series of internally coherent commits, one consolidated Worker report, and one Commander milestone review. ADR-011 groups M03–M06 into one uninterrupted Worker execution plan and one final Worker return while retaining separate milestone commits, reports, self-acceptance ranges, and post-return Commander reviews.
 
 ## Delivery rules
 
 - Production work starts only after the architecture/migration/roadmap approval.
-- The user transports at most one package to the Worker per Milestone. Internal workstreams and commits are not separate user handoffs.
-- M01 was completed by the Commander. The remaining implementation therefore requires eight Worker handoffs: M02 through M09.
+- The user normally transports at most one package to the Worker per Milestone. Under ADR-011, M03–M06 are transported once as one uninterrupted Stage Program; their internal workstreams, commits, reports, and reviews are not separate user handoffs.
+- M01 was completed by the Commander. Delivery now uses five Worker handoffs across M02–M09: M02; the consolidated M03–M06 program; M07; M08; and M09.
 - `origin` is the user's personal project remote; `upstream` is read-only official SmartTube.
 - Build, lint, tests, and APK assembly are accepted only from GitHub Actions for the exact reported commit SHA.
 - New feature files are preferred over changes to upstream files. Every existing-file change is declared in its Task Package and logged in `upstream-patches.md`.
@@ -193,7 +193,7 @@ M01 approval
   -> M09 release/upstream gate
 ```
 
-M04 and M06 are conceptually independent after M03, but each remains a separate single-transfer Stage Package. No subtask inside a Milestone requires an additional user handoff.
+M04 and M06 are conceptually independent after M03. Under ADR-011 they remain separate commit/self-acceptance/Commander-review ranges inside the same M03–M06 Worker execution rather than separate user transfers. M06 research and fixture provenance may overlap earlier work after M03, but M06 production commits land after M05 self-acceptance.
 
 ## First Worker Stage Package after approval
 

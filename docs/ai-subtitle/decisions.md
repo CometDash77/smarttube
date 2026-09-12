@@ -160,6 +160,22 @@ Consequences: reports must distinguish the supplementary compatibility-test job 
 
 Upstream impact: none; feature-owned workflow only.
 
+## ADR-011 — Deliver M03 through M06 as one uninterrupted Worker program
+
+Status: Accepted by user
+
+Date: 2026-09-12
+
+Decision: M03, M04, M05, and M06 are handed to one Worker once through `docs/ai-subtitle/worker-plans/M03-M06-plan.md`. The Worker completes all four milestones continuously and returns one consolidated delivery after M06. During that run, the Worker performs and records first-pass self-acceptance separately for each milestone and freezes each milestone's base/tip, report, commits, tests, and CI evidence. After the one final return, the Commander uses Superpowers to perform an independent second review separately for M03, M04, M05, and M06.
+
+Reason: The architecture and dependency chain are already accepted, so four separate Worker handoffs would repeat context ingestion and coordination overhead. One continuous execution preserves context and permits safe research/CI overlap, while milestone-scoped self-acceptance and Commander review keep defects attributable and avoid one opaque M03–M06 mega-diff.
+
+Alternatives: retain one user handoff and return per milestone; insert Commander review between every milestone; collapse M03–M06 into one implementation/review range; review only the final aggregate diff. The first two increase elapsed development time, while the latter two weaken defect isolation and rollback safety.
+
+Consequences: ADR-009 remains the default for other milestones but is superseded for the M03–M06 handoff boundary. Milestone product commits still land in order. The Worker does not wait for intermediate Commander review, but may advance only after its milestone self-acceptance passes. Commander findings are packaged and corrected by affected milestone/range, then freshly verified and re-reviewed before acceptance. The final Worker return contains all four milestone reports and the complete ordered commit/evidence range.
+
+Upstream impact: none; delivery and review process only.
+
 ## Open rulings
 
 - M02 evidence will decide whether ADR-005 can remain hook-free.

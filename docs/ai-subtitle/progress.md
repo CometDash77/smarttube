@@ -1,6 +1,6 @@
 # AI Subtitle Progress Ledger
 
-Last updated: 2026-09-11
+Last updated: 2026-09-12
 
 Authoritative branch: `feature/ai-bilingual-subtitles`
 
@@ -18,6 +18,7 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 - Remote sync: `feature/ai-bilingual-subtitles` is pushed and matches the local tip; product validation is `854460bb4`, followed by report-only commits `0b1f4ab53` and `2716e5380` plus this final audit-trail revision
 - Local compile/test status: diagnostic only (34 JVM tests green on JDK 17; see Test status)
 - GitHub Actions status: run `34660051184` green for `854460bb4` (both jobs); earlier runs `34618112103` and `34618912621` green; `34615801161` failed at lint (historical, superseded)
+- Forward plan: `worker-plans/M03-M06-plan.md` is the single M03–M06 Worker program. Per ADR-011 it is handed off once and returned once; the Worker self-validates by milestone during the run, then the Commander performs a separate Superpowers second review for each milestone. Execution remains blocked until M02 Commander PASS.
 
 ## Completed work
 
@@ -39,6 +40,7 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 - [x] Completed `M02-FIX-01`: first-cue immediate rendering, API 17 compatibility, immediate disable, JDK 11 preference lane; replacement run `34618112103` green.
 - [x] Received and recorded the Commander second pass: 3 blocking items (settings-helper line endings, unproven re-enable completion, overstated automation coverage) plus 2 explicitly deferred judgement items.
 - [x] Completed `M02-FIX-02` corrections: byte-level CRLF repair of the settings helper (rows 70–81), strengthened re-enable assertions with mutation evidence, and corrected report statements; run `34660051184` green for `854460bb4`.
+- [x] Consolidated M03–M06 into one uninterrupted Worker execution plan with milestone-scoped commits, self-acceptance, exact-SHA CI evidence, subagent rules, Grill with Docs gates, live-document requirements, and post-return Commander Superpowers reviews; ADR-011 records the one-handoff/one-return policy.
 
 ## Completed tasks
 
@@ -84,13 +86,14 @@ None.
 - Accepted: dedicated versioned `AiSubtitleData`, separate from `PlayerData`.
 - Accepted: `origin` is the user's personal project remote; `upstream` is official SmartTube.
 - Accepted: GitHub Actions is authoritative for build/test acceptance.
-- Accepted: one Stage Package and one consolidated Worker return per Milestone; internal commits do not create extra user handoffs.
+- Accepted: one Stage Package and one consolidated Worker return per Milestone is the default; ADR-011 defines the M03–M06 exception without removing their milestone-scoped evidence.
 - Accepted: JDK 17 remains authoritative; a narrow JDK 11 job may execute the inherited Robolectric 4.6.1 preference suite until its dependency is upgraded.
 - Accepted: M02-FIX-02 stays inside the three-file upstream patch surface and leaves the two deferred refactors (duplicated equality helpers, bridge request-identity cluster) untouched.
+- Accepted: ADR-011 supersedes ADR-009 only for the M03–M06 handoff boundary: one uninterrupted Worker handoff/return, Worker self-acceptance per milestone, then Commander Superpowers second review per milestone.
 
 ## Planned next action
 
-Second-pass correction pushed and validated by green run `34660051184`. Await the Commander re-review of M02; M03 remains blocked.
+Await the Commander re-review of M02. After PASS, hand the consolidated M03–M06 plan to one Worker once; the Worker completes all four milestones continuously and returns once, after which the Commander runs four milestone-scoped Superpowers second reviews.
 
 ## Test status
 
