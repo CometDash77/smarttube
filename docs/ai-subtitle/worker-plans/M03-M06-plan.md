@@ -53,6 +53,7 @@ Execution snapshot at Worker start (2026-09-12): `HEAD = 422451df87917a3f932c602
 | UTC timestamp | Milestone/Ticket | State | Base..Tip | Evidence | Docs changed | Next unblocked item |
 |---|---|---|---|---|---|---|
 | 2026-09-12T02:10Z | M03-C0 | MERGED | `422451df8..M03-C0` | M02 Commander PASS (user relay 2026-09-12); clean branch; submodules pinned; G03-1 = NO GRILL REQUIRED (architecture §5/§9, plan §8) | `M03-report.md`, `progress.md`, this ledger | M03-C1 domain identities |
+| 2026-09-12T02:18Z | M03-C1 | MERGED | M03-C0..M03-C1 | Witnessed RED 50 tests/32 failed then GREEN 50/50; full ai-subtitle regression 84 passed, 0 failed (JDK 17 local diagnostics); CONTEXT.md unchanged (no semantic change) | `M03-report.md`, `progress.md`, this ledger | M03-C2 session identity |
 
 
 ### Read completely before dispatching any worker

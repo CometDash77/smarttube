@@ -4,7 +4,7 @@ Task ID: `M03`
 
 Milestone: M03 — AI subtitle domain and session core
 
-Status: **IN PROGRESS — M03-C0 ledger started; production commits and evidence fields below are `NOT RUN` until produced**
+Status: **IN PROGRESS — M03-C1 landed (domain value objects, 50 tests green); M03-C2..C5 remain**
 
 ## Task/Milestone and pinned SHAs
 
@@ -42,8 +42,8 @@ Replace M02's normalized-source-text identity and bridge-owned lifecycle maps wi
 
 | # | Commit subject | Content | State |
 |---|---|---|---|
-| C0 | `docs(ai-subtitle): start consolidated M03 execution ledger` | M03 report start, live ledger, baseline pin, G03-1 disposition | IN PROGRESS |
-| C1 | `feat(domain): add stable subtitle timeline identities` | `domain/` value objects + tests + CONTEXT.md if semantics change | NOT RUN |
+| C0 | `docs(ai-subtitle): start consolidated M03 execution ledger` | M03 report start, live ledger, baseline pin, G03-1 disposition | MERGED (`2a1e45c65`) |
+| C1 | `feat(domain): add stable subtitle timeline identities` | `domain/` value objects + tests + CONTEXT.md if semantics change | MERGED (this commit) |
 | C2 | `feat(session): enforce generation and scheduling epoch ownership` | `session/` model, bridge/controller lifecycle ownership move + tests | NOT RUN |
 | C3 | `feat(cache): key in-memory translations by complete output identity` | `cache/` key/cache + isolation tests per architecture §9 | NOT RUN |
 | C4 | `refactor(translation): stabilize provider-neutral request contracts` | request/result/callback/stream/failure evolution + fake/bridge/controller adaptation + tests | NOT RUN |
@@ -51,7 +51,26 @@ Replace M02's normalized-source-text identity and bridge-owned lifecycle maps wi
 
 ## Files created
 
-`NOT RUN` (filled per commit).
+### M03-C1 — `feat(domain): add stable subtitle timeline identities`
+
+Production (6, all under `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/domain/`):
+
+- `SourceTrackId.java` — video + track + language identity; blank fields rejected.
+- `SourceCue.java` — pre-normalization cue; non-negative start, end strictly after start, text non-null.
+- `SubtitleSegmentId.java` — track + zero-based timeline position; negative index and null track rejected.
+- `SubtitleSegment.java` — normalized segment; non-blank text and real interval enforced.
+- `TranslationUnit.java` — copied immutable segment-id list; same-track, ordered, contiguous, duplicate-free enforced; unmodifiable accessor.
+- `TranslationProfile.java` — provider/model/prompt/version/target-language; blank fields and non-positive version rejected.
+
+Tests (5, under `common/src/test/java/.../ai/subtitle/domain/`, 50 test methods total):
+
+- `SourceTrackIdTest.java` (9) — value equality/hash, per-field inequality, blank-field rejection, literal getter values.
+- `SourceCueTest.java` (9) — equality, invalid ranges (negative/reversed/zero-length), null text, empty text allowed before normalization.
+- `SubtitleSegmentTest.java` (13) — segment-id identity, same text at different positions stays distinct, invalid ranges, blank text, null id.
+- `TranslationUnitTest.java` (11) — ordered/contiguous/duplicate-free coverage, mixed-track rejection, defensive copy, unmodifiable list, equality.
+- `TranslationProfileTest.java` (8) — every field participates in equality, blank field rejection, version floor.
+
+`CONTEXT.md` unchanged: the implementation follows the existing `Source Track`, `Source Cue`, `Subtitle Segment`, `Translation Unit`, and `Translation Profile` definitions without changing their meaning.
 
 ## Files modified
 
@@ -63,7 +82,13 @@ Replace M02's normalized-source-text identity and bridge-owned lifecycle maps wi
 
 ## Witnessed RED evidence and test inventory
 
-`NOT RUN` (each functional change records observed RED → minimal GREEN → targeted regression → full relevant suite; per-suite counts filled at M03-C5).
+### M03-C1 (local diagnostics, JDK 17; CI is authoritative)
+
+- Scaffold phase (constructors without validation or value equality): `./gradlew :common:testStbetaDebugUnitTest --tests "com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.*"` → **50 tests completed, 32 failed** (EXIT=1). Assertion-level RED, not a compile failure: validation tests failed by not throwing, equality tests failed by identity comparison.
+- Implementation phase (validation + value equality): same task → **BUILD SUCCESSFUL**, 50/50 green in 12s.
+- Full AI-subtitle regression in the same change set: **84 passed, 0 failed** — domain 50, bridge 19, controller 10, fake provider 5; `settings.AiSubtitleDataTest` remains 3 skipped on JDK 17 by design (ADR-010; the JDK 11 lane executes it on CI).
+
+Per-suite GREEN counts (XML artifacts): `SourceTrackIdTest` 9, `SourceCueTest` 9, `SubtitleSegmentTest` 13, `TranslationUnitTest` 11, `TranslationProfileTest` 8.
 
 ## Static checks
 
