@@ -34,17 +34,22 @@ public class InMemoryTranslationCacheTest {
         mCache = new InMemoryTranslationCache();
     }
 
-    private static TranslationCacheKey keyFor(String text) {
-        TranslationUnit unit = new TranslationUnit(
-                Collections.singletonList(new SubtitleSegmentId(TRACK, 0)), text);
+    private static TranslationUnit unitFor(String text) {
+        return new TranslationUnit(Collections.singletonList(new SubtitleSegmentId(TRACK, 0)), text);
+    }
 
-        return TranslationCacheKey.from(SESSION, unit, "ctx-none", 1, 1);
+    private static TranslationCacheKey keyFor(String text) {
+        return TranslationCacheKey.from(SESSION, unitFor(text), "ctx-none", 1, 1);
+    }
+
+    private static TranslationResult finalFor(String source, long requestId) {
+        return TranslationResult.finalResult(SESSION, requestId, unitFor(source), "[ZH] " + source);
     }
 
     @Test
     public void putAndGetRoundTrip() {
         TranslationCacheKey key = keyFor("Hello");
-        TranslationResult result = new TranslationResult(1, 1, "[ZH] Hello");
+        TranslationResult result = finalFor("Hello", 1);
 
         mCache.put(key, result);
 
@@ -62,8 +67,8 @@ public class InMemoryTranslationCacheTest {
     public void putOverwritesTheExistingEntryForTheSameKey() {
         TranslationCacheKey key = keyFor("Hello");
 
-        mCache.put(key, new TranslationResult(1, 1, "[ZH] Hello"));
-        TranslationResult second = new TranslationResult(1, 2, "[ZH] Hello, again");
+        mCache.put(key, finalFor("Hello", 1));
+        TranslationResult second = finalFor("Hello", 2);
         mCache.put(key, second);
 
         assertSame(second, mCache.get(key));
@@ -71,9 +76,21 @@ public class InMemoryTranslationCacheTest {
     }
 
     @Test
+    public void nullResultNeverReplacesAnEntry() {
+        TranslationCacheKey key = keyFor("Hello");
+        TranslationResult original = finalFor("Hello", 1);
+        mCache.put(key, original);
+
+        mCache.put(key, null);
+
+        assertSame("a null result must never overwrite an accepted one", original, mCache.get(key));
+        assertEquals(1, mCache.size());
+    }
+
+    @Test
     public void differentKeysDoNotAlias() {
-        mCache.put(keyFor("Hello"), new TranslationResult(1, 1, "[ZH] Hello"));
-        mCache.put(keyFor("World"), new TranslationResult(1, 2, "[ZH] World"));
+        mCache.put(keyFor("Hello"), finalFor("Hello", 1));
+        mCache.put(keyFor("World"), finalFor("World", 2));
 
         assertEquals("[ZH] Hello", mCache.get(keyFor("Hello")).getTranslatedText());
         assertEquals("[ZH] World", mCache.get(keyFor("World")).getTranslatedText());
@@ -82,8 +99,8 @@ public class InMemoryTranslationCacheTest {
 
     @Test
     public void clearRemovesEveryEntry() {
-        mCache.put(keyFor("Hello"), new TranslationResult(1, 1, "[ZH] Hello"));
-        mCache.put(keyFor("World"), new TranslationResult(1, 2, "[ZH] World"));
+        mCache.put(keyFor("Hello"), finalFor("Hello", 1));
+        mCache.put(keyFor("World"), finalFor("World", 2));
 
         mCache.clear();
 

@@ -1,29 +1,42 @@
 package com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
+
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationUnit;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionId;
 
 /**
  * Immutable identity and payload of one translation request.
+ *
+ * <p>The request carries the Translation Session identity, the caller-owned request id, and
+ * the {@link TranslationUnit} to translate. Source text and the source/target languages are
+ * derived from those identities instead of being copied, so a request can never disagree
+ * with its session.</p>
  */
 public final class TranslationRequest {
-    private final long mGeneration;
+    private final TranslationSessionId mSessionId;
     private final long mRequestId;
-    private final String mSourceText;
-    private final String mSourceLanguage;
-    private final String mTargetLanguage;
+    private final TranslationUnit mUnit;
 
-    public TranslationRequest(long generation, long requestId, @NonNull String sourceText,
-                              @Nullable String sourceLanguage, @Nullable String targetLanguage) {
-        mGeneration = generation;
+    public TranslationRequest(TranslationSessionId sessionId, long requestId,
+                              @NonNull TranslationUnit unit) {
+        if (sessionId == null) {
+            throw new IllegalArgumentException("sessionId must not be null");
+        }
+        if (requestId < 1) {
+            throw new IllegalArgumentException("requestId must be positive: " + requestId);
+        }
+        if (unit == null) {
+            throw new IllegalArgumentException("unit must not be null");
+        }
+
+        mSessionId = sessionId;
         mRequestId = requestId;
-        mSourceText = sourceText;
-        mSourceLanguage = sourceLanguage;
-        mTargetLanguage = targetLanguage;
+        mUnit = unit;
     }
 
-    public long getGeneration() {
-        return mGeneration;
+    public TranslationSessionId getSessionId() {
+        return mSessionId;
     }
 
     public long getRequestId() {
@@ -31,18 +44,26 @@ public final class TranslationRequest {
     }
 
     @NonNull
+    public TranslationUnit getUnit() {
+        return mUnit;
+    }
+
+    /** Source text of the translated unit. */
+    @NonNull
     public String getSourceText() {
-        return mSourceText;
+        return mUnit.getSourceText();
     }
 
-    @Nullable
+    /** Language of the session's Source Track. */
+    @NonNull
     public String getSourceLanguage() {
-        return mSourceLanguage;
+        return mSessionId.getSourceTrackId().getLanguage();
     }
 
-    @Nullable
+    /** Target language resolved in the session's Translation Profile. */
+    @NonNull
     public String getTargetLanguage() {
-        return mTargetLanguage;
+        return mSessionId.getProfile().getTargetLanguage();
     }
 
     @Override
@@ -54,23 +75,26 @@ public final class TranslationRequest {
             return false;
         }
         TranslationRequest other = (TranslationRequest) o;
-        return mGeneration == other.mGeneration
-                && mRequestId == other.mRequestId
-                && sameValue(mSourceText, other.mSourceText)
-                && sameValue(mSourceLanguage, other.mSourceLanguage)
-                && sameValue(mTargetLanguage, other.mTargetLanguage);
+        return mRequestId == other.mRequestId
+                && sameValue(mSessionId, other.mSessionId)
+                && sameValue(mUnit, other.mUnit);
     }
 
     @Override
     public int hashCode() {
         // Explicit Java 6-compatible hashing: java.util.Objects is API 19+ and the app's
         // minimum SDK is 17.
-        int result = (int) (mGeneration ^ (mGeneration >>> 32));
+        int result = valueHash(mSessionId);
         result = 31 * result + (int) (mRequestId ^ (mRequestId >>> 32));
-        result = 31 * result + valueHash(mSourceText);
-        result = 31 * result + valueHash(mSourceLanguage);
-        result = 31 * result + valueHash(mTargetLanguage);
+        result = 31 * result + valueHash(mUnit);
         return result;
+    }
+
+    @Override
+    public String toString() {
+        return "TranslationRequest{requestId=" + mRequestId
+                + ", unit=" + mUnit
+                + ", session=" + mSessionId + "}";
     }
 
     private static boolean sameValue(Object first, Object second) {

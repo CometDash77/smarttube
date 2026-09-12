@@ -56,6 +56,7 @@ Execution snapshot at Worker start (2026-09-12): `HEAD = 422451df87917a3f932c602
 | 2026-09-12T02:18Z | M03-C1 | MERGED | M03-C0..M03-C1 | Witnessed RED 50 tests/32 failed then GREEN 50/50; full ai-subtitle regression 84 passed, 0 failed (JDK 17 local diagnostics); CONTEXT.md unchanged (no semantic change) | `M03-report.md`, `progress.md`, this ledger | M03-C2 session identity |
 | 2026-09-12T02:28Z | M03-C2 | MERGED | M03-C1..M03-C2 | Witnessed RED 24 tests/19 failed (session scaffold) then GREEN 24/24; full regression 118 passed, 0 failed; mutation checks: generation 2 named failures, epoch 1, request-identity 1 — all reverted and re-verified green | `M03-report.md`, `progress.md`, this ledger | M03-C3 cache identity |
 | 2026-09-12T02:38Z | M03-C3 | MERGED | M03-C2..M03-C3 | Witnessed RED 26 tests/6 failed (cache scaffold) then GREEN 26/26; full regression 150 passed, 0 failed, 3 skipped; mutation: dropping the base-URL comparison fails baseUrlIdentityIsIsolated (reverted, re-verified green); profile gained protocol + credential-free base URL identity | `M03-report.md`, `progress.md`, this ledger | M03-C4 provider-neutral contracts |
+| 2026-09-12T02:48Z | M03-C4 | MERGED | M03-C3..M03-C4 | Witnessed RED 171 tests/6 failed (contract scaffold) then GREEN 168 passed / 0 failed / 3 skipped; contracts carry session + unit identity, final/partial state, and normalized failure categories; Fake/bridge/controller tests adapted | `M03-report.md`, `progress.md`, this ledger | M03-C5 checkpoint |
 
 
 ### Read completely before dispatching any worker

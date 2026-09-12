@@ -1,19 +1,18 @@
 package com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Deterministic offline translation fake for the M02 vertical slice.
+ * Deterministic offline translation fake for the vertical slice.
  *
  * <p>Returns {@code "[ZH] "} plus the exact source text and never touches the network.
- * Null or blank source text returns a failure instead of fabricating content. Cancelled
- * calls never deliver. When constructed with {@code immediate == false}, deliveries are
- * queued until {@link #flushPending()} is called so callers and tests can observe and
- * control in-flight state deterministically.</p>
+ * Null, blank, or uncovered source text returns a normalized failure instead of fabricating
+ * content. Cancelled calls never deliver. When constructed with {@code immediate == false},
+ * deliveries are queued until {@link #flushPending()} is called so callers and tests can
+ * observe and control in-flight state deterministically.</p>
  */
 public class FakeTranslationProvider implements TranslationProvider {
     public static final String TRANSLATION_PREFIX = "[ZH] ";
@@ -32,19 +31,23 @@ public class FakeTranslationProvider implements TranslationProvider {
     }
 
     @Override
-    public synchronized TranslationCall translate(@Nullable TranslationRequest request, @NonNull TranslationCallback callback) {
+    public synchronized TranslationCall translate(TranslationRequest request,
+                                                  @NonNull TranslationCallback callback) {
         mTranslateCallCount++;
 
         FakeTranslationCall call = new FakeTranslationCall();
 
-        if (request == null || request.getSourceText() == null || request.getSourceText().trim().isEmpty()) {
-            deliver(call, () -> callback.onFailure(new IllegalArgumentException("blank source text")));
+        if (request == null || request.getUnit() == null
+                || request.getSourceText() == null || request.getSourceText().trim().isEmpty()) {
+            deliver(call, () -> callback.onFailure(new TranslationFailure(
+                    TranslationFailureCategory.INVALID_OUTPUT, "blank source text")));
             return call;
         }
 
-        deliver(call, () -> callback.onSuccess(new TranslationResult(
-                request.getGeneration(),
+        deliver(call, () -> callback.onSuccess(TranslationResult.finalResult(
+                request.getSessionId(),
                 request.getRequestId(),
+                request.getUnit(),
                 TRANSLATION_PREFIX + request.getSourceText())));
 
         return call;

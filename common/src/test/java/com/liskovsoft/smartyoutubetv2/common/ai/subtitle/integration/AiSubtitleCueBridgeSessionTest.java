@@ -1,7 +1,9 @@
 package com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration;
 
 import com.google.android.exoplayer2.text.Cue;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SubtitleSegmentId;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationProfile;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationUnit;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSession;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionSnapshot;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.FakeTranslationProvider;
@@ -15,6 +17,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -25,9 +28,11 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
- * Pure-JVM tests for M03-C2: session generation and scheduling-epoch ownership inside the
- * bridge. Verifies that identity changes create new generations, repeated identical events
- * stay idempotent, seeks only advance the epoch, and stale callbacks cannot mutate state.
+ * Pure-JVM tests for M03-C2/C4: session generation and scheduling-epoch ownership inside the
+ * bridge, plus the C4 result-identity guarantees (final-only caching, session/request/coverage
+ * matching). Verifies that identity changes create new generations, repeated identical events
+ * stay idempotent, seeks only advance the epoch, and stale or invalid callbacks cannot mutate
+ * state.
  */
 public class AiSubtitleCueBridgeSessionTest {
     private AtomicBoolean mEnabled;
@@ -182,9 +187,10 @@ public class AiSubtitleCueBridgeSessionTest {
         TranslationProvider mismatchedProvider = new TranslationProvider() {
             @Override
             public TranslationCall translate(TranslationRequest request, TranslationCallback callback) {
-                callback.onSuccess(new TranslationResult(
-                        request.getGeneration(),
+                callback.onSuccess(TranslationResult.finalResult(
+                        request.getSessionId(),
                         request.getRequestId() + 999,
+                        request.getUnit(),
                         "[ZH] " + request.getSourceText()));
                 return new NopCall();
             }
@@ -197,6 +203,59 @@ public class AiSubtitleCueBridgeSessionTest {
         List<Cue> output = bridge.process(cues("Hello"));
 
         assertEquals("a result with mismatched request identity must never be cached",
+                "Hello", output.get(0).text.toString());
+    }
+
+    @Test
+    public void partialResultsNeverEnterTheCache() {
+        TranslationProvider partialOnlyProvider = new TranslationProvider() {
+            @Override
+            public TranslationCall translate(TranslationRequest request, TranslationCallback callback) {
+                callback.onSuccess(TranslationResult.partialResult(
+                        request.getSessionId(),
+                        request.getRequestId(),
+                        request.getUnit(),
+                        "[ZH] partial"));
+                return new NopCall();
+            }
+        };
+
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, partialOnlyProvider);
+        bridge.onNewVideo("video-1");
+
+        bridge.process(cues("Hello"));
+        List<Cue> output = bridge.process(cues("Hello"));
+
+        assertEquals("a partial result must never be cached as final text",
+                "Hello", output.get(0).text.toString());
+    }
+
+    @Test
+    public void resultWithMismatchedCoverageIsRejected() {
+        TranslationProvider wrongCoverageProvider = new TranslationProvider() {
+            @Override
+            public TranslationCall translate(TranslationRequest request, TranslationCallback callback) {
+                TranslationUnit wrongUnit = new TranslationUnit(
+                        Collections.singletonList(new SubtitleSegmentId(
+                                request.getSessionId().getSourceTrackId(), 5)),
+                        request.getSourceText());
+
+                callback.onSuccess(TranslationResult.finalResult(
+                        request.getSessionId(),
+                        request.getRequestId(),
+                        wrongUnit,
+                        "[ZH] " + request.getSourceText()));
+                return new NopCall();
+            }
+        };
+
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, wrongCoverageProvider);
+        bridge.onNewVideo("video-1");
+
+        bridge.process(cues("Hello"));
+        List<Cue> output = bridge.process(cues("Hello"));
+
+        assertEquals("a result that answers different coverage must never be cached",
                 "Hello", output.get(0).text.toString());
     }
 
@@ -221,9 +280,10 @@ public class AiSubtitleCueBridgeSessionTest {
         @Override
         public TranslationCall translate(TranslationRequest request, TranslationCallback callback) {
             mCallCount++;
-            mDeliveries.add(() -> callback.onSuccess(new TranslationResult(
-                    request.getGeneration(),
+            mDeliveries.add(() -> callback.onSuccess(TranslationResult.finalResult(
+                    request.getSessionId(),
                     request.getRequestId(),
+                    request.getUnit(),
                     "[ZH] " + request.getSourceText())));
             return new NopCall();
         }

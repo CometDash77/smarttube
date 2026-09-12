@@ -4,6 +4,8 @@ import com.google.android.exoplayer2.text.Cue;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.FakeTranslationProvider;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCall;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCallback;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailure;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailureCategory;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationProvider;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationRequest;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationResult;
@@ -314,11 +316,12 @@ public class AiSubtitleCueBridgeTest {
         return list;
     }
 
-    /** Synchronously fails every request. */
+    /** Synchronously fails every request with a normalized failure. */
     private static final class AlwaysFailingProvider implements TranslationProvider {
         @Override
         public TranslationCall translate(TranslationRequest request, TranslationCallback callback) {
-            callback.onFailure(new IllegalStateException("synthetic failure"));
+            callback.onFailure(new TranslationFailure(
+                    TranslationFailureCategory.INVALID_OUTPUT, "synthetic failure"));
             return new NopCall();
         }
     }
@@ -370,9 +373,10 @@ public class AiSubtitleCueBridgeTest {
         @Override
         public TranslationCall translate(TranslationRequest request, TranslationCallback callback) {
             mCallCount++;
-            mDeliveries.add(() -> callback.onSuccess(new TranslationResult(
-                    request.getGeneration(),
+            mDeliveries.add(() -> callback.onSuccess(TranslationResult.finalResult(
+                    request.getSessionId(),
                     request.getRequestId(),
+                    request.getUnit(),
                     "[ZH] " + request.getSourceText())));
             return new NopCall();
         }

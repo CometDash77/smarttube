@@ -4,7 +4,7 @@ Task ID: `M03`
 
 Milestone: M03 — AI subtitle domain and session core
 
-Status: **IN PROGRESS — M03-C1..C3 landed (domain + session + cache core, 150 tests green, mutation checks recorded); M03-C4..C5 remain**
+Status: **IN PROGRESS — M03-C1..C4 landed (domain + session + cache + provider-neutral contracts, 168 tests green, mutation checks recorded); M03-C5 remains**
 
 ## Task/Milestone and pinned SHAs
 
@@ -46,7 +46,7 @@ Replace M02's normalized-source-text identity and bridge-owned lifecycle maps wi
 | C1 | `feat(domain): add stable subtitle timeline identities` | `domain/` value objects + tests + CONTEXT.md if semantics change | MERGED (this commit) |
 | C2 | `feat(session): enforce generation and scheduling epoch ownership` | `session/` model, bridge/controller lifecycle ownership move + tests | MERGED (this commit) |
 | C3 | `feat(cache): key in-memory translations by complete output identity` | `cache/` key/cache + isolation tests per architecture §9 | MERGED (this commit) |
-| C4 | `refactor(translation): stabilize provider-neutral request contracts` | request/result/callback/stream/failure evolution + fake/bridge/controller adaptation + tests | NOT RUN |
+| C4 | `refactor(translation): stabilize provider-neutral request contracts` | request/result/callback/stream/failure evolution + fake/bridge/controller adaptation + tests | MERGED (this commit) |
 | C5 | `docs(ai-subtitle): record M03 domain and session checkpoint` | Self-acceptance, report completion, progress/ledger, CI evidence | NOT RUN |
 
 ## Files created
@@ -102,7 +102,30 @@ Tests (3):
 
 Contract evolution in the same commit: `TranslationProfile` gained `providerProtocol` and `baseUrlIdentity` (the base URL identity rejects values embedding user information, so credentials can never enter profile, session, or cache identity); its tests, the session tests, and the bridge default profile were updated together.
 
+### M03-C4 — `refactor(translation): stabilize provider-neutral request contracts`
+
+Production (3 new under `common/src/main/java/.../ai/subtitle/translation/`):
+
+- `TranslationFailureCategory.java` — the eight normalized categories (`CANCELLED`, `TIMEOUT`, `RATE_LIMITED`, `AUTH`, `SERVER`, `PROTOCOL`, `INVALID_OUTPUT`, `NETWORK`) with the retryable/terminal policy (`TIMEOUT`, `RATE_LIMITED`, `SERVER`, `NETWORK` are retryable; the rest are terminal).
+- `TranslationFailure.java` — immutable category + non-sensitive message; `isRetryable()`/`isTerminal()` derive from the category; a null category is rejected.
+- `TranslationStream.java` — the streaming extension of `TranslationCallback` (`onPartial`); a partial may only update its owning current request and can never be stored as final text. The non-streaming callback remains the baseline contract; the real stream implementation arrives with M08.
+
+Tests (3 new):
+
+- `translation/TranslationFailureTest.java` (4) — retryable set, terminal set, retryable/terminal complement for every category, getters.
+- `translation/TranslationRequestTest.java` (4) — derived accessors (source text, source/target language) come from session + unit; equality; null/non-positive rejection.
+- `translation/TranslationResultTest.java` (7) — final/partial state, coverage copy and unmodifiability, value equality per field, blank final text and null identity rejection.
+
 ## Files modified
+
+### M03-C4
+
+- `translation/TranslationRequest.java` — now carries `TranslationSessionId` + request id + `TranslationUnit`; source text and source/target languages are derived from those identities; null session/unit and non-positive request ids are rejected.
+- `translation/TranslationResult.java` — now carries session identity, request id, mapped source coverage, translated text, and the final/partial state; final text must be non-blank; coverage is copied and unmodifiable.
+- `translation/TranslationCallback.java` — failures arrive as normalized `TranslationFailure` values instead of raw `Throwable`s.
+- `translation/FakeTranslationProvider.java` — emits `TranslationResult.finalResult(...)` and normalized `INVALID_OUTPUT` failures; the blank-input guard became a null-request guard because `TranslationUnit` rejects blank text by construction.
+- `integration/AiSubtitleCueBridge.java` — result acceptance now additionally requires the result to be final, to repeat the session identity, and to answer exactly the request's segment coverage.
+- Test suites adapted to the evolved contracts: `FakeTranslationProviderTest`, `InMemoryTranslationCacheTest`, `AiSubtitleCueBridgeTest`, `AiSubtitleCueBridgeSessionTest` (plus two new C4 tests: partial results never enter the cache; mismatched coverage is rejected), `AiSubtitleCueBridgeCacheTest`.
 
 ### M03-C3
 
@@ -147,6 +170,13 @@ Per-suite GREEN counts (XML artifacts): `SourceTrackIdTest` 9, `SourceCueTest` 9
 - Full ai-subtitle regression after the bridge integration: **150 passed, 0 failed, 3 skipped (ADR-010)** — cache 26, domain 53, session 24, integration 42 (bridge 19 + bridge-session 10 + bridge-cache 3 + controller 10), translation 5.
 - **Mutation check:** dropping the `baseUrlIdentity` comparison from `TranslationCacheKey.equals` → `baseUrlIdentityIsIsolated` fails (26 executed, 1 failed); reverted and the full suite re-ran green.
 
+### M03-C4 (local diagnostics, JDK 17; CI is authoritative)
+
+- Contract scaffold phase (new types without retryable mapping or validation; request/result factories without validation): `./gradlew :common:testStbetaDebugUnitTest --tests "com.liskovsoft.smartyoutubetv2.common.ai.subtitle.*"` → **171 tests completed, 6 failed, 3 skipped** (EXIT=1) — assertion-level RED on the retryable mapping, blank/null result text, and null/non-positive request identity. All pre-existing tests compiled and passed against the evolved contracts.
+- Implementation phase: 171 executed → **168 passed, 0 failed, 3 skipped (ADR-010)**.
+- Per-suite counts: cache 27 (key 21 + memory 6), domain 53, session 24, integration 44 (bridge 19 + bridge-session 12 + bridge-cache 3 + controller 10), translation 20 (fake 5 + failure 4 + request 4 + result 7).
+- Contract checks (static inspection): the evolved types contain no provider brand, HTTP, prompt, retry, or persistence detail; the non-streaming success path remains the baseline and the production Fake still produces the exact `source + "\n" + "[ZH] source"` output on the first process call (`immediateFakeDecoratesOnTheFirstAndOnlyProcessCall`).
+
 ## Static checks
 
 `NOT RUN` as a full milestone gate (performed at M03-C5: `git diff --check`, declared file inventory, no undeclared host-file change, no line-ending/mode churn, `upstream-patches.md` unchanged because no host file is touched). Commit-level `git diff --check` stays clean; no existing SmartTube file has been modified so far.
@@ -187,4 +217,4 @@ Per-suite GREEN counts (XML artifacts): `SourceTrackIdTest` 9, `SourceCueTest` 9
 
 ## Confirmation
 
-M03-C0 through M03-C3 are landed. No existing SmartTube file has been changed in M03; `upstream-patches.md` stays unchanged. M03-C4 (provider-neutral request contracts) starts after this commit.
+M03-C0 through M03-C4 are landed. No existing SmartTube file has been changed in M03; `upstream-patches.md` stays unchanged. M03-C5 (checkpoint, self-acceptance, exact-SHA CI evidence) starts after this commit.

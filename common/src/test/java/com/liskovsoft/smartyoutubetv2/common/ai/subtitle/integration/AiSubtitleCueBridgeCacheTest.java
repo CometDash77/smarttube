@@ -4,6 +4,8 @@ import com.google.android.exoplayer2.text.Cue;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.FakeTranslationProvider;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCall;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCallback;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailure;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailureCategory;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationProvider;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationRequest;
 
@@ -93,14 +95,15 @@ public class AiSubtitleCueBridgeCacheTest {
         return list;
     }
 
-    /** Synchronously fails every request and counts them. */
+    /** Synchronously fails every request with a normalized failure and counts them. */
     private static final class CountingFailureProvider implements TranslationProvider {
         private int mCallCount;
 
         @Override
         public TranslationCall translate(TranslationRequest request, TranslationCallback callback) {
             mCallCount++;
-            callback.onFailure(new IllegalStateException("synthetic failure"));
+            callback.onFailure(new TranslationFailure(
+                    TranslationFailureCategory.INVALID_OUTPUT, "synthetic failure"));
             return new NopCall();
         }
 
