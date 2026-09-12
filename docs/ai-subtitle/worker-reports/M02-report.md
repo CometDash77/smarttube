@@ -51,7 +51,7 @@ Correction package: `docs/ai-subtitle/tasks/M02-FIX-02.md`; correction plan (cre
 | Finding (severity) | Root cause | Correction |
 |---|---|---|
 | Mixed line endings in `SubtitleSettingsPresenter.java` (P2, Standards) | The first correction inserted the helper with LF terminators inside a file stored as CRLF (baseline 87 CRLF / 0 LF; reviewed tip 90 CRLF / 12 LF), which also made the report's "original style restored" statement inaccurate. | Rows 70–81 rewritten to CRLF only: byte-verified 102 CRLF / 0 LF-only terminators, 12/12 diff, no semantic change; the paragraph above and the modified-files table now state the repair accurately. |
-| Re-enable completion unproven (P2, Spec) | `stubbornLateCallbackAfterDisableIsRejected` asserted only that disable/re-enable issues a second request; a bridge that rejected every post-re-enable callback would still have passed. | The test now delivers the post-re-enable callback, asserts the exact `Hello\n[ZH] Hello` output, and asserts the request count stays 2 (cached, no third request). Mutation check: with the delivery line removed the test fails at `AiSubtitleCueBridgeTest:267`; restored, it passes. |
+| Re-enable completion unproven (P2, Spec) | `stubbornLateCallbackAfterDisableIsRejected` asserted only that disable/re-enable issues a second request; a bridge that rejected every post-re-enable callback would still have passed. | The test now delivers the post-re-enable callback, asserts the exact `Hello\n[ZH] Hello` output, and asserts the request count stays 2 (cached, no third request). Mutation check: with the delivery line removed the test fails at the dual-line assertion (JUnit reports `AiSubtitleCueBridgeTest:267` in the mutated file, one line lower once the delivery line is restored); restored, it passes. |
 | Overstated automation coverage (P2, Spec) | The report stated that all lifecycle transitions in the device matrix were covered by automation, while background/foreground and PiP have no automated equivalent. | The statement now lists exactly which lifecycle events the automated suites cover and keeps background/foreground, PiP, styling, and the device rendering path `NOT RUN`. |
 
 The two judgement items the review deferred — the duplicated API-17-safe equality/hash helpers and the `(requestId, generation, epoch)` cluster — were deliberately left untouched: the correction package authorizes no widening of the M02 patch.
@@ -113,7 +113,7 @@ The JDK 11 artifact executes all three preference methods: `defaultsToDisabled`,
 
 Correction tests added by M02-FIX-01: `immediateFakeDecoratesOnTheFirstAndOnlyProcessCall`, `disablingImmediatelyCancelsInFlightWork`, `stubbornLateCallbackAfterDisableIsRejected`; `disablingTheSettingClearsStateAndRestoresSourceOnly` revised to drive the explicit notification path. M02-FIX-02 strengthened `stubbornLateCallbackAfterDisableIsRejected` so it additionally proves post-re-enable completion and the absence of a third request, instead of only the re-request.
 
-Local M02-FIX-02 diagnostics (non-authoritative): 34 JVM tests green on JDK 17 (bridge 19, controller 10, provider 5 — the Robolectric class is deliberately skipped there); the strengthened test fails at `AiSubtitleCueBridgeTest:267` with the post-re-enable delivery line removed and passes again after restoring it; `SubtitleSettingsPresenter.java` byte-verified at 102 CRLF / 0 LF-only terminators with a 12/12 diff.
+Local M02-FIX-02 diagnostics (non-authoritative): 34 JVM tests green on JDK 17 (bridge 19, controller 10, provider 5 — the Robolectric class is deliberately skipped there); the strengthened test fails at the dual-line assertion with the post-re-enable delivery line removed (JUnit reports `AiSubtitleCueBridgeTest:267` in the mutated file; the assertion sits one line lower, at 268, once the delivery line is restored) and passes again after restoring it; `SubtitleSettingsPresenter.java` byte-verified at 102 CRLF / 0 LF-only terminators with a 12/12 diff.
 
 Red → green evidence from the original implementation (kept for the record): stub-bridge baseline `24 tests completed, 11 failed, 3 skipped` with all failures being assertion failures (`8× AssertionError`, `3× ComparisonFailure`); after implementation `BUILD SUCCESSFUL` with per-suite XML counts.
 
@@ -188,7 +188,7 @@ Automated coverage exists for the lifecycle logic that the controller and bridge
 | # | Criterion | Disposition |
 |---|---|---|
 | 1 | All four internal workstreams complete in one Worker execution | MET (commits 1–4; corrections in 7 and 9) |
-| 2 | Only the three authorized existing SmartTube files modified | MET (patch budgets verified; the settings helper carries a 6-line logical change plus a 12-line terminator-only repair, net 0 lines) |
+| 2 | Only the three authorized existing SmartTube files modified | MET (patch budgets verified; the helper adds 15 net lines to the settings file, 87 → 102, of which the first correction's own edit was +5/−1 and M02-FIX-02 then changed 12 terminators only — 12/12, no line-count change) |
 | 3 | Setting defaults off; disabled behavior upstream-equivalent | MET (disabled path returns the same list reference; bridge tests) |
 | 4 | Enabled output shows source + `[ZH] source` through the existing SubtitleView, one Cue | MET (single-call and deferred two-line cue tests) |
 | 5 | No network, Provider brand, prompt, segmentation, or full-track feature | MET (fake provider only; no permissions, endpoints, or keys) |
@@ -218,7 +218,7 @@ Automated coverage exists for the lifecycle logic that the controller and bridge
 | # | Criterion | Disposition |
 |---|---|---|
 | 1 | Settings helper contains 0 LF-only lines and its diff is limited to the 12 corrected terminators | MET (byte-verified 102 CRLF / 0 LF-only; 12/12 diff; no semantic change) |
-| 2 | Strengthened re-enable test proves completion and provably fails without the post-re-enable delivery | MET (dual-line output and request-count assertions; mutation check red at `AiSubtitleCueBridgeTest:267`, green after restore) |
+| 2 | Strengthened re-enable test proves completion and provably fails without the post-re-enable delivery | MET (dual-line output and request-count assertions; mutation check red at the dual-line assertion — JUnit reports line 267 in the mutated file, 268 once the delivery line is restored — and green after restoring it) |
 | 3 | Report line-ending and automation-coverage statements accurate; matrix stays `NOT RUN` | MET (both statements corrected in this revision; full physical matrix `NOT RUN`) |
 | 4 | 34 JVM tests pass on JDK 17 with the preference suite still executing on JDK 11 | MET (run `34660051184` artifact XML: 34 passed, 3 deliberately skipped on JDK 17; 3/3 on JDK 11) |
 | 5 | Replacement CI run green for the final product SHA with steps and artifacts recorded | MET (run `34660051184`; both jobs; every step listed above) |

@@ -15,7 +15,7 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 - Task state: corrections pushed; replacement CI run `34660051184` is green for `854460bb4`; awaiting Commander re-review
 - Production code changes: M02 implementation present; both correction packages verified green by authoritative runs (`34618112103`, `34660051184`)
 - Actual upstream patch count: 3 existing SmartTube files, all inside the approved M02 budget
-- Remote sync: `origin/feature/ai-bilingual-subtitles` at `854460bb4`; this finalization commit is report-only
+- Remote sync: `feature/ai-bilingual-subtitles` is pushed and matches the local tip; the product-validation commit is `854460bb4`, followed by report-only documentation commits
 - Local compile/test status: diagnostic only (34 JVM tests green on JDK 17; see Test status)
 - GitHub Actions status: run `34660051184` green for `854460bb4` (both jobs); earlier runs `34618112103` and `34618912621` green; `34615801161` failed at lint (historical, superseded)
 
@@ -47,7 +47,7 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 | Phase 0 reconnaissance | Accepted 2026-09-11 | `7e38c9db7` | Read-only evidence and document consistency checks |
 | M02 first Worker delivery | Changes required | `918c487d2..26693c340` | Commander code/spec review; Actions run `34615801161` failed at lint |
 | M02-FIX-01 correction | Green CI; second review required | `69f644f4a`, `be02bc2b3` | Run `34618112103` green (JDK 17 unit tests/lint/assembly + JDK 11 preference suite); Commander second pass found 3 blocking items |
-| M02-FIX-02 correction | Green CI; awaiting Commander re-review | `854460bb4` (+ report-only finalization commit) | Run `34660051184` green for `854460bb4`: artifact XML shows 34 JVM tests passed on JDK 17 and 3/3 preference methods on JDK 11; mutation check red at `AiSubtitleCueBridgeTest:267` without the delivery; settings helper byte-verified at 102 CRLF / 0 LF-only |
+| M02-FIX-02 correction | Green CI; awaiting Commander re-review | `854460bb4` (+ report-only finalization commit) | Run `34660051184` green for `854460bb4`: artifact XML shows 34 JVM tests passed on JDK 17 and 3/3 preference methods on JDK 11; mutation check red at the dual-line assertion (JUnit line 267 in the mutated file, 268 restored); settings helper byte-verified at 102 CRLF / 0 LF-only |
 
 ## Accepted commits
 
@@ -98,5 +98,5 @@ Second-pass correction pushed and validated by green run `34660051184`. Await th
 - M02 local diagnostic report (first delivery): 31 pure-JVM tests passed; 3 Robolectric preference tests skipped and not accepted as coverage.
 - M02 authoritative run `34615801161`: FAILURE at lint; validation-reports artifact exists; no accepted assembly/APK result.
 - M02-FIX-01 authoritative run `34618112103`: green — bridge 19/19, controller 10/10, provider 5/5 on JDK 17; preference suite 3/3 on JDK 11; lint and beta assembly pass.
-- M02-FIX-02 local diagnostics (JDK 17): 34 JVM tests green (bridge 19, controller 10, provider 5; preference suite deliberately skipped); mutation check red at `AiSubtitleCueBridgeTest:267` with the post-re-enable delivery removed and green again after restoring it; settings helper byte-verified at 102 CRLF / 0 LF-only lines with a 12/12 diff.
+- M02-FIX-02 local diagnostics (JDK 17): 34 JVM tests green (bridge 19, controller 10, provider 5; preference suite deliberately skipped); mutation check red at the dual-line assertion with the post-re-enable delivery removed (JUnit line 267 in the mutated file, 268 restored) and green again after restoring it; settings helper byte-verified at 102 CRLF / 0 LF-only lines with a 12/12 diff.
 - M02-FIX-02 authoritative run `34660051184`: green — same counts as run `34618112103`; primary job 5m29s and preference job 2m10s, all steps successful; three artifacts present.
