@@ -10,15 +10,15 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 
 ## Current state
 
-- Current milestone: M02 — CI Lane & Deterministic Dual-Subtitle Baseline
-- Current task: `M02-FIX-02 — second-pass Commander correction package`
-- Task state: corrections pushed; replacement CI run `34660051184` is green for `854460bb4`; awaiting Commander re-review
+- Current milestone: M03 — AI subtitle domain and session core (M03–M06 consolidated Worker program)
+- Current task: `M03-C1 — add stable subtitle timeline identities` (M03-C0 ledger commit landed)
+- Task state: M02 accepted — user relayed the Commander PASS on 2026-09-12 (product evidence run `34660051184` green for `854460bb4`); M03 execution started from base `422451df8`
 - Production code changes: M02 implementation present; both correction packages verified green by authoritative runs (`34618112103`, `34660051184`)
 - Actual upstream patch count: 3 existing SmartTube files, all inside the approved M02 budget
 - Remote sync: `feature/ai-bilingual-subtitles` is pushed and matches the local tip; product validation is `854460bb4`, followed by report-only commits `0b1f4ab53` and `2716e5380` plus this final audit-trail revision
 - Local compile/test status: diagnostic only (34 JVM tests green on JDK 17; see Test status)
 - GitHub Actions status: run `34660051184` green for `854460bb4` (both jobs); earlier runs `34618112103` and `34618912621` green; `34615801161` failed at lint (historical, superseded)
-- Forward plan: `worker-plans/M03-M06-plan.md` is the single M03–M06 Worker program. Per ADR-011 it is handed off once and returned once; the Worker self-validates by milestone during the run, then the Commander performs a separate Superpowers second review for each milestone. Execution remains blocked until M02 Commander PASS.
+- Forward plan: `worker-plans/M03-M06-plan.md` is the single M03–M06 Worker program. Per ADR-011 it is handed off once and returned once; the Worker self-validates by milestone during the run, then the Commander performs a separate Superpowers second review for each milestone. Execution is unblocked: M02 PASS relayed 2026-09-12; M03 execution in progress.
 
 ## Completed work
 
@@ -93,7 +93,7 @@ None.
 
 ## Planned next action
 
-Await the Commander re-review of M02. After PASS, hand the consolidated M03–M06 plan to one Worker once; the Worker completes all four milestones continuously and returns once, after which the Commander runs four milestone-scoped Superpowers second reviews.
+M03–M06 execution in progress by the Worker under `worker-plans/M03-M06-plan.md`; M03-C0 landed (ledger + report start), next is M03-C1 stable domain identities. After the single M03–M06 Worker return, the Commander runs four milestone-scoped Superpowers second reviews.
 
 ## Test status
 

@@ -46,6 +46,15 @@ Status: **READY FOR ONE WORKER HANDOFF after M02 Commander PASS and this plan co
 
 At execution start the coordinator must replace this snapshot in the live execution ledger with the actual `git rev-parse HEAD`, branch, `git status --short`, submodule state, and current workflow baseline. The historical values above remain unchanged as provenance.
 
+### Live execution ledger
+
+Execution snapshot at Worker start (2026-09-12): `HEAD = 422451df87917a3f932c60291f4907d31f1f21ff`, branch `feature/ai-bilingual-subtitles` (ahead 1, clean), submodules `MediaServiceCore 82e9ccde` / `SharedModules 86f0327`, M02 Commander PASS relayed by the user on 2026-09-12.
+
+| UTC timestamp | Milestone/Ticket | State | Base..Tip | Evidence | Docs changed | Next unblocked item |
+|---|---|---|---|---|---|---|
+| 2026-09-12T02:10Z | M03-C0 | MERGED | `422451df8..M03-C0` | M02 Commander PASS (user relay 2026-09-12); clean branch; submodules pinned; G03-1 = NO GRILL REQUIRED (architecture §5/§9, plan §8) | `M03-report.md`, `progress.md`, this ledger | M03-C1 domain identities |
+
+
 ### Read completely before dispatching any worker
 
 1. `AGENTS.md`
