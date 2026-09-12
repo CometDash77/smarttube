@@ -86,14 +86,30 @@ public final class ProviderProfilesPresenter {
                 return SaveResult.failure();
             }
 
-            String secretReference = existing.getSecretReference();
+            String oldReference = existing.getSecretReference();
+            String newReference = oldReference;
             if (replaceSecret) {
-                secretReference = resolveSecretReference(existing, secretReference);
-                mSecrets.put(secretReference, requireSecret(secret));
+                newReference = resolveSecretReference(existing, oldReference);
+                String previousSecret = readSecret(oldReference);
+                boolean secretWritten = false;
+                try {
+                    mSecrets.put(newReference, requireSecret(secret));
+                    secretWritten = true;
+                    ProviderProfile replaced = new ProviderProfile(existing.getId(), name, type,
+                            protocol, baseUrl, newReference, modelId,
+                            existing.getAvailableModelIds(), existing.getHeaders(),
+                            existing.getOptions());
+                    return SaveResult.success(mRepository.update(replaced));
+                } catch (RuntimeException e) {
+                    if (secretWritten) {
+                        restoreSecret(newReference, oldReference, previousSecret);
+                    }
+                    throw e;
+                }
             }
 
             ProviderProfile updated = new ProviderProfile(existing.getId(), name, type,
-                    protocol, baseUrl, secretReference, modelId,
+                    protocol, baseUrl, newReference, modelId,
                     existing.getAvailableModelIds(), existing.getHeaders(),
                     existing.getOptions());
             return SaveResult.success(mRepository.update(updated));
@@ -116,16 +132,22 @@ public final class ProviderProfilesPresenter {
             ProviderProfile created = mRepository.create(draft);
 
             String reference = created.getId();
-            String copiedSecret = readSecret(source.getSecretReference());
-            if (copiedSecret != null) {
-                mSecrets.put(reference, copiedSecret);
-            }
+            try {
+                String copiedSecret = readSecret(source.getSecretReference());
+                if (copiedSecret != null) {
+                    mSecrets.put(reference, copiedSecret);
+                }
 
-            ProviderProfile saved = new ProviderProfile(created.getId(), created.getName(),
-                    created.getProviderType(), created.getProtocol(), created.getBaseUrl(),
-                    reference, created.getModelId(), created.getAvailableModelIds(),
-                    created.getHeaders(), created.getOptions());
-            return SaveResult.success(mRepository.update(saved));
+                ProviderProfile saved = new ProviderProfile(created.getId(), created.getName(),
+                        created.getProviderType(), created.getProtocol(), created.getBaseUrl(),
+                        reference, created.getModelId(), created.getAvailableModelIds(),
+                        created.getHeaders(), created.getOptions());
+                return SaveResult.success(mRepository.update(saved));
+            } catch (RuntimeException e) {
+                mSecrets.delete(reference);
+                mRepository.delete(created.getId());
+                throw e;
+            }
         } catch (RuntimeException e) {
             return SaveResult.failure();
         }
@@ -202,12 +224,18 @@ public final class ProviderProfilesPresenter {
         ProviderProfile created = mRepository.create(draft);
 
         String reference = created.getId();
-        mSecrets.put(reference, secret);
+        try {
+            mSecrets.put(reference, secret);
 
-        ProviderProfile saved = new ProviderProfile(created.getId(), created.getName(), type,
-                protocol, created.getBaseUrl(), reference, created.getModelId(),
-                created.getAvailableModelIds(), created.getHeaders(), created.getOptions());
-        return SaveResult.success(mRepository.update(saved));
+            ProviderProfile saved = new ProviderProfile(created.getId(), created.getName(), type,
+                    protocol, created.getBaseUrl(), reference, created.getModelId(),
+                    created.getAvailableModelIds(), created.getHeaders(), created.getOptions());
+            return SaveResult.success(mRepository.update(saved));
+        } catch (RuntimeException e) {
+            mSecrets.delete(reference);
+            mRepository.delete(created.getId());
+            throw e;
+        }
     }
 
     private boolean isComplete(ProviderProfile profile) {
@@ -240,6 +268,24 @@ public final class ProviderProfilesPresenter {
         }
     }
 
+    private void restoreSecret(String newReference, String oldReference,
+                               String previousSecret) {
+        if (!sameReference(newReference, oldReference)) {
+            mSecrets.delete(newReference);
+            if (previousSecret != null && !isBlank(oldReference)) {
+                mSecrets.put(oldReference, previousSecret);
+            }
+        } else if (previousSecret != null) {
+            mSecrets.put(oldReference, previousSecret);
+        } else if (!isBlank(oldReference)) {
+            mSecrets.delete(oldReference);
+        }
+    }
+
+    private static boolean sameReference(String first, String second) {
+        return first == null ? second == null : first.equals(second);
+    }
+
     private static String resolveSecretReference(ProviderProfile profile, String reference) {
         if (!isBlank(reference)) {
             return reference;
@@ -261,6 +307,10 @@ public final class ProviderProfilesPresenter {
         }
         if (protocol == null) {
             throw new IllegalArgumentException("protocol must not be null");
+        }
+        ProviderPreset preset = ProviderPreset.forType(type);
+        if (preset.getProtocol() != protocol) {
+            throw new IllegalArgumentException("protocol does not match provider type");
         }
         if (!isValidBaseUrl(baseUrl)) {
             throw new IllegalArgumentException("baseUrl must be an HTTP(S) URL");

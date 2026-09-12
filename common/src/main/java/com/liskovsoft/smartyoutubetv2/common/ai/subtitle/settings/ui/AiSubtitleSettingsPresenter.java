@@ -233,6 +233,9 @@ public class AiSubtitleSettingsPresenter extends BasePresenter<Void> {
                 getContext().getString(R.string.ai_subtitle_profile_model),
                 editor.getModelId(), newValue -> {
                     editor.setModelId(newValue);
+                    if (!editor.hasUnsavedChanges()) {
+                        return true;
+                    }
                     ProviderProfilesPresenter.SaveResult result = profilesPresenter().save(
                             profile.getId(), editor.getName(), editor.getProviderType(),
                             editor.getProtocol(), editor.getBaseUrl(), editor.getModelId(),
@@ -262,15 +265,24 @@ public class AiSubtitleSettingsPresenter extends BasePresenter<Void> {
     private void showTestConnection(final ProviderProfile profile) {
         final AppDialogPresenter presenter = AppDialogPresenter.instance(getContext());
         presenter.closeDialog();
-        presenter.appendSingleButton(UiOptionItem.from(
-                getContext().getString(R.string.ai_subtitle_test_connection),
-                option -> { }));
-        presenter.showDialog(getContext().getString(R.string.ai_subtitle_test_connection));
+        final ProviderProfilesPresenter.ConnectionTest[] handle =
+                new ProviderProfilesPresenter.ConnectionTest[1];
 
-        profilesPresenter().testConnection(profile,
+        presenter.appendSingleButton(UiOptionItem.from(
+                getContext().getString(R.string.ai_subtitle_cancel),
+                option -> {
+                    if (handle[0] != null) {
+                        handle[0].cancel();
+                    }
+                    presenter.closeDialog();
+                }));
+
+        handle[0] = profilesPresenter().testConnection(profile,
                 new ProviderProfilesPresenter.ConnectionTestListener() {
                     @Override
                     public void onStarted() {
+                        presenter.showDialog(getContext().getString(
+                                R.string.ai_subtitle_test_connection_running));
                     }
 
                     @Override

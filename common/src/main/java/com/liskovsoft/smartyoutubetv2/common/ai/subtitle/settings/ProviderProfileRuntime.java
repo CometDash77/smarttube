@@ -3,8 +3,10 @@ package com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationProfile;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.ProviderProfile;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.ProviderProfileRepository;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.SecretStore;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.ProviderProfileResolver;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailure;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailureCategory;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationProvider;
 
 /**
@@ -22,18 +24,24 @@ public final class ProviderProfileRuntime {
 
     private final ProviderProfileRepository mRepository;
     private final ProviderProfileResolver mResolver;
+    private final SecretStore mSecretStore;
 
     public ProviderProfileRuntime(ProviderProfileRepository repository,
-                                  ProviderProfileResolver resolver) {
+                                  ProviderProfileResolver resolver,
+                                  SecretStore secretStore) {
         if (repository == null) {
             throw new IllegalArgumentException("repository must not be null");
         }
         if (resolver == null) {
             throw new IllegalArgumentException("resolver must not be null");
         }
+        if (secretStore == null) {
+            throw new IllegalArgumentException("secretStore must not be null");
+        }
 
         mRepository = repository;
         mResolver = resolver;
+        mSecretStore = secretStore;
     }
 
     public ResolvedProvider resolve() {
@@ -54,6 +62,12 @@ public final class ProviderProfileRuntime {
                 return ResolvedProvider.sourceOnly(resolution.getFailure());
             }
 
+            if (!hasReadableSecret(profile)) {
+                return ResolvedProvider.sourceOnly(new TranslationFailure(
+                        TranslationFailureCategory.AUTH,
+                        "Provider credential is not configured."));
+            }
+
             TranslationProfile translationProfile = new TranslationProfile(
                     profile.getId(), profile.getProtocol().name(), profile.getBaseUrl(),
                     profile.getModelId(), PROMPT_PROFILE_ID_PENDING,
@@ -61,6 +75,19 @@ public final class ProviderProfileRuntime {
             return ResolvedProvider.resolved(resolution.getAdapter(), translationProfile);
         } catch (RuntimeException e) {
             return ResolvedProvider.sourceOnly();
+        }
+    }
+
+    private boolean hasReadableSecret(ProviderProfile profile) {
+        if (profile.getSecretReference() == null || profile.getSecretReference().trim().isEmpty()) {
+            return false;
+        }
+
+        try {
+            String secret = mSecretStore.get(profile.getSecretReference());
+            return secret != null && !secret.trim().isEmpty();
+        } catch (SecretStore.Failure e) {
+            return false;
         }
     }
 

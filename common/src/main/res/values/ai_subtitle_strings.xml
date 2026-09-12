@@ -8,6 +8,8 @@
     <string name="ai_subtitle_delete_profile">Delete profile</string>
     <string name="ai_subtitle_set_default">Set as default</string>
     <string name="ai_subtitle_test_connection">Test connection</string>
+    <string name="ai_subtitle_test_connection_running">Testing connection…</string>
+    <string name="ai_subtitle_cancel">Cancel</string>
     <string name="ai_subtitle_test_connection_success">Connection test succeeded.</string>
     <string name="ai_subtitle_test_connection_failed">Connection test failed.</string>
     <string name="ai_subtitle_change_secret">Change secret</string>

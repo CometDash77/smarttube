@@ -95,6 +95,38 @@ public class ProviderProfilesPresenterTest {
     }
 
     @Test
+    public void replacementPersistenceFailureRestoresPreviousSecret() {
+        FlakyStore store = new FlakyStore(false);
+        Fixture fixture = new Fixture(store);
+        ProviderProfile profile = fixture.presenter.save(null, "OpenAI",
+                ProviderType.OPENAI_COMPATIBLE, ProviderProtocol.OPENAI_CHAT_COMPLETIONS,
+                "https://api.example.com/v1", "model-a", "old-key", true).getProfile();
+        store.failOnCredentialReference = true;
+
+        ProviderProfilesPresenter.SaveResult result = fixture.presenter.save(
+                profile.getId(), "OpenAI", ProviderType.OPENAI_COMPATIBLE,
+                ProviderProtocol.OPENAI_CHAT_COMPLETIONS,
+                "https://api.example.com/v1", "model-a", "new-key", true);
+
+        assertFalse(result.isSuccess());
+        assertEquals("old-key", fixture.secrets.get(profile.getSecretReference()));
+        assertEquals("model-a", fixture.presenter.getProfile(profile.getId()).getModelId());
+    }
+
+    @Test
+    public void createPersistenceFailureRollsBackProfileAndSecret() {
+        Fixture fixture = new Fixture(new FlakyStore(true));
+
+        ProviderProfilesPresenter.SaveResult result = fixture.presenter.save(null, "OpenAI",
+                ProviderType.OPENAI_COMPATIBLE, ProviderProtocol.OPENAI_CHAT_COMPLETIONS,
+                "https://api.example.com/v1", "model-a", "new-key", true);
+
+        assertFalse(result.isSuccess());
+        assertTrue(fixture.presenter.getProfiles().isEmpty());
+        assertTrue(((RecordingSecretStore) fixture.secrets).isEmpty());
+    }
+
+    @Test
     public void copyDuplicatesConfigurationAndSecretWithoutChangingSelection() {
         Fixture fixture = new Fixture();
         ProviderProfile first = fixture.presenter.save(null, "First",
@@ -132,6 +164,16 @@ public class ProviderProfilesPresenterTest {
         assertFalse(fixture.presenter.save(null, "Bad Secret", ProviderType.OPENAI_COMPATIBLE,
                 ProviderProtocol.OPENAI_CHAT_COMPLETIONS, "https://api.example.com/v1",
                 "model-a", null, true).isSuccess());
+        assertTrue(fixture.presenter.getProfiles().isEmpty());
+    }
+
+    @Test
+    public void saveRejectsProtocolMismatch() {
+        Fixture fixture = new Fixture();
+
+        assertFalse(fixture.presenter.save(null, "Bad Protocol", ProviderType.OPENAI_COMPATIBLE,
+                ProviderProtocol.ANTHROPIC_MESSAGES, "https://api.example.com/v1",
+                "model-a", "key", true).isSuccess());
         assertTrue(fixture.presenter.getProfiles().isEmpty());
     }
 
@@ -283,16 +325,25 @@ public class ProviderProfilesPresenterTest {
     }
 
     private static final class Fixture {
-        private final MemoryStore store = new MemoryStore();
+        private final ProviderProfileRepository.Store store;
         private final RecordingSecretStore secrets = new RecordingSecretStore();
         private final FakeExecutor executor = new FakeExecutor();
-        private final ProviderProfileRepository repository =
-                new ProviderProfileRepository(store, secrets);
-        private final ProviderProfileResolver resolver =
-                new ProviderProfileResolver(executor, secrets);
-        private final ModelCatalog catalog = new ModelCatalog(executor);
-        private final ProviderProfilesPresenter presenter =
-                new ProviderProfilesPresenter(repository, secrets, resolver, catalog);
+        private final ProviderProfileRepository repository;
+        private final ProviderProfileResolver resolver;
+        private final ModelCatalog catalog;
+        private final ProviderProfilesPresenter presenter;
+
+        Fixture() {
+            this(new MemoryStore());
+        }
+
+        Fixture(ProviderProfileRepository.Store store) {
+            this.store = store;
+            this.repository = new ProviderProfileRepository(store, secrets);
+            this.resolver = new ProviderProfileResolver(executor, secrets);
+            this.catalog = new ModelCatalog(executor);
+            this.presenter = new ProviderProfilesPresenter(repository, secrets, resolver, catalog);
+        }
 
         ProviderProfilesPresenter newPresenter() {
             return new ProviderProfilesPresenter(
@@ -316,6 +367,28 @@ public class ProviderProfilesPresenterTest {
         }
     }
 
+    private static final class FlakyStore implements ProviderProfileRepository.Store {
+        private String mData;
+        private boolean failOnCredentialReference;
+
+        FlakyStore(boolean failOnCredentialReference) {
+            this.failOnCredentialReference = failOnCredentialReference;
+        }
+
+        @Override
+        public String read() {
+            return mData;
+        }
+
+        @Override
+        public void write(String payload) {
+            if (failOnCredentialReference && payload.contains("\"credentialReference\":\"")) {
+                throw new IllegalStateException("synthetic persistence failure");
+            }
+            mData = payload;
+        }
+    }
+
     private static final class RecordingSecretStore implements SecretStore {
         private final Map<String, String> values = new LinkedHashMap<>();
 
@@ -332,6 +405,10 @@ public class ProviderProfilesPresenterTest {
         @Override
         public void delete(String reference) {
             values.remove(reference);
+        }
+
+        boolean isEmpty() {
+            return values.isEmpty();
         }
     }
 

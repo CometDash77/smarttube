@@ -82,6 +82,39 @@ public class ProviderProfileRuntimeTest {
         assertNull(resolved.getProvider());
     }
 
+    @Test
+    public void missingSecretReferenceResolvesToSourceOnly() {
+        Fixture fixture = new Fixture();
+        fixture.repository().create(new ProviderProfile(null, "Missing Secret",
+                ProviderType.OPENAI_COMPATIBLE, ProviderProtocol.OPENAI_CHAT_COMPLETIONS,
+                "https://api.example.com/v1", null, "model-a",
+                Collections.<String>emptyList(), null, null));
+
+        ProviderProfileRuntime.ResolvedProvider resolved =
+                fixture.runtime().resolve();
+
+        assertFalse(resolved.isResolved());
+        assertTrue(resolved.isSourceOnly());
+        assertNull(resolved.getProvider());
+    }
+
+    @Test
+    public void unreadableSecretResolvesToSourceOnly() {
+        Fixture fixture = new Fixture();
+        fixture.repository().create(new ProviderProfile(null, "Unreadable Secret",
+                ProviderType.OPENAI_COMPATIBLE, ProviderProtocol.OPENAI_CHAT_COMPLETIONS,
+                "https://api.example.com/v1", "secret-ref-1", "model-a",
+                Collections.<String>emptyList(), null, null));
+
+        ProviderProfileRuntime runtime = new ProviderProfileRuntime(
+                fixture.repository(), fixture.resolver(), new ThrowingSecretStore());
+        ProviderProfileRuntime.ResolvedProvider resolved = runtime.resolve();
+
+        assertFalse(resolved.isResolved());
+        assertTrue(resolved.isSourceOnly());
+        assertNull(resolved.getProvider());
+    }
+
     private static final class Fixture {
         private final MemoryStore store = new MemoryStore();
         private final RecordingSecretStore secrets = new RecordingSecretStore();
@@ -110,7 +143,11 @@ public class ProviderProfileRuntimeTest {
         }
 
         ProviderProfileRuntime runtime() {
-            return new ProviderProfileRuntime(repository, resolver);
+            return new ProviderProfileRuntime(repository, resolver, secrets);
+        }
+
+        ProviderProfileResolver resolver() {
+            return resolver;
         }
     }
 
@@ -151,6 +188,21 @@ public class ProviderProfileRuntimeTest {
         @Override
         public HttpCall execute(HttpRequest request, HttpCallback callback) {
             throw new AssertionError("runtime resolution must not execute HTTP");
+        }
+    }
+
+    private static final class ThrowingSecretStore implements SecretStore {
+        @Override
+        public String get(String reference) {
+            throw new SecretStore.Failure(SecretStore.FailureReason.UNAVAILABLE);
+        }
+
+        @Override
+        public void put(String reference, String secret) {
+        }
+
+        @Override
+        public void delete(String reference) {
         }
     }
 }

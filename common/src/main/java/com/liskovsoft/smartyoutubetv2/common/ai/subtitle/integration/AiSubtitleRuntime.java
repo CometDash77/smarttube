@@ -24,7 +24,7 @@ public final class AiSubtitleRuntime {
         SecretStore secrets = data.secrets();
         ProviderProfileResolver resolver =
                 new ProviderProfileResolver(new OkHttpRequestExecutor(), secrets);
-        return new ProviderProfileRuntime(data.providerProfiles(), resolver).resolve();
+        return new ProviderProfileRuntime(data.providerProfiles(), resolver, secrets).resolve();
     }
 
     public static void applyToBridge(Context context) {
