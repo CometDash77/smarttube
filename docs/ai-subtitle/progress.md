@@ -15,7 +15,7 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 - Task state: M03 complete (C0–C5; product tip `52877ed96`; exact-SHA CI still needs GitHub UI verification); M04 in progress at C5; M02 remains accepted
 - Production code changes: M02 renderer/lifecycle slice present; M03 domain/session/cache/contracts added; M04-C1 adds Provider Profile persistence; M04-C2 adds separated Android secret storage; M04-C3 adds the shared HTTP boundary and OpenAI-compatible adapter; M04-C4 adds the Anthropic-compatible adapter
 - Actual upstream patch count: 3 existing SmartTube files, all inside the approved M02 budget
-- Remote sync: `feature/ai-bilingual-subtitles` tracks `origin`; M04-C0 tip `8d0c9a50e`, M04-C1 tip `3e1e1ed60`, M04-C2 tip `686768e54`, and M04-C3 tip `47af3c992` are pushed
+- Remote sync: `feature/ai-bilingual-subtitles` tracks `origin`; M04-C0 tip `8d0c9a50e`, M04-C1 tip `3e1e1ed60`, M04-C2 tip `686768e54`, M04-C3 tip `47af3c992`, and M04-C4 tip `54085bdf4` are pushed
 - Local compile/test status: diagnostic only (M04-C4 full ai-subtitle suite 235 passed / 0 failed / 7 skipped on JDK 17; settings/secret suite 41/41 on JDK 11; see Test status)
 - GitHub Actions status: M02 run `34660051184` green for `854460bb4`; M03 and M04 exact-SHA runs remain `BLOCKED` at the workstation Actions API (404) and require GitHub UI verification
 - Forward plan: `worker-plans/M03-M06-plan.md` is the single M03–M06 Worker program. Per ADR-011 it is handed off once and returned once; the Worker self-validates by milestone during the run, then the Commander performs a separate Superpowers second review for each milestone. Execution is unblocked: M03 self-acceptance is complete; M04-C5 is next.
@@ -56,7 +56,7 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 | M04-C1 provider profile persistence | Local TDD green; pushed; exact-SHA CI pending UI verification | `3e1e1ed60` | Incremental RED plus full GREEN; JDK 17 193 passed / 0 failed / 6 skipped; JDK 11 settings suite 6/6; three mutation checks each produced named failures and were reverted |
 | M04-C2 credential protection | Local TDD green; pushed; exact-SHA CI pending UI verification | `686768e54` | RED missing-symbol compile rounds plus API-policy RED, then full GREEN 214 total / 207 passed / 0 failed / 7 skipped on JDK 17 and 41/41 on JDK 11; cleanup and API-threshold mutations produced 3/1 named failures and were reverted; secret scan clean |
 | M04-C3 OpenAI-compatible adapter | Local TDD green; pushed; exact-SHA CI pending UI verification | `47af3c992` | RED 44 missing-symbol compile failures, then 14/14 adapter tests and full GREEN 221 passed / 0 failed / 7 skipped on JDK 17; authorization and JSON-escaping mutations produced 2/1 named failures and were reverted; lint green |
-| M04-C4 Anthropic-compatible adapter | Local TDD green; push/CI pending | `M04-C4` (tip recorded in plan ledger) | RED 15 missing-symbol compile failures, then 14/14 adapter tests and full GREEN 235 passed / 0 failed / 7 skipped on JDK 17; x-api-key and top-level-system mutations each produced 1 named failure and were reverted; lint green |
+| M04-C4 Anthropic-compatible adapter | Local TDD green; pushed; exact-SHA CI pending UI verification | `54085bdf4` | RED 15 missing-symbol compile failures, then 14/14 adapter tests and full GREEN 235 passed / 0 failed / 7 skipped on JDK 17; x-api-key and top-level-system mutations each produced 1 named failure and were reverted; lint green |
 
 ## Accepted commits
 
