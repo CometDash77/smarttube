@@ -4,7 +4,7 @@ Task ID: `M04`
 
 Milestone: M04 — Provider, model, persistence, and connection management
 
-Status: **IN PROGRESS — M04-C0 through M04-C4 landed; M04-C5..C7 remain**
+Status: **IN PROGRESS — M04-C0 through M04-C5 landed; M04-C6..C7 remain**
 
 ## Task/Milestone and pinned SHAs
 
@@ -41,7 +41,7 @@ Implement five user-facing Provider Types through two shared normal-response pro
 | C2 | `feat(settings): protect provider credentials across Android versions` | SecretStore/AndroidSecretStore + tests | MERGED `686768e54` |
 | C3 | `feat(provider): add OpenAI-compatible normal responses` | adapter + fake-executor tests | MERGED `47af3c992` |
 | C4 | `feat(provider): add Anthropic-compatible normal responses` | adapter + tests | MERGED `54085bdf4` |
-| C5 | `feat(provider): add presets and model discovery` | presets + ModelCatalog + ConnectionTestResult | NOT RUN |
+| C5 | `feat(provider): add presets and model discovery` | presets + ModelCatalog + ConnectionTestResult | MERGED (this commit) |
 | C6 | `feat(settings): manage and test provider profiles` | feature-owned UI + the single host settings hook | NOT RUN |
 | C7 | `docs(ai-subtitle): record M04 provider and persistence checkpoint` | self-acceptance, report completion, CI evidence | NOT RUN |
 
@@ -65,7 +65,8 @@ Per the user's instruction, this section records the exact resumption state:
 - **M04-C2 completed**: `SecretStore` / `AndroidSecretStore` now keep credentials outside profile JSON, clear them on profile deletion/reset, mask display values, redact failures, and select AES-256-GCM on API 23+ or the documented app-private plaintext fallback on API 17–22.
 - **M04-C3 completed**: the OpenAI-compatible normal-response adapter now normalizes base URLs, builds escaped Chat Completions requests, maps HTTP/transport failures, propagates cancellation and timeout, captures request IDs, and keeps Authorization/body content out of diagnostics.
 - **M04-C4 completed**: the Anthropic-compatible adapter adds top-level system placement, `anthropic-version` and explicit `max_tokens` policy, x-api-key/Bearer authentication, named error-body mapping, cancellation/timeout propagation, request IDs, and redaction.
-- **Next step**: M04-C5 — provider presets, model discovery, per-profile capabilities, and normalized connection tests.
+- **M04-C5 completed**: five editable presets now map to the two adapters; model discovery normalizes duplicate/blank IDs, distinguishes success/unsupported/failure, preserves manual Model IDs, supports cancellation, and reports normalized connection outcomes.
+- **Next step**: M04-C6 — feature-owned Provider Profile settings UI and the single narrow host settings hook.
 - **Environment addition**: JDK 11 Temurin `11.0.32.1` is available at `C:\Users\77182\.gradle\jdks\temurin-11` for the narrow Robolectric lane; JDK 17 remains the authoritative primary lane.
 
 ## Files created
@@ -111,6 +112,15 @@ Per the user's instruction, this section records the exact resumption state:
 - `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/AnthropicMessagesAdapter.java` — Anthropic-compatible normal-response adapter.
 - `common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/AnthropicMessagesAdapterTest.java` — 14 fake-executor protocol tests.
 
+### M04-C5
+
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/ProviderCapabilities.java` — editable capability flags.
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/ProviderPreset.java` — five editable presets and draft construction.
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/ProviderProfileResolver.java` — profile-to-adapter resolution.
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/ConnectionTestResult.java` — normalized success/unsupported/failure result.
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/ModelCatalog.java` — model discovery and selected-model repair.
+- Matching pure-JVM preset, resolver, and model-catalog tests.
+
 ## Files modified
 
 ### M04-C0
@@ -145,23 +155,27 @@ No production file changed; no existing SmartTube file touched.
 
 - `docs/ai-subtitle/progress.md`, `docs/ai-subtitle/worker-plans/M03-M06-plan.md`, `docs/ai-subtitle/worker-reports/M04-report.md` — live checkpoint/evidence.
 
+### M04-C5
+
+- `docs/ai-subtitle/progress.md`, `docs/ai-subtitle/worker-plans/M03-M06-plan.md`, `docs/ai-subtitle/worker-reports/M04-report.md` — live checkpoint/evidence.
+
 ## Witnessed RED evidence and test inventory
 
-M04-C0 had no production code. M04-C1 followed test-first rounds: initial RED was observed as missing production types/API (34 + 8 + 8 + 13 + 7 missing-symbol compile failures), plus a 1-failure RED for invalid optional-collection repair. M04-C2 then observed 57 missing-symbol compile failures across secret-store and deletion-cleanup tests, followed by a 3-symbol RED for API policy selection. M04-C3 witnessed 44 missing production symbols, then passed 14/14 protocol tests. M04-C4 witnessed 15 missing production symbols, then passed 14/14 Anthropic protocol tests. GREEN evidence for the cumulative M04 suite: 242 total / 235 passed / 0 failed / 7 skipped on JDK 17; the JDK 11 settings/secret suite is 41/41 with 0 skipped. Mutation checks: M04-C1 selection repair / credential-reference serialization / future-schema rejection produced 4 / 2 / 1 named failures; M04-C2 skipped credential cleanup produced 3 and lowered the API threshold produced 1; M04-C3 omitted Authorization produced 2 and disabled JSON quote escaping produced 1; M04-C4 replaced x-api-key and renamed top-level system, each producing 1 named failure; every mutation was reverted.
+M04-C0 had no production code. M04-C1 followed test-first rounds: initial RED was observed as missing production types/API (34 + 8 + 8 + 13 + 7 missing-symbol compile failures), plus a 1-failure RED for invalid optional-collection repair. M04-C2 then observed 57 missing-symbol compile failures across secret-store and deletion-cleanup tests, followed by a 3-symbol RED for API policy selection. M04-C3 witnessed 44 missing production symbols, then passed 14/14 protocol tests. M04-C4 witnessed 15 missing production symbols, then passed 14/14 Anthropic protocol tests. M04-C5 witnessed 17 missing preset/resolver symbols plus the missing model-discovery surface, then passed 16/16 C5 tests. GREEN evidence for the cumulative M04 suite: 258 total / 251 passed / 0 failed / 7 skipped on JDK 17; the JDK 11 settings/secret suite is 41/41 with 0 skipped. Mutation checks: M04-C1 selection repair / credential-reference serialization / future-schema rejection produced 4 / 2 / 1 named failures; M04-C2 skipped credential cleanup produced 3 and lowered the API threshold produced 1; M04-C3 omitted Authorization produced 2 and disabled JSON quote escaping produced 1; M04-C4 replaced x-api-key and renamed top-level system, each producing 1 named failure; M04-C5 forced MiMo onto the Anthropic preset produced 2 and dropped manual Model ID preservation produced 3; every mutation was reverted.
 
 ## Static checks
 
-M04-C4 commit-level checks: `git diff --check` clean; `:common:lintStbetaDebug` BUILD SUCCESSFUL; high-confidence secret scan still finds no real credential; adapter tests use only fake executors and no public network or SSE; no existing SmartTube host file modified. The full static milestone gate remains deferred to M04-C7.
+M04-C5 commit-level checks: `git diff --check` clean; `:common:lintStbetaDebug` BUILD SUCCESSFUL; high-confidence secret scan still finds no real credential; discovery tests use only fake executors; no existing SmartTube host file modified. The full static milestone gate remains deferred to M04-C7.
 
 ## GitHub Actions runs
 
 - M04-C0 tip: pushed as `8d0c9a50e`; exact-SHA Actions status cannot be read through the workstation API (404) and requires GitHub UI verification.
-- M04-C1 tip: pushed as `3e1e1ed60`; M04-C2 tip: pushed as `686768e54`; M04-C3 tip: pushed as `47af3c992`; M04-C4 tip: pushed as `54085bdf4`. Exact-SHA Actions status cannot be read through the workstation API (404) and requires GitHub UI verification.
+- M04-C1 tip: pushed as `3e1e1ed60`; M04-C2 tip: pushed as `686768e54`; M04-C3 tip: pushed as `47af3c992`; M04-C4 tip: pushed as `54085bdf4`; M04-C5 tip is `PENDING AUTHORIZED UPLOAD`. Exact-SHA Actions status cannot be read through the workstation API (404) and requires GitHub UI verification.
 - Milestone tip (M04-C7): `NOT RUN`.
 
 ## Device matrix
 
-`NOT RUN` for all rows at M04-C0/C1/C2/C3/C4; device acceptance remains deferred to M04-C7.
+`NOT RUN` for all rows at M04-C0/C1/C2/C3/C4/C5; device acceptance remains deferred to M04-C7.
 
 ## Worker first-pass self-review dispositions
 
@@ -183,14 +197,14 @@ M04-C4 commit-level checks: `git diff --check` clean; `:common:lintStbetaDebug` 
 
 | # | Criterion | Disposition | Evidence |
 |---|---|---|---|
-| 1 | Five Provider Types resolve through exactly two normal-response protocol adapters | PARTIAL — M04-C4 | Both OpenAI- and Anthropic-compatible protocol adapters are implemented with 28 fake-executor tests across the two adapter rounds; five Provider Types and resolution wiring remain for C5–C6 |
+| 1 | Five Provider Types resolve through exactly two normal-response protocol adapters | COMPLETE — M04-C5 | `ProviderPreset` maps all five Provider Types to one of two protocols and `ProviderProfileResolverTest` proves all five resolve to the shared adapters |
 | 2 | Profile/schema migration and default repair are deterministic across restart/profile switch | PARTIAL — M04-C1 | 199-test M04-C1 suite with 193 executed on JDK 17 plus 6/6 Robolectric settings tests on JDK 11; restart, corrupt repair, stable IDs, CRUD, dangling selections, future-schema rejection, enabled-flag preservation, and app-profile switching covered |
 | 3 | Secrets satisfy the accepted API 17/backup/export policy and do not appear in logs/reports/artifacts | PARTIAL — M04-C2 | Separated store, Keystore AES path selection, API 17 plaintext fallback, masking/redaction, deletion/reset cleanup, safe failure vocabulary, and repository secret scan covered; physical-device backup/export acceptance remains for M04-C7 |
-| 4 | Manual model entry works when discovery is unsupported or fails | NOT RUN | — |
+| 4 | Manual model entry works when discovery is unsupported or fails | PARTIAL — M04-C5 | Model discovery failure/unsupported tests preserve the saved manual Model ID; UI save/edit remains for M04-C6 |
 | 5 | Every Provider failure category proves Source-Only Fallback | NOT RUN | — |
 | 6 | No SSE, scheduler retry, prompt CRUD, or persistent translation cache was added | NOT RUN | — |
 | 7 | M04 Worker self-acceptance complete; range/evidence frozen; Worker continues to M05 without user relay | NOT RUN | — |
 
 ## Confirmation
 
-M04-C0 through M04-C4 are complete. G04-1/G04-2 remain settled; both production network adapters exist but are exercised only through fake executors. Anthropic-compatible normal responses are implemented and locally verified; M04-C5 (presets and model discovery) starts next.
+M04-C0 through M04-C5 are complete. G04-1/G04-2 remain settled; both network adapters and model discovery are exercised only through fake executors. Presets, capabilities, discovery normalization, and connection outcomes are implemented and locally verified; M04-C6 (settings UI and host hook) starts next.
