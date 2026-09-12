@@ -19,7 +19,9 @@ Status: second-pass correction (M02-FIX-02) complete; replacement CI run `346600
 | 7 | `69f644f4a` | `fix(ai-subtitle): satisfy M02 review` | First corrections: code, tests, workflow, fix plan |
 | 8 | `be02bc2b3` | `docs(ai-subtitle): finalize M02 validation` | Final report revision of the first correction |
 | 9 | `854460bb4` | `fix(ai-subtitle): address M02 second-pass review` | Settings-helper CRLF repair, strengthened re-enable test, review record, M02-FIX-02 package/plan, progress ledger |
-| 10 | this revision | `docs(ai-subtitle): finalize M02 second-pass validation` | Amended report with the second-pass disposition and replacement-run evidence |
+| 10 | `0b1f4ab53` | `docs(ai-subtitle): finalize M02 second-pass validation` | Amended report with the second-pass disposition and replacement-run evidence |
+| 11 | `2716e5380` | `docs(ai-subtitle): clarify mutation-check context and ledger sync` | Clarified mutation line context, diff accounting, and ledger sync |
+| 12 | this revision | `docs(ai-subtitle): close M02 audit trail` | Complete the final commit and documentation-run ledger |
 
 Base for this milestone: `0b16df3d5` (`docs(ai-subtitle): approve architecture and package M02`) on `feature/ai-bilingual-subtitles`.
 
@@ -55,6 +57,8 @@ Correction package: `docs/ai-subtitle/tasks/M02-FIX-02.md`; correction plan (cre
 | Overstated automation coverage (P2, Spec) | The report stated that all lifecycle transitions in the device matrix were covered by automation, while background/foreground and PiP have no automated equivalent. | The statement now lists exactly which lifecycle events the automated suites cover and keeps background/foreground, PiP, styling, and the device rendering path `NOT RUN`. |
 
 The two judgement items the review deferred — the duplicated API-17-safe equality/hash helpers and the `(requestId, generation, epoch)` cluster — were deliberately left untouched: the correction package authorizes no widening of the M02 patch.
+
+The M02-FIX-02 package specified at most two additional logical commits. After the report-only commit `0b1f4ab53`, an independent read-only audit found three factual bookkeeping inconsistencies; `2716e5380` corrected those statements without changing production code, tests, workflow, or artifacts. The Commander grants an explicit exception for this third docs-only correction; history is preserved with no amend, rebase, or force-push.
 
 ## Files created
 
@@ -138,6 +142,16 @@ Tests cover: disabled pass-through (same list reference), null/empty/blank input
 - Primary job `Test, lint, and assemble` (JDK 17), 5m29s: `Set up job`, `Checkout code and submodules`, `Set up JDK 17`, `Grant Gradle wrapper permission`, `Run common unit tests`, `Lint beta release`, `Assemble beta release`, `Upload validation reports`, `Upload beta APKs` — all success.
 - Supplementary job `Preference tests (JDK 11)`, 2m10s: `Set up job`, `Checkout code and submodules`, `Set up JDK 11`, `Grant Gradle wrapper permission`, `Run AI subtitle preference tests`, `Upload preference test reports` — all success (3/3 methods executed).
 - Artifacts: `ai-subtitle-validation-reports-4`, `ai-subtitle-beta-apks-4`, `ai-subtitle-preference-reports-4`.
+
+**Run 4 — `34660494711` (cancelled docs-only follow-up):**
+
+- URL: https://github.com/CometDash77/smartube/actions/runs/34660494711
+- Head SHA: `0b1f4ab53`; the JDK 11 preference job completed successfully, while the primary job was cancelled during assembly when the next push superseded it under the workflow's `cancel-in-progress` concurrency policy. Validation and preference reports were uploaded; the APK upload was skipped.
+
+**Run 5 — `34660774973` (green docs-only follow-up):**
+
+- URL: https://github.com/CometDash77/smartube/actions/runs/34660774973
+- Head SHA: `2716e5380`; both jobs and every step completed successfully. Artifacts: `ai-subtitle-validation-reports-6`, `ai-subtitle-beta-apks-6`, `ai-subtitle-preference-reports-6`.
 
 **JDK responsibilities (ADR-010):** JDK 17 is authoritative for normal unit tests, lint, and beta assembly. JDK 11 exists solely to execute the Robolectric-backed preference suite that Robolectric 4.6.1 cannot run on JDK 17; it runs no builds, lint, releases, or other tests. The JDK 17 job deliberately reports that class as ignored; the JDK 11 job demonstrably executes and passes it.
 
@@ -226,4 +240,4 @@ Automated coverage exists for the lifecycle logic that the controller and bridge
 
 ## Confirmation
 
-M03 was not started. The Worker stopped after M02, completed the second correction package (`M02-FIX-02`), and returns this amended report and the commit range `0b16df3d5..854460bb4` (plus this report-only finalization commit) once. The product-validation evidence for this revision is run `34660051184` for `854460bb4`; the report-only finalization push may trigger a docs-only workflow run.
+M03 was not started. The Worker stopped after M02, completed the second correction package (`M02-FIX-02`), and returns this amended report and the final recorded range `0b16df3d5..2716e5380` plus this docs-only audit-trail revision. Product-validation evidence is run `34660051184` for `854460bb4`; the docs-only follow-up chain is recorded as cancelled run `34660494711` followed by successful run `34660774973`.
