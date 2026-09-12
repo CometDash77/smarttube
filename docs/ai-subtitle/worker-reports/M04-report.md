@@ -4,7 +4,7 @@ Task ID: `M04`
 
 Milestone: M04 — Provider, model, persistence, and connection management
 
-Status: **IN PROGRESS — M04-C0 through M04-C2 landed; M04-C3..C7 remain**
+Status: **IN PROGRESS — M04-C0 through M04-C3 landed; M04-C4..C7 remain**
 
 ## Task/Milestone and pinned SHAs
 
@@ -39,7 +39,7 @@ Implement five user-facing Provider Types through two shared normal-response pro
 | C0 | `docs(ai-subtitle): settle provider security and capability policy` | research notes, ADR-012, M04 report start, baseline pin | MERGED (this commit) |
 | C1 | `feat(settings): version provider profile persistence` | schema/repository/serializer/migration + tests | MERGED `3e1e1ed60` |
 | C2 | `feat(settings): protect provider credentials across Android versions` | SecretStore/AndroidSecretStore + tests | MERGED `686768e54` |
-| C3 | `feat(provider): add OpenAI-compatible normal responses` | adapter + fake-executor tests | NOT RUN |
+| C3 | `feat(provider): add OpenAI-compatible normal responses` | adapter + fake-executor tests | MERGED (this commit) |
 | C4 | `feat(provider): add Anthropic-compatible normal responses` | adapter + tests | NOT RUN |
 | C5 | `feat(provider): add presets and model discovery` | presets + ModelCatalog + ConnectionTestResult | NOT RUN |
 | C6 | `feat(settings): manage and test provider profiles` | feature-owned UI + the single host settings hook | NOT RUN |
@@ -63,7 +63,8 @@ Per the user's instruction, this section records the exact resumption state:
 
 - **M04-C1 completed**: versioned non-secret Provider Profile model, serializer, migration, repository, and Android app-profile storage bridge landed. Deterministic repair covers blank/duplicate IDs, invalid profile entries, dangling default/selected IDs, corrupt JSON, and older schemas; newer schemas fail closed without overwrite.
 - **M04-C2 completed**: `SecretStore` / `AndroidSecretStore` now keep credentials outside profile JSON, clear them on profile deletion/reset, mask display values, redact failures, and select AES-256-GCM on API 23+ or the documented app-private plaintext fallback on API 17–22.
-- **Next step**: M04-C3 — OpenAI-compatible normal-response adapter with a fake HTTP executor, path/header/body/response/error/cancellation coverage.
+- **M04-C3 completed**: the OpenAI-compatible normal-response adapter now normalizes base URLs, builds escaped Chat Completions requests, maps HTTP/transport failures, propagates cancellation and timeout, captures request IDs, and keeps Authorization/body content out of diagnostics.
+- **Next step**: M04-C4 — Anthropic-compatible normal-response adapter with protocol-specific body/version/auth/error coverage.
 - **Environment addition**: JDK 11 Temurin `11.0.32.1` is available at `C:\Users\77182\.gradle\jdks\temurin-11` for the narrow Robolectric lane; JDK 17 remains the authoritative primary lane.
 
 ## Files created
@@ -95,6 +96,15 @@ Per the user's instruction, this section records the exact resumption state:
 - `common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/AndroidSecretStoreTest.java` — storage/codec, CRUD, restart, failure normalization, redaction, and API-policy tests.
 - `common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/AndroidSecretStoreRobolectricTest.java` — explicit API 17 plaintext fallback test.
 
+### M04-C3
+
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/http/HttpRequestExecutor.java` — asynchronous HTTP boundary with redacted request/failure diagnostics.
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/http/OkHttpRequestExecutor.java` — OkHttp 3.12 asynchronous implementation with timeout, cancellation, and request-ID capture.
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/ProtocolAdapter.java` — shared normal-response adapter contract.
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/TranslationFailureMapper.java` — normalized HTTP/transport failure mapping.
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/OpenAiChatCompletionsAdapter.java` — OpenAI-compatible normal-response adapter.
+- `common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/OpenAiChatCompletionsAdapterTest.java` — 14 fake-executor protocol tests.
+
 ## Files modified
 
 ### M04-C0
@@ -121,23 +131,27 @@ No production file changed; no existing SmartTube file touched.
 - `.github/workflows/ai-subtitle-validation.yml` — JDK 11 job now runs the full settings/secret package.
 - `common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/ProviderProfileSerializerTest.java` — replaced a realistic-looking sentinel with an explicitly synthetic literal.
 
+### M04-C3
+
+- `docs/ai-subtitle/progress.md`, `docs/ai-subtitle/worker-plans/M03-M06-plan.md`, `docs/ai-subtitle/worker-reports/M04-report.md` — live checkpoint/evidence.
+
 ## Witnessed RED evidence and test inventory
 
-M04-C0 had no production code. M04-C1 followed test-first rounds: initial RED was observed as missing production types/API (34 + 8 + 8 + 13 + 7 missing-symbol compile failures), plus a 1-failure RED for invalid optional-collection repair. M04-C2 then observed 57 missing-symbol compile failures across secret-store and deletion-cleanup tests, followed by a 3-symbol RED for API policy selection. GREEN evidence for the cumulative M04 suite: 214 total / 207 passed / 0 failed / 7 skipped on JDK 17; the JDK 11 settings/secret suite is 41/41 with 0 skipped, including the explicit API 17 plaintext fallback. Mutation checks: M04-C1 selection repair / credential-reference serialization / future-schema rejection produced 4 / 2 / 1 named failures; M04-C2 skipped credential cleanup produced 3 failures and lowered the API threshold produced 1; every mutation was reverted.
+M04-C0 had no production code. M04-C1 followed test-first rounds: initial RED was observed as missing production types/API (34 + 8 + 8 + 13 + 7 missing-symbol compile failures), plus a 1-failure RED for invalid optional-collection repair. M04-C2 then observed 57 missing-symbol compile failures across secret-store and deletion-cleanup tests, followed by a 3-symbol RED for API policy selection. M04-C3 witnessed 44 missing production symbols in the adapter round, then passed 14/14 protocol tests. GREEN evidence for the cumulative M04 suite: 228 total / 221 passed / 0 failed / 7 skipped on JDK 17; the JDK 11 settings/secret suite is 41/41 with 0 skipped. Mutation checks: M04-C1 selection repair / credential-reference serialization / future-schema rejection produced 4 / 2 / 1 named failures; M04-C2 skipped credential cleanup produced 3 and lowered the API threshold produced 1; M04-C3 omitted Authorization produced 2 and disabled JSON quote escaping produced 1; every mutation was reverted.
 
 ## Static checks
 
-M04-C2 commit-level checks: `git diff --check` clean; `:common:lintStbetaDebug` BUILD SUCCESSFUL; repository-wide high-confidence secret scan found no real credential and only explicit synthetic test literals; no existing SmartTube host file modified. The full static milestone gate remains deferred to M04-C7.
+M04-C3 commit-level checks: `git diff --check` clean; `:common:lintStbetaDebug` BUILD SUCCESSFUL; high-confidence secret scan still finds no real credential; adapter tests use only fake executors and no public network; no existing SmartTube host file modified. The full static milestone gate remains deferred to M04-C7.
 
 ## GitHub Actions runs
 
 - M04-C0 tip: pushed as `8d0c9a50e`; exact-SHA Actions status cannot be read through the workstation API (404) and requires GitHub UI verification.
-- M04-C1 tip: pushed as `3e1e1ed60`; M04-C2 tip: pushed as `686768e54`. Exact-SHA Actions status cannot be read through the workstation API (404) and requires GitHub UI verification.
+- M04-C1 tip: pushed as `3e1e1ed60`; M04-C2 tip: pushed as `686768e54`; M04-C3 tip is `PENDING AUTHORIZED UPLOAD`. Exact-SHA Actions status cannot be read through the workstation API (404) and requires GitHub UI verification.
 - Milestone tip (M04-C7): `NOT RUN`.
 
 ## Device matrix
 
-`NOT RUN` for all rows at M04-C0/C1/C2; device acceptance remains deferred to M04-C7.
+`NOT RUN` for all rows at M04-C0/C1/C2/C3; device acceptance remains deferred to M04-C7.
 
 ## Worker first-pass self-review dispositions
 
@@ -159,7 +173,7 @@ M04-C2 commit-level checks: `git diff --check` clean; `:common:lintStbetaDebug` 
 
 | # | Criterion | Disposition | Evidence |
 |---|---|---|---|
-| 1 | Five Provider Types resolve through exactly two normal-response protocol adapters | NOT RUN | — |
+| 1 | Five Provider Types resolve through exactly two normal-response protocol adapters | PARTIAL — M04-C3 | The OpenAI-compatible protocol adapter and shared HTTP boundary are implemented with 14 fake-executor tests; Anthropic and preset resolution remain for C4–C6 |
 | 2 | Profile/schema migration and default repair are deterministic across restart/profile switch | PARTIAL — M04-C1 | 199-test M04-C1 suite with 193 executed on JDK 17 plus 6/6 Robolectric settings tests on JDK 11; restart, corrupt repair, stable IDs, CRUD, dangling selections, future-schema rejection, enabled-flag preservation, and app-profile switching covered |
 | 3 | Secrets satisfy the accepted API 17/backup/export policy and do not appear in logs/reports/artifacts | PARTIAL — M04-C2 | Separated store, Keystore AES path selection, API 17 plaintext fallback, masking/redaction, deletion/reset cleanup, safe failure vocabulary, and repository secret scan covered; physical-device backup/export acceptance remains for M04-C7 |
 | 4 | Manual model entry works when discovery is unsupported or fails | NOT RUN | — |
@@ -169,4 +183,4 @@ M04-C2 commit-level checks: `git diff --check` clean; `:common:lintStbetaDebug` 
 
 ## Confirmation
 
-M04-C0 through M04-C2 are complete. G04-1/G04-2 remain settled; no production network code exists yet. Versioned non-secret profiles and separated credential storage are implemented and locally verified; M04-C3 (OpenAI-compatible normal responses) starts next.
+M04-C0 through M04-C3 are complete. G04-1/G04-2 remain settled; the first production network adapter exists but is exercised only through fake executors. OpenAI-compatible normal responses are implemented and locally verified; M04-C4 (Anthropic-compatible normal responses) starts next.
