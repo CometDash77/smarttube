@@ -38,7 +38,7 @@ Implement five user-facing Provider Types through two shared normal-response pro
 |---|---|---|---|
 | C0 | `docs(ai-subtitle): settle provider security and capability policy` | research notes, ADR-012, M04 report start, baseline pin | MERGED (this commit) |
 | C1 | `feat(settings): version provider profile persistence` | schema/repository/serializer/migration + tests | MERGED `3e1e1ed60` |
-| C2 | `feat(settings): protect provider credentials across Android versions` | SecretStore/AndroidSecretStore + tests | MERGED (this commit) |
+| C2 | `feat(settings): protect provider credentials across Android versions` | SecretStore/AndroidSecretStore + tests | MERGED `686768e54` |
 | C3 | `feat(provider): add OpenAI-compatible normal responses` | adapter + fake-executor tests | NOT RUN |
 | C4 | `feat(provider): add Anthropic-compatible normal responses` | adapter + tests | NOT RUN |
 | C5 | `feat(provider): add presets and model discovery` | presets + ModelCatalog + ConnectionTestResult | NOT RUN |
@@ -132,7 +132,7 @@ M04-C2 commit-level checks: `git diff --check` clean; `:common:lintStbetaDebug` 
 ## GitHub Actions runs
 
 - M04-C0 tip: pushed as `8d0c9a50e`; exact-SHA Actions status cannot be read through the workstation API (404) and requires GitHub UI verification.
-- M04-C1 tip: pushed as `3e1e1ed60`; M04-C2 tip is `PENDING AUTHORIZED UPLOAD`. Exact-SHA Actions status cannot be read through the workstation API (404) and requires GitHub UI verification.
+- M04-C1 tip: pushed as `3e1e1ed60`; M04-C2 tip: pushed as `686768e54`. Exact-SHA Actions status cannot be read through the workstation API (404) and requires GitHub UI verification.
 - Milestone tip (M04-C7): `NOT RUN`.
 
 ## Device matrix

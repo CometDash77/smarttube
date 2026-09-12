@@ -15,7 +15,7 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 - Task state: M03 complete (C0–C5; product tip `52877ed96`; exact-SHA CI still needs GitHub UI verification); M04 in progress at C3; M02 remains accepted
 - Production code changes: M02 renderer/lifecycle slice present; M03 domain/session/cache/contracts added; M04-C1 adds feature-owned Provider Profile persistence; M04-C2 adds separated Android secret storage
 - Actual upstream patch count: 3 existing SmartTube files, all inside the approved M02 budget
-- Remote sync: `feature/ai-bilingual-subtitles` tracks `origin`; M04-C0 tip `8d0c9a50e` and M04-C1 tip `3e1e1ed60` are pushed
+- Remote sync: `feature/ai-bilingual-subtitles` tracks `origin`; M04-C0 tip `8d0c9a50e`, M04-C1 tip `3e1e1ed60`, and M04-C2 tip `686768e54` are pushed
 - Local compile/test status: diagnostic only (M04-C2 full ai-subtitle suite 207 passed / 0 failed / 7 skipped on JDK 17; settings/secret suite 41/41 on JDK 11; see Test status)
 - GitHub Actions status: M02 run `34660051184` green for `854460bb4`; M03 and M04 exact-SHA runs remain `BLOCKED` at the workstation Actions API (404) and require GitHub UI verification
 - Forward plan: `worker-plans/M03-M06-plan.md` is the single M03–M06 Worker program. Per ADR-011 it is handed off once and returned once; the Worker self-validates by milestone during the run, then the Commander performs a separate Superpowers second review for each milestone. Execution is unblocked: M03 self-acceptance is complete; M04-C3 is next.
@@ -54,7 +54,7 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 | M03 domain/session/cache/contracts | Self-acceptance complete; Commander review pending | `422451df8..8a4bd175b`; product tip `52877ed96` | 168 passed / 0 failed / 3 skipped on JDK 17; lint green; static gate found 0 non-feature paths; exact-SHA CI blocked at workstation API |
 | M04-C0 policy settlement | Accepted as Worker evidence | `8d0c9a50e` | G04-1/ADR-012 and G04-2 research recorded; docs-only |
 | M04-C1 provider profile persistence | Local TDD green; pushed; exact-SHA CI pending UI verification | `3e1e1ed60` | Incremental RED plus full GREEN; JDK 17 193 passed / 0 failed / 6 skipped; JDK 11 settings suite 6/6; three mutation checks each produced named failures and were reverted |
-| M04-C2 credential protection | Local TDD green; push/CI pending | `M04-C2` (tip recorded in plan ledger) | RED missing-symbol compile rounds plus API-policy RED, then full GREEN 214 total / 207 passed / 0 failed / 7 skipped on JDK 17 and 41/41 on JDK 11; cleanup and API-threshold mutations produced 3/1 named failures and were reverted; secret scan clean |
+| M04-C2 credential protection | Local TDD green; pushed; exact-SHA CI pending UI verification | `686768e54` | RED missing-symbol compile rounds plus API-policy RED, then full GREEN 214 total / 207 passed / 0 failed / 7 skipped on JDK 17 and 41/41 on JDK 11; cleanup and API-threshold mutations produced 3/1 named failures and were reverted; secret scan clean |
 
 ## Accepted commits
 
