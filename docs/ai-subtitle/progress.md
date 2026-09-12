@@ -10,8 +10,8 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 
 ## Current state
 
-- Current milestone: M03 — AI subtitle domain and session core (M03–M06 consolidated Worker program)
-- Current task: `M03-C5 — record M03 domain and session checkpoint` (M03-C4 landed: provider-neutral request/result/callback/stream/failure contracts, 168 tests green)
+- Current milestone: M04 — Provider, model, persistence, and connection management (M03 self-acceptance complete; product tip `52877ed96`; exact-SHA CI `BLOCKED` at workstation API access)
+- Current task: `M04-C0 — settle provider security and capability policy` (M03-C5 landed: checkpoint + self-acceptance; next is the G04-1/G04-2 research round)
 - Task state: M02 accepted — user relayed the Commander PASS on 2026-09-12 (product evidence run `34660051184` green for `854460bb4`); M03 execution started from base `422451df8`
 - Production code changes: M02 implementation present; both correction packages verified green by authoritative runs (`34618112103`, `34660051184`)
 - Actual upstream patch count: 3 existing SmartTube files, all inside the approved M02 budget
@@ -108,3 +108,4 @@ M03–M06 execution in progress by the Worker under `worker-plans/M03-M06-plan.m
 - M03-C2 local diagnostics (JDK 17): witnessed RED 24 tests / 19 failed (session scaffold), then GREEN 24/24; full ai-subtitle regression 118 passed / 0 failed (domain 50 + session 24 + integration 39 + provider 5). Mutation checks: owns-ignoring-generation 2 named failures, owns-ignoring-epoch 1, dropped result-identity check 1 — all reverted, suite re-ran green.
 - M03-C3 local diagnostics (JDK 17): witnessed RED 26 tests / 6 failed (cache scaffold), then GREEN 26/26; full ai-subtitle regression 150 passed / 0 failed / 3 skipped (cache 26 + domain 53 + session 24 + integration 42 + provider 5). Mutation check: dropping the base-URL comparison from the cache key fails `baseUrlIdentityIsIsolated` — reverted, suite re-ran green.
 - M03-C4 local diagnostics (JDK 17): witnessed RED 171 tests / 6 failed (contract scaffold, all pre-existing tests compiled and passed), then GREEN 168 passed / 0 failed / 3 skipped (cache 27 + domain 53 + session 24 + integration 44 + translation 20). Contracts now carry session/unit identity, final/partial state, and normalized failure categories; the production Fake baseline output was re-verified.
+- M03-C5 static gate (local, JDK 17): `git diff --check` clean; 30 added / 9 modified files with 0 non-feature paths; host-file diff empty; brand and network-import scans clean; `:common:lintStbetaDebug` BUILD SUCCESSFUL (API 17 preserved). Exact-SHA GitHub Actions status: `BLOCKED` — the Actions API is unreadable from this workstation (404 for the private repository), so runs for the five M03 tips must be verified in the GitHub UI.

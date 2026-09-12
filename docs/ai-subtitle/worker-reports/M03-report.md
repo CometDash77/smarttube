@@ -4,13 +4,13 @@ Task ID: `M03`
 
 Milestone: M03 — AI subtitle domain and session core
 
-Status: **IN PROGRESS — M03-C1..C4 landed (domain + session + cache + provider-neutral contracts, 168 tests green, mutation checks recorded); M03-C5 remains**
+Status: **COMPLETE (Worker self-acceptance) — M03-C0..C5 landed; product tip `52877ed96`; 168 passed / 0 failed / 3 skipped; static gate passed; exact-SHA CI evidence `BLOCKED` by workstation API access (see below)**
 
 ## Task/Milestone and pinned SHAs
 
 - Milestone: `M03` — AI subtitle domain and session core (M03-M06 consolidated Worker program, plan section 8).
 - Pinned base (execution start): `422451df87917a3f932c60291f4907d31f1f21ff` (`docs(ai-subtitle): plan uninterrupted M03-M06 worker run`).
-- Final product SHA: `NOT RUN` (filled at M03-C5).
+- Final product SHA: `52877ed96` (M03-C4); M03-C5 appends this docs-only finalization commit.
 - Branch: `feature/ai-bilingual-subtitles`.
 
 ## Baseline confirmation (M03-C0)
@@ -47,7 +47,7 @@ Replace M02's normalized-source-text identity and bridge-owned lifecycle maps wi
 | C2 | `feat(session): enforce generation and scheduling epoch ownership` | `session/` model, bridge/controller lifecycle ownership move + tests | MERGED (this commit) |
 | C3 | `feat(cache): key in-memory translations by complete output identity` | `cache/` key/cache + isolation tests per architecture §9 | MERGED (this commit) |
 | C4 | `refactor(translation): stabilize provider-neutral request contracts` | request/result/callback/stream/failure evolution + fake/bridge/controller adaptation + tests | MERGED (this commit) |
-| C5 | `docs(ai-subtitle): record M03 domain and session checkpoint` | Self-acceptance, report completion, progress/ledger, CI evidence | NOT RUN |
+| C5 | `docs(ai-subtitle): record M03 domain and session checkpoint` | Self-acceptance, report completion, progress/ledger, CI evidence | MERGED (this commit) |
 
 ## Files created
 
@@ -179,12 +179,21 @@ Per-suite GREEN counts (XML artifacts): `SourceTrackIdTest` 9, `SourceCueTest` 9
 
 ## Static checks
 
-`NOT RUN` as a full milestone gate (performed at M03-C5: `git diff --check`, declared file inventory, no undeclared host-file change, no line-ending/mode churn, `upstream-patches.md` unchanged because no host file is touched). Commit-level `git diff --check` stays clean; no existing SmartTube file has been modified so far.
+Milestone static gate over `422451df8...HEAD` (product tip `52877ed96`), executed 2026-09-12:
+
+- `git status --short --branch` — clean; in sync with `origin` after the push.
+- `git diff --check` — clean.
+- `git diff --name-status 422451df8...HEAD` — 30 added, 9 modified; **0 non-feature paths** (filtering out `common/.../ai/subtitle/**` and `docs/ai-subtitle/**` yields zero files).
+- Host-file diff (`.github/workflows/CI.yml`, `common/app/**`, `common/exoplayer/**`, `MediaServiceCore`, `SharedModules`, `exoplayer-amzn-2.10.6`) — **empty**; `upstream-patches.md` is unchanged and matches the empty host diff.
+- Brand scan (`openai|anthropic|openrouter|deepseek|mimo`) over the complete feature tree — no match.
+- Network-import scan (`java.net`, `okhttp`, `sharedutils.okhttp`) over the complete feature tree — no match; no network request exists anywhere in M03.
+- `./gradlew :common:lintStbetaDebug` — **BUILD SUCCESSFUL** (55s, 277 tasks executed); API 17 compatibility preserved.
 
 ## GitHub Actions runs
 
-- M03-C0 push: `PENDING AUTHORIZED UPLOAD` — exact-SHA run for the M03-C0 tip; URL/run ID/step conclusions to be recorded here when available.
-- Milestone tip (M03-C5): `NOT RUN`.
+- Push confirmed at the git layer for every M03 tip: `2a1e45c65` (C0), `047022ae2` (C1), `872c07205` (C2), `66ee4e265` (C3), `52877ed96` (C4); `git ls-remote origin refs/heads/feature/ai-bilingual-subtitles` matched the local tip after every push.
+- **Exact-SHA workflow status: `BLOCKED` (workstation API access).** The Actions REST API is not readable from this workstation: `gh api repos/CometDash77/smartube` and its `actions/*` sub-resources return 404 even though `gh api user` and `gh api rate_limit` succeed (the API itself is reachable), and an unauthenticated `curl https://github.com/CometDash77/smartube` also returns 404 — the repository is private and the current workstation credential has no API read access to it. Every push therefore launched the workflow (the lane triggers on branch pushes), but the run results cannot be read from here.
+- **Required user action to unblock:** open https://github.com/CometDash77/smartube/actions while authenticated, or refresh the workstation gh authorization, and record the run URL/ID/step conclusions for the five tips above. This is the only open M03 evidence item; it is reported as `BLOCKED`, never as PASS.
 
 ## Device matrix
 
@@ -208,13 +217,13 @@ Per-suite GREEN counts (XML artifacts): `SourceTrackIdTest` 9, `SourceCueTest` 9
 
 | # | Criterion | Disposition | Evidence |
 |---|---|---|---|
-| 1 | Deterministic tests prove no cross-video, cross-track, cross-profile, or same-text/different-segment contamination | NOT RUN | — |
-| 2 | All M02 regression tests pass | NOT RUN | — |
-| 3 | No network request, real Provider profile, prompt manager, or segmentation pipeline exists | NOT RUN | — |
-| 4 | No non-feature SmartTube file changed | NOT RUN | — |
-| 5 | Exact-SHA GitHub Actions launched and recorded; green mandatory before final M03–M06 return | NOT RUN | — |
-| 6 | M03 Worker self-acceptance complete; base/tip frozen; Worker continues to M04 without user relay | NOT RUN | — |
+| 1 | Deterministic tests prove no cross-video, cross-track, cross-profile, or same-text/different-segment contamination | MET | `TranslationCacheKeyTest` (21 field-isolation tests), `AiSubtitleCueBridgeCacheTest` (equal text on another track re-requests; session change clears the cache), `SubtitleSegmentTest` (same text at different segment ids stays distinct) |
+| 2 | All M02 regression tests pass | MET | bridge 19, controller 10, fake provider 5 — green inside the 168-passed full run |
+| 3 | No network request, real Provider profile, prompt manager, or segmentation pipeline exists | MET | brand scan: 0 matches; network-import scan: 0 matches; only `FakeTranslationProvider` is wired |
+| 4 | No non-feature SmartTube file changed | MET | 0 non-feature paths in `422451df8...HEAD`; host-file diff empty |
+| 5 | Exact-SHA GitHub Actions launched and recorded; green mandatory before final M03–M06 return | `BLOCKED` | Pushes confirmed at git layer for all five tips; Actions API unreadable from this workstation (404; repository private, workstation credential lacks API read access). User/browser verification required; never reported as PASS. |
+| 6 | M03 Worker self-acceptance complete; base/tip frozen; Worker continues to M04 without user relay | MET | base `422451df8`; product tip `52877ed96`; this report; C5 is the docs-only finalization commit |
 
 ## Confirmation
 
-M03-C0 through M03-C4 are landed. No existing SmartTube file has been changed in M03; `upstream-patches.md` stays unchanged. M03-C5 (checkpoint, self-acceptance, exact-SHA CI evidence) starts after this commit.
+M03-C0 through M03-C5 are landed (product tip `52877ed96`; C5 is the docs-only finalization commit). No existing SmartTube file has been changed in M03; `upstream-patches.md` is unchanged and matches the empty host diff. M03 Worker self-acceptance is complete; the only open item is the exact-SHA CI evidence, which is `BLOCKED` by workstation API access and needs browser/user verification. The Worker continues to M04 without user relay.
