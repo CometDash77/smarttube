@@ -4,7 +4,7 @@ Task ID: `M04`
 
 Milestone: M04 — Provider, model, persistence, and connection management
 
-Status: **IN PROGRESS — M04-C0 (policy settlement) landed; M04-C1..C7 remain**
+Status: **IN PROGRESS — M04-C0 and M04-C1 landed; M04-C2..C7 remain**
 
 ## Task/Milestone and pinned SHAs
 
@@ -37,7 +37,7 @@ Implement five user-facing Provider Types through two shared normal-response pro
 | # | Commit subject | Content | State |
 |---|---|---|---|
 | C0 | `docs(ai-subtitle): settle provider security and capability policy` | research notes, ADR-012, M04 report start, baseline pin | MERGED (this commit) |
-| C1 | `feat(settings): version provider profile persistence` | schema/repository/serializer/migration + tests | NOT RUN |
+| C1 | `feat(settings): version provider profile persistence` | schema/repository/serializer/migration + tests | MERGED (this commit) |
 | C2 | `feat(settings): protect provider credentials across Android versions` | SecretStore/AndroidSecretStore + tests | NOT RUN |
 | C3 | `feat(provider): add OpenAI-compatible normal responses` | adapter + fake-executor tests | NOT RUN |
 | C4 | `feat(provider): add Anthropic-compatible normal responses` | adapter + tests | NOT RUN |
@@ -59,6 +59,12 @@ Per the user's instruction, this section records the exact resumption state:
   - `api.github.com` 对本仓库返回 404（private repo + token 无 API 读权限）→ CI 状态只能在 GitHub UI 查看。
 - **Progress record inventory**（首次工作伦理要求）：本报告 + `progress.md`（Test status 区）+ plan ledger 三处已同步。
 
+## Resumption progress (2026-09-12)
+
+- **M04-C1 completed**: versioned non-secret Provider Profile model, serializer, migration, repository, and Android app-profile storage bridge landed. Deterministic repair covers blank/duplicate IDs, invalid profile entries, dangling default/selected IDs, corrupt JSON, and older schemas; newer schemas fail closed without overwrite.
+- **Next step**: M04-C2 — `SecretStore` / `AndroidSecretStore`, credential save/read/update/delete, explicit deletion cleanup, API 17 fallback, and redaction/exception tests under ADR-012.
+- **Environment addition**: JDK 11 Temurin `11.0.32.1` is available at `C:\Users\77182\.gradle\jdks\temurin-11` for the narrow Robolectric lane; JDK 17 remains the authoritative primary lane.
+
 ## Files created
 
 ### M04-C0
@@ -66,6 +72,19 @@ Per the user's instruction, this section records the exact resumption state:
 - `docs/ai-subtitle/research/g04-1-android-secret-storage.md` — G04-1 research note (verified evidence table, accepted policy, limitations).
 - `docs/ai-subtitle/research/g04-2-provider-capabilities.md` — G04-2 research note (Phase 0 protocol baseline, accepted policy, limitations).
 - `docs/ai-subtitle/worker-reports/M04-report.md` — this report.
+
+
+### M04-C1
+
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/ProviderType.java` — five user-facing Provider Types.
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/ProviderProtocol.java` — two normal-response wire protocols.
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/ProviderProfile.java` — immutable non-secret profile value object.
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/AiSubtitleSchema.java` — schema/version/JSON/store-key constants.
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/ProviderProfileState.java` — immutable list/selection state.
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/ProviderProfileSerializer.java` — version-one JSON encode/decode with credential-free schema.
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/ProviderProfileMigration.java` — legacy repair and future-schema rejection.
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/ProviderProfileRepository.java` — stable IDs, CRUD, selection repair, and app-profile-aware read-through.
+- Matching pure-JVM tests plus expanded `AiSubtitleDataTest` coverage.
 
 ## Files modified
 
@@ -77,22 +96,30 @@ Per the user's instruction, this section records the exact resumption state:
 
 No production file changed; no existing SmartTube file touched.
 
+
+### M04-C1
+
+- `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/AiSubtitleData.java` — now exposes the Provider Profile repository and implements its app-profile storage bridge while preserving the M02 enabled flag.
+- `common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/AiSubtitleDataTest.java` — restart, enabled-flag, corrupt-payload, and multi-profile tests.
+- `docs/ai-subtitle/progress.md`, `docs/ai-subtitle/worker-plans/M03-M06-plan.md`, `docs/ai-subtitle/worker-reports/M04-report.md`, `CONTEXT.md` — live evidence/domain terminology.
+
 ## Witnessed RED evidence and test inventory
 
-`NOT RUN` (no production code in M04-C0; each functional commit records observed RED → minimal GREEN → targeted regression → full relevant suite).
+M04-C0 had no production code. M04-C1 followed test-first rounds: initial RED was observed as missing production types/API (34 + 8 + 8 + 13 + 7 missing-symbol compile failures across value, serializer, migration, repository, and Android-store rounds), plus a 1-failure RED for invalid optional-collection repair before implementation. GREEN evidence: full ai-subtitle suite 199 total / 193 passed / 0 failed / 6 skipped on JDK 17; `AiSubtitleDataTest` 6/6 with 0 skipped on JDK 11. Mutation checks: disabled default/selection repair produced 4 named failures; dropped credential-reference serialization produced 2; disabled future-schema rejection produced 1; every mutation was reverted.
 
 ## Static checks
 
-`NOT RUN` as a milestone gate (performed at M04-C7). Commit-level `git diff --check` stays clean; no existing SmartTube file modified so far.
+M04-C1 commit-level checks: `git diff --check` clean; `:common:lintStbetaDebug` BUILD SUCCESSFUL; no existing SmartTube host file modified; new files remain under the feature-owned `common/.../ai/subtitle/{provider,settings}` paths. The full static milestone gate remains deferred to M04-C7.
 
 ## GitHub Actions runs
 
-- M04-C0 tip: `PENDING AUTHORIZED UPLOAD` (push triggers the workflow; workstation API cannot read run status — see the M03 report limitation).
+- M04-C0 tip: pushed as `8d0c9a50e`; exact-SHA Actions status cannot be read through the workstation API (404) and requires GitHub UI verification.
+- M04-C1 tip: `PENDING AUTHORIZED UPLOAD` (push triggers the workflow; workstation API cannot read run status).
 - Milestone tip (M04-C7): `NOT RUN`.
 
 ## Device matrix
 
-`NOT RUN` for all rows at M04-C0.
+`NOT RUN` for all rows at M04-C0/C1; device acceptance remains deferred to M04-C7.
 
 ## Worker first-pass self-review dispositions
 
@@ -102,7 +129,7 @@ No production file changed; no existing SmartTube file touched.
 
 - **ADR-012** added (credential protection policy).
 - Research notes created for G04-1 and G04-2.
-- `CONTEXT.md`: no semantic change in M04-C0.
+- `CONTEXT.md`: unchanged in M04-C0; M04-C1 clarified Provider Profile as non-secret configuration plus a separate credential reference.
 - `upstream-patches.md`: expected to gain exactly one entry at M04-C6 (the single settings-entry hook); unchanged so far.
 
 ## Deviations, unexpected discoveries, remaining risks, deferred Minor findings
@@ -115,7 +142,7 @@ No production file changed; no existing SmartTube file touched.
 | # | Criterion | Disposition | Evidence |
 |---|---|---|---|
 | 1 | Five Provider Types resolve through exactly two normal-response protocol adapters | NOT RUN | — |
-| 2 | Profile/schema migration and default repair are deterministic across restart/profile switch | NOT RUN | — |
+| 2 | Profile/schema migration and default repair are deterministic across restart/profile switch | PARTIAL — M04-C1 | 199-test M04-C1 suite with 193 executed on JDK 17 plus 6/6 Robolectric settings tests on JDK 11; restart, corrupt repair, stable IDs, CRUD, dangling selections, future-schema rejection, enabled-flag preservation, and app-profile switching covered |
 | 3 | Secrets satisfy the accepted API 17/backup/export policy and do not appear in logs/reports/artifacts | NOT RUN | — |
 | 4 | Manual model entry works when discovery is unsupported or fails | NOT RUN | — |
 | 5 | Every Provider failure category proves Source-Only Fallback | NOT RUN | — |
@@ -124,4 +151,4 @@ No production file changed; no existing SmartTube file touched.
 
 ## Confirmation
 
-M04-C0 only. G04-1 and G04-2 are settled and recorded; no production network code precedes these decisions. The interruption point above is authoritative for resumption; M04-C1 (provider profile persistence) starts next.
+M04-C0 and M04-C1 are complete. G04-1/G04-2 remain settled; no production network code exists yet. Versioned non-secret Provider Profile persistence is implemented and locally verified; M04-C2 (credential protection) starts next.

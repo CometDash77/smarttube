@@ -33,7 +33,7 @@ A monotonically changing identity used to reject results belonging to an obsolet
 _Avoid_: Version when referring to persisted schema versions
 
 **Provider Profile**:
-A user-saved endpoint configuration containing provider type, protocol, base URL, credentials, model choices, and provider-specific options.
+A user-saved, non-secret endpoint configuration containing provider type, protocol, base URL, a credential reference, model choices, and provider-specific options; the referenced credential is stored separately.
 _Avoid_: Provider when referring to a saved account/configuration
 
 **Protocol Adapter**:
