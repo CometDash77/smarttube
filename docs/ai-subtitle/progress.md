@@ -11,14 +11,14 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 ## Current state
 
 - Current milestone: M04 — Provider, model, persistence, and connection management (M03 self-acceptance complete; product tip `52877ed96`; exact-SHA CI `BLOCKED` at workstation API access)
-- Current task: `M04-C4 — add Anthropic-compatible normal responses` (M04-C0..C3 landed: policy, versioned non-secret profiles, separated credentials, and the OpenAI-compatible normal-response adapter; next is the Anthropic-compatible adapter)
-- Task state: M03 complete (C0–C5; product tip `52877ed96`; exact-SHA CI still needs GitHub UI verification); M04 in progress at C4; M02 remains accepted
-- Production code changes: M02 renderer/lifecycle slice present; M03 domain/session/cache/contracts added; M04-C1 adds feature-owned Provider Profile persistence; M04-C2 adds separated Android secret storage; M04-C3 adds the OpenAI-compatible normal-response adapter and HTTP executor boundary
+- Current task: `M04-C5 — add presets and model discovery` (M04-C0..C4 landed: policy, profile persistence, credential protection, and both normal-response protocol adapters; next are five provider presets, capabilities, model discovery, and normalized connection tests)
+- Task state: M03 complete (C0–C5; product tip `52877ed96`; exact-SHA CI still needs GitHub UI verification); M04 in progress at C5; M02 remains accepted
+- Production code changes: M02 renderer/lifecycle slice present; M03 domain/session/cache/contracts added; M04-C1 adds Provider Profile persistence; M04-C2 adds separated Android secret storage; M04-C3 adds the shared HTTP boundary and OpenAI-compatible adapter; M04-C4 adds the Anthropic-compatible adapter
 - Actual upstream patch count: 3 existing SmartTube files, all inside the approved M02 budget
 - Remote sync: `feature/ai-bilingual-subtitles` tracks `origin`; M04-C0 tip `8d0c9a50e`, M04-C1 tip `3e1e1ed60`, M04-C2 tip `686768e54`, and M04-C3 tip `47af3c992` are pushed
-- Local compile/test status: diagnostic only (M04-C3 full ai-subtitle suite 221 passed / 0 failed / 7 skipped on JDK 17; settings/secret suite 41/41 on JDK 11; see Test status)
+- Local compile/test status: diagnostic only (M04-C4 full ai-subtitle suite 235 passed / 0 failed / 7 skipped on JDK 17; settings/secret suite 41/41 on JDK 11; see Test status)
 - GitHub Actions status: M02 run `34660051184` green for `854460bb4`; M03 and M04 exact-SHA runs remain `BLOCKED` at the workstation Actions API (404) and require GitHub UI verification
-- Forward plan: `worker-plans/M03-M06-plan.md` is the single M03–M06 Worker program. Per ADR-011 it is handed off once and returned once; the Worker self-validates by milestone during the run, then the Commander performs a separate Superpowers second review for each milestone. Execution is unblocked: M03 self-acceptance is complete; M04-C4 is next.
+- Forward plan: `worker-plans/M03-M06-plan.md` is the single M03–M06 Worker program. Per ADR-011 it is handed off once and returned once; the Worker self-validates by milestone during the run, then the Commander performs a separate Superpowers second review for each milestone. Execution is unblocked: M03 self-acceptance is complete; M04-C5 is next.
 
 ## Completed work
 
@@ -41,7 +41,7 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 - [x] Received and recorded the Commander second pass: 3 blocking items (settings-helper line endings, unproven re-enable completion, overstated automation coverage) plus 2 explicitly deferred judgement items.
 - [x] Completed `M02-FIX-02` corrections: byte-level CRLF repair of the settings helper (rows 70–81), strengthened re-enable assertions with mutation evidence, and corrected report statements; run `34660051184` green for `854460bb4`.
 - [x] Consolidated M03–M06 into one uninterrupted Worker execution plan with milestone-scoped commits, self-acceptance, exact-SHA CI evidence, subagent rules, Grill with Docs gates, live-document requirements, and post-return Commander Superpowers reviews; ADR-011 records the one-handoff/one-return policy.
-- [x] Completed M03-C0..C5 (domain/session/cache/contracts), M04-C0..C2 (profile persistence and credential protection), and M04-C3 (OpenAI-compatible non-streaming request/response adapter with fake-executor coverage, cancellation, timeout propagation, request IDs, and secret redaction).
+- [x] Completed M03-C0..C5 (domain/session/cache/contracts), M04-C0..C3 (profile persistence, credential protection, and the OpenAI-compatible adapter), and M04-C4 (Anthropic-compatible normal responses with top-level system, version/max-token policy, both auth shapes, named error mapping, cancellation, timeout, and redaction).
 
 ## Completed tasks
 
@@ -56,6 +56,7 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 | M04-C1 provider profile persistence | Local TDD green; pushed; exact-SHA CI pending UI verification | `3e1e1ed60` | Incremental RED plus full GREEN; JDK 17 193 passed / 0 failed / 6 skipped; JDK 11 settings suite 6/6; three mutation checks each produced named failures and were reverted |
 | M04-C2 credential protection | Local TDD green; pushed; exact-SHA CI pending UI verification | `686768e54` | RED missing-symbol compile rounds plus API-policy RED, then full GREEN 214 total / 207 passed / 0 failed / 7 skipped on JDK 17 and 41/41 on JDK 11; cleanup and API-threshold mutations produced 3/1 named failures and were reverted; secret scan clean |
 | M04-C3 OpenAI-compatible adapter | Local TDD green; pushed; exact-SHA CI pending UI verification | `47af3c992` | RED 44 missing-symbol compile failures, then 14/14 adapter tests and full GREEN 221 passed / 0 failed / 7 skipped on JDK 17; authorization and JSON-escaping mutations produced 2/1 named failures and were reverted; lint green |
+| M04-C4 Anthropic-compatible adapter | Local TDD green; push/CI pending | `M04-C4` (tip recorded in plan ledger) | RED 15 missing-symbol compile failures, then 14/14 adapter tests and full GREEN 235 passed / 0 failed / 7 skipped on JDK 17; x-api-key and top-level-system mutations each produced 1 named failure and were reverted; lint green |
 
 ## Accepted commits
 
@@ -68,7 +69,7 @@ None.
 
 ## Pending commits
 
-- None. M03/M04 are inside the active Worker program; M04-C4 is the next implementation item, not a pending review.
+- None. M03/M04 are inside the active Worker program; M04-C5 is the next implementation item, not a pending review.
 ## Open problems
 
 1. The selected Exo subtitle format does not expose the full timed-text URL through a stable app-level API. M02 must validate track matching and format-info cache behavior before deciding whether a loader hook is unavoidable.
@@ -99,7 +100,7 @@ None.
 
 ## Planned next action
 
-M03 is self-accepted and M04 is in progress under `worker-plans/M03-M06-plan.md`; M04-C3 OpenAI-compatible normal responses are green, and M04-C4 Anthropic-compatible responses are next. After the single M03–M06 Worker return, the Commander runs four milestone-scoped Superpowers second reviews.
+M03 is self-accepted and M04 is in progress under `worker-plans/M03-M06-plan.md`; both normal-response adapters are green, and M04-C5 presets/model discovery are next. After the single M03–M06 Worker return, the Commander runs four milestone-scoped Superpowers second reviews.
 
 ## Test status
 
@@ -119,3 +120,4 @@ M03 is self-accepted and M04 is in progress under `worker-plans/M03-M06-plan.md`
 - M04-C1 local diagnostics: witnessed RED while production types/API were absent (34 + 8 + 8 + 13 + 7 missing-symbol compile failures across the value, serializer, migration, repository, and Android-store rounds) and a 1-failure RED for invalid optional collection repair; then full ai-subtitle GREEN 199 total / 193 passed / 0 failed / 6 skipped on JDK 17, and `AiSubtitleDataTest` 6/6 with 0 skipped on JDK 11. Mutation checks: disabled default/selection repair produced 4 named failures; dropped credential-reference serialization produced 2; disabled future-schema rejection produced 1; each mutation was reverted; `:common:lintStbetaDebug` is green.
 - M04-C2 local diagnostics: initial RED was 57 missing-symbol compile failures across secret-store and repository cleanup tests, with a later 3-symbol RED for the API policy selector; full ai-subtitle GREEN is 214 total / 207 passed / 0 failed / 7 skipped on JDK 17, and the complete settings/secret suite is 41/41 with 0 skipped on JDK 11. Mutation checks skipped credential cleanup (3 named failures) and lowered the policy threshold (1 named failure), then restored the code. High-confidence repository secret scan found no real credential. `:common:lintStbetaDebug` is green.
 - M04-C3 local diagnostics: after the test surface compiled, the adapter round witnessed RED as 44 missing production symbols, then GREEN 14/14 protocol tests and the full ai-subtitle suite at 228 total / 221 passed / 0 failed / 7 skipped on JDK 17. Mutation checks omitting Authorization produced 2 named failures and disabling quote escaping produced 1; both were reverted. `:common:lintStbetaDebug` is green.
+- M04-C4 local diagnostics: witnessed RED as 15 missing production symbols, then GREEN 14/14 Anthropic protocol tests and the full ai-subtitle suite at 242 total / 235 passed / 0 failed / 7 skipped on JDK 17. Mutation checks replacing the x-api-key value and renaming top-level system each produced 1 named failure; both were reverted. `:common:lintStbetaDebug` is green.
