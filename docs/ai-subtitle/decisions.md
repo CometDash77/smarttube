@@ -178,7 +178,7 @@ Upstream impact: none; delivery and review process only.
 
 ## ADR-012 — Protect provider credentials with a separated, Keystore-backed secret store
 
-Status: Accepted by the Worker under the G04-1 plan gate; supersedes the open M04 ruling below
+Status: Provisionally accepted by the Worker under the G04-1 plan gate; M04-C7 source re-verification is paused and the decision is not checkpoint-accepted until that evidence gate closes
 
 Date: 2026-09-12
 
@@ -195,5 +195,5 @@ Upstream impact: none (feature-owned files only).
 ## Open rulings
 
 - M02 evidence will decide whether ADR-005 can remain hook-free.
-- Resolved by ADR-012 (M04-C0): the exact Android Keystore/fallback policy is settled; see the G04-1 research note for the verified evidence.
+- Provisionally resolved by ADR-012 at M04-C0: implementation policy is fixed, but the G04-1 backup/Keystore source-verification obligation remains open at the M04-C7 pause and has an owner/trigger in the research note.
 - A `SubtitlePainter` fork is prohibited unless ADR-004 is explicitly superseded.

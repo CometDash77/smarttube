@@ -1,6 +1,6 @@
 # G04-1 — Android Secret Storage, Backup/Export Exclusion, and API 17 Fallback
 
-Status: **Settled (Worker, M04-C0)**. Date: 2026-09-12.
+Status: **PAUSED (Worker, 2026-09-12) — M04-C7 source re-verification pending**. The policy remains implemented and fail-safe, but this note is not source-complete for checkpoint acceptance.
 
 Evidence scope: local Android SDK inspection and repository facts (verified below); live web research was unavailable from this workstation (see Limitations).
 
@@ -48,4 +48,11 @@ Because the app floor is **API 17**, the feature must run **without** Keystore-b
 
 ## Limitations
 
-Web research was unavailable from this workstation during M04-C0 (the search provider rejected the configured API key). The Keystore/Auto-Backup statements rest on the locally verified SDK API-database facts above plus Android's documented platform behavior; the statement “Keystore key material does not migrate through backup” is platform behavior and must be re-confirmed against developer.android.com when network access is restored. No M04 production code depends on the unverified part: the guard is API-driven and fails safe.
+Web research was unavailable from this workstation during M04-C0 (the search provider rejected the configured API key). The Keystore/Auto-Backup statements rest on the locally verified SDK API-database facts above plus Android platform behavior.
+
+## Paused follow-up (owned)
+
+- Owner: the next M04-C7 resumption agent.
+- Trigger: user resumes/continues this goal.
+- Required closure: verify Auto Backup and Keystore key-material behavior against current primary Android developer documentation, record the exact URL and result here, and either make the note source-complete or replace this section with an explicit `BLOCKED` decision naming the unavailable source and resolution trigger.
+- Gate: M04-C7 acceptance and M05-C0 remain blocked until this obligation is closed.

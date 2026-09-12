@@ -4,7 +4,7 @@ Task ID: `M04`
 
 Milestone: M04 — Provider, model, persistence, and connection management
 
-Status: **COMPLETE (Worker self-acceptance) — M04-C0..C6 landed; product tip `0cc5bd6c6`; full ai-subtitle suite 281 total / 0 failed / 7 skipped on JDK 17; settings/secret suite 62/62 on JDK 11; lint green; exact-SHA CI `BLOCKED` by workstation API access (see below)**
+Status: **PAUSED — M04-C7 checkpoint review returned `CHANGES_REQUIRED`; M04 is not accepted and M05-C0 has not started. Local tests are green, but the report/evidence gate and research-source gate remain open.**
 
 ## Task/Milestone and pinned SHAs
 
@@ -44,13 +44,27 @@ Implement five user-facing Provider Types through two shared normal-response pro
 | C4 | `feat(provider): add Anthropic-compatible normal responses` | adapter + tests | MERGED `54085bdf4` |
 | C5 | `feat(provider): add presets and model discovery` | presets + ModelCatalog + ConnectionTestResult | MERGED `46c780405` |
 | C6 | `feat(settings): manage and test provider profiles` | feature-owned UI + the single host settings hook | MERGED `c65628db9`, `0cc5bd6c6` |
-| C7 | `docs(ai-subtitle): record M04 provider and persistence checkpoint` | self-acceptance, report completion, CI evidence | MERGED (this commit) |
+| C7 | `docs(ai-subtitle): record M04 provider and persistence checkpoint` | self-acceptance, report completion, CI evidence | `CHANGES_REQUIRED` at `6a2af2d2c`; correction paused |
 
 ## M04-C6 completion evidence
 
 - C6 range: `130c47e02..0cc5bd6c6`; task review outcome recorded in `.superpowers/sdd/progress.md` as review clean at `0cc5bd6c6`.
 - Deferred Minor findings from C6 review: trailing newline at `ProviderProfileRuntimeTest` EOF; best-effort rollback cleanup could preserve the original failure. Both are Minor and do not affect any M04 acceptance criterion; neither is changed in C7.
 
+## Pause checkpoint and resume instructions (2026-09-12)
+
+The C7 checkpoint at `6a2af2d2c` is pushed, and its local verification evidence is retained, but independent task review returned `CHANGES_REQUIRED`. Work was paused before any correction edits. A resumption must complete the following in order:
+
+1. Restore the complete plan section 13 report template evidence: every created/modified/deleted file, implementation summary by commit, witnessed RED evidence and final test inventory, static-check results, GitHub Actions accounting, full device matrix, separate standards/spec self-review dispositions, decisions/research/upstream changes, deviations/risks/deferred findings, acceptance table, and next-milestone confirmation.
+2. Close G04-1 and G04-2 source-verification obligations using current primary sources, or explicitly mark each `BLOCKED` with owner and resolution trigger. Do not leave “must re-confirm” language.
+3. Update this report, `docs/ai-subtitle/progress.md`, the plan ledger, and the affected research/ADR status text. Commit and push the correction.
+4. Re-run the independent M04-C7 task review. M05-C0 remains blocked until that review is clean.
+
+Review findings being carried forward:
+
+- The current file-inventory section is aggregate-only and does not satisfy `worker-plans/M03-M06-plan.md` section 13 lines 903–917.
+- `research/g04-1-android-secret-storage.md` still needs primary-source closure for the Keystore/Auto-Backup behavior statement.
+- `research/g04-2-provider-capabilities.md` still needs primary-source closure for temporally unstable provider endpoint/header details.
 ## Authoritative C7 local verification (JDK 17)
 
 Commands run from `X:\SmartTube` (ASCII junction workaround for the non-ASCII workspace path) with `JAVA_HOME` set to `C:\Users\77182\.gradle\jdks\jetbrains_s_r_o_-17-amd64-windows.2`:
@@ -93,7 +107,7 @@ Observed outputs:
 
 ## Worker first-pass self-review dispositions
 
-Worker first-pass self-review is complete against `8a4bd175b..0cc5bd6c6`; the Commander second review remains the only post-return review. No Commander PASS is claimed here.
+Worker first-pass self-review is **incomplete for checkpoint acceptance**: the independent C7 task review found that the required standards/spec dispositions were reduced or omitted. The report must be corrected before this item can be marked complete.
 
 ## Decisions / ADRs / glossary / research / upstream ledger
 
@@ -104,7 +118,7 @@ Worker first-pass self-review is complete against `8a4bd175b..0cc5bd6c6`; the Co
 
 ## Deviations, unexpected discoveries, remaining risks, deferred Minor findings
 
-- Web research was unavailable from this workstation during M04-C0; both notes record this and mark the re-verification requirement for the unverified platform-behavior statement.
+- Web research was unavailable from this workstation during M04-C0; the C7 pause now assigns the outstanding source checks to the next M04-C7 resumption with explicit owner/trigger instead of leaving unowned “must re-confirm” language.
 - Remaining risk: the API 17–22 plaintext fallback band is exercised by M04-C2 tests; decryption failure after device restore remains an expected physical-device acceptance path and is `NOT RUN`.
 - Deferred Minor findings from C6 review are preserved in `.superpowers/sdd/progress.md`; neither affects an M04 acceptance criterion.
 
@@ -125,8 +139,8 @@ No unavailable evidence is reported as PASS.
 | 4 | Manual model entry works when discovery is unsupported or fails | MET | `ModelCatalogTest` proves discovery failure/unsupported preserves the saved manual Model ID; `ProviderProfilesPresenterTest` covers save/edit of manual Model IDs; `repairSelectedModel` only substitutes when the profile has no saved Model ID. |
 | 5 | Every Provider failure category proves Source-Only Fallback | MET | `AiSubtitleCueBridgeTest.everyProviderFailureCategoryKeepsSourceOnly` iterates every `TranslationFailureCategory` and asserts the cue stays source-only; `nullProviderStaysSourceOnlyWhenEnabled` and `authFailureStillLeavesCueSourceOnly` cover null-provider and auth paths. |
 | 6 | No SSE, scheduler retry, prompt CRUD, or persistent translation cache was added | MET | Static scans over the M04 range find no SSE/event-stream, no scheduler/retry loop, no prompt CRUD repository/API, and no persistent translation cache; `TranslationFailure.isRetryable` is a domain label with no scheduler attached. |
-| 7 | M04 Worker self-acceptance complete; range/evidence frozen; Worker continues to M05 without user relay | MET | Base `8a4bd175b`, product tip `0cc5bd6c6`, this report, plan ledger, and `progress.md` are updated; next unblocked item is `M05-C0`; no user relay is requested. |
+| 7 | M04 Worker self-acceptance complete; range/evidence frozen; Worker continues to M05 without user relay | NOT MET | C7 review returned `CHANGES_REQUIRED` for incomplete report evidence and unowned G04-1/G04-2 source verification; correction is paused. M05-C0 must not start. |
 
 ## Confirmation
 
-M04-C0 through M04-C6 are landed (product tip `0cc5bd6c6`). C7 is this docs-only finalization commit. Local verification is diagnostic and green: 281 ai-subtitle tests passed on JDK 17 with 0 failures, 62/62 settings/secret tests passed on JDK 11, lint green, CRLF/host-hook/static/secret scans clean. Exact-SHA GitHub Actions status for the pushed C7 tip remains `BLOCKED` at the workstation API and requires GitHub UI verification; it is never reported as PASS from local results.
+M04-C0 through M04-C6 are landed (product tip `0cc5bd6c6`). The C7 checkpoint at `6a2af2d2c` is pushed, but it is **not accepted**: independent review returned `CHANGES_REQUIRED`, and the correction is paused. Local verification is diagnostic and green: 281 ai-subtitle tests passed on JDK 17 with 0 failures, 62/62 settings/secret tests passed on JDK 11, lint green, CRLF/host-hook/static/secret scans clean. Exact-SHA GitHub Actions status for the pushed C7 tip remains `BLOCKED` at the workstation API and requires GitHub UI verification; it is never reported as PASS from local results.

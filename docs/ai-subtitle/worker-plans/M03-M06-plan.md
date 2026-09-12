@@ -1,6 +1,6 @@
 # M03–M06 Consolidated Worker Execution Plan
 
-Status: **READY FOR ONE WORKER HANDOFF after M02 Commander PASS and this plan commit**
+Status: **PAUSED (2026-09-12) at M04-C7 review correction; M05-C0 has not started**
 
 > **For agentic workers:** REQUIRED SKILLS: use `matt-skills-curated:implement-spec` to coordinate the complete plan and `matt-skills-curated:tdd` for every production behavior. Use `matt-skills-curated:grill-with-docs`, `research`, `prototype`, and `domain-modeling` only at their explicit triggers. The Worker performs the first review through the self-acceptance gates below; after the one final Worker return, the Commander performs the independent second review per milestone with `superpowers:requesting-code-review` and `superpowers:verification-before-completion`.
 
@@ -66,6 +66,9 @@ Execution snapshot at Worker start (2026-09-12): `HEAD = 422451df87917a3f932c602
 | 2026-09-12T04:35Z | M04-C5 | MERGED | `54085bdf4`..`46c780405` | Witnessed RED 17 missing preset/resolver symbols plus the missing discovery surface, then GREEN 16/16 C5 tests and full regression 251 passed / 0 failed / 7 skipped on JDK 17; five types resolve to two adapters, discovery normalizes duplicate/blank IDs and success/unsupported/failure, manual model survives failure, cancellation and normalized connection categories covered; preset-protocol/manual-model mutations produced 2 / 3 named failures and were reverted; lint clean | `M04-report.md`, `progress.md`, this ledger | M04-C6 settings management and host hook |
 | 2026-09-12T04:50Z | M04-C6 | MERGED | `130c47e02`..`0cc5bd6c6` | Feature-owned Provider Profile settings UI and the single narrow host hook landed; task review clean at `0cc5bd6c6`; full milestone verification recorded at M04-C7 | `M04-report.md`, `progress.md`, `upstream-patches.md`, this ledger | M04-C7 checkpoint |
 | 2026-09-12T05:10Z | M04-C7 | MERGED | `0cc5bd6c6`..M04-C7 | M04 Worker self-acceptance complete: product tip `0cc5bd6c6`; full ai-subtitle suite 281 total / 0 failed / 7 skipped on JDK 17; JDK 11 settings/secret lane 62/62; lint green; static/secret/CRLF/forbidden-path/SSE scans clean; exact-SHA CI `BLOCKED` at workstation API | `M04-report.md`, `progress.md`, this ledger | M05-C0 prompt contract and resolution policy |
+| 2026-09-12T05:30Z | M04-C7 review | CHANGES_REQUIRED | `6a2af2d2c` | Independent task review found two Important issues: (1) `M04-report.md` no longer contains the plan-required complete file inventory, witnessed RED evidence, full device matrix, and separate standards/spec self-review dispositions; (2) G04-1/G04-2 still contain unowned re-confirmation language and must either close with primary-source evidence or be explicitly BLOCKED with owner and trigger. Correction work was interrupted by the user pause before edits; no production code changed. | Correction docs not yet updated | Resume M04-C7 correction, then re-review; do not start M05-C0 first |
+
+> **Pause checkpoint (2026-09-12):** The last successfully pushed SHA is `6a2af2d2c`; the local pause-persistence commit is not pushed because GitHub rejected the HTTPS credentials. M04 is not accepted; M05-C0 is blocked behind the M04-C7 correction and re-review. Resume only from the recorded C7 review findings; do not reinterpret the earlier `MERGED` row as a clean acceptance.
 
 
 ### Read completely before dispatching any worker

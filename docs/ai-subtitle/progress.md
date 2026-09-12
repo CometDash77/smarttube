@@ -10,15 +10,26 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 
 ## Current state
 
-- Current milestone: M05 — Prompt Manager and resolved Translation Profile (M04 Worker self-acceptance complete; product tip `0cc5bd6c6`; exact-SHA CI `BLOCKED` at workstation API access)
-- Current task: `M05-C0 — settle prompt contract and resolution policy` (M04-C0..C7 landed: policy, persistence, credentials, both adapters, five presets, model discovery, settings UI, normalized connection results, and the M04 checkpoint; next is the M05 prompt contract/policy)
-- Task state: M03 and M04 Worker self-acceptance complete; M02 remains accepted; M05 starts next with no user relay
+- Current milestone: M04 — Provider, model, persistence, and connection management (M04-C7 checkpoint review returned `CHANGES_REQUIRED`; M05 has not started)
+- Current task: `M04-C7 correction — restore complete checkpoint evidence and close G04-1/G04-2 source-verification obligations`
+- Task state: **PAUSED by user on 2026-09-12 before correction edits**; M03 is self-accepted; M02 remains accepted; M04-C0..C6 are implementation-complete and task-reviewed; M04-C7 is not accepted
 - Production code changes: M02 renderer/lifecycle slice present; M03 domain/session/cache/contracts added; M04-C1 adds Provider Profile persistence; M04-C2 adds separated Android secret storage; M04-C3 adds OpenAI-compatible responses; M04-C4 adds Anthropic-compatible responses; M04-C5 adds presets, capabilities, model discovery, and normalized connection results; M04-C6 adds feature-owned provider settings UI and the single host settings hook
 - Actual upstream patch count: 3 existing SmartTube files, all inside the approved M02 budget
-- Remote sync: `feature/ai-bilingual-subtitles` tracks `origin`; M04-C0..C5 tips are pushed; M04-C6 tip `0cc5bd6c6` and the M04-C7 checkpoint commit are pushed by this task
+- Remote sync: `feature/ai-bilingual-subtitles` tracks `origin`; the latest successfully pushed tip is `6a2af2d2c`. The local pause-persistence commit is ahead of origin and not yet pushed because GitHub rejected the HTTPS credentials on 2026-09-12
 - Local compile/test status: diagnostic only (M04-C7 full ai-subtitle suite 281 total / 0 failed / 7 skipped on JDK 17; settings/secret suite 62/62 on JDK 11; lint green; see Test status)
 - GitHub Actions status: M02 run `34660051184` green for `854460bb4`; M03 and M04 exact-SHA runs remain `BLOCKED` at the workstation Actions API and require GitHub UI verification
-- Forward plan: `worker-plans/M03-M06-plan.md` is the single M03–M06 Worker program. Per ADR-011 it is handed off once and returned once; the Worker self-validates by milestone during the run, then the Commander performs a separate Superpowers second review for each milestone. Execution is unblocked: M04 self-acceptance is complete; M05-C0 is next.
+- Forward plan: `worker-plans/M03-M06-plan.md` is the single M03–M06 Worker program. Execution is paused at M04-C7 correction; after that correction is independently re-reviewed clean, resume at `M05-C0 — settle prompt contract and resolution policy`.
+
+## Pause checkpoint (2026-09-12)
+
+- Authoritative local state: `feature/ai-bilingual-subtitles` has a local pause-persistence commit on top of `6a2af2d2c1481f0977482adcf62ded81b5bf98f0`; `origin` remains at `6a2af2d2c` because the pause push was rejected for missing/invalid HTTPS credentials.
+- Working-tree state at the original stop inspection: clean; the pause-persistence edits are the only subsequent docs changes and contain no production changes.
+- Stop point: independent M04-C7 task review returned `CHANGES_REQUIRED`.
+- Open Important issue 1: `M04-report.md` no longer contains the plan-required every-file inventory, witnessed RED evidence/test inventory, complete device matrix, and separate standards/spec self-review dispositions (required by plan section 13, lines 903–917).
+- Open Important issue 2: the G04-1/G04-2 source-verification obligations remain open. The pause update adds an explicit owner and resume trigger to both research notes, but they are not yet source-closed or formally BLOCKED; complete that closure on resume.
+- Resume order: (1) restore the M04 report template evidence; (2) close or explicitly block G04-1/G04-2; (3) update `progress.md` and the plan ledger; (4) commit and push the correction; (5) re-run the independent C7 review; (6) only after a clean review, begin M05-C0.
+- Owner: the next resumption agent for this goal.
+- Explicit trigger: user says resume/continue; no implementation may cross the M04-C7 gate before that.
 
 ## Completed work
 
@@ -59,7 +70,7 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 | M04-C4 Anthropic-compatible adapter | Local TDD green; pushed; exact-SHA CI pending UI verification | `54085bdf4` | RED 15 missing-symbol compile failures, then 14/14 adapter tests and full GREEN 235 passed / 0 failed / 7 skipped on JDK 17; x-api-key and top-level-system mutations each produced 1 named failure and were reverted; lint green |
 | M04-C5 presets/model discovery | Local TDD green; pushed; exact-SHA CI pending UI verification | `46c780405` | RED 17 missing preset/resolver symbols plus missing model-catalog surface, then 16/16 C5 tests and full GREEN 251 passed / 0 failed / 7 skipped on JDK 17; preset-protocol and manual-model mutations produced 2/3 named failures and were reverted; lint green |
 | M04-C6 settings management and host hook | Local TDD green; task review clean; exact-SHA CI pending UI verification | `130c47e02..0cc5bd6c6` | Full milestone C7 verification: 281 total / 0 failed / 7 skipped on JDK 17 and 62/62 settings/secret on JDK 11; lint green; host hook is one import + one feature-owned entry call; CRLF preserved; task review clean at `0cc5bd6c6` |
-| M04-C7 checkpoint | Worker self-acceptance complete; exact-SHA CI pending UI verification | `0cc5bd6c6..M04-C7` | M04 exit table all MET; product tip `0cc5bd6c6`; full suite/lint/static/secret/CRLF/forbidden-path scans green; exact-SHA CI `BLOCKED` at workstation API |
+| M04-C7 checkpoint | `CHANGES_REQUIRED`; paused for correction | `0cc5bd6c6..6a2af2d2c` | Worker verification is green, but independent task review found the report-template evidence incomplete and G04-1/G04-2 re-verification obligations unowned; M04 is not accepted |
 
 ## Accepted commits
 
@@ -72,13 +83,13 @@ None.
 
 ## Pending commits
 
-- None. M03/M04 are inside the active Worker program; M04-C6 is the next implementation item, not a pending review.
+- M04-C7 correction commit: not created. Resume edits must restore the required report evidence and close/reclassify the G04-1/G04-2 source-verification obligations, then commit and push before re-review.
 ## Open problems
 
 1. The selected Exo subtitle format does not expose the full timed-text URL through a stable app-level API. M02 must validate track matching and format-info cache behavior before deciding whether a loader hook is unavoidable.
 2. Existing `SubtitleManager` disables embedded styles. M02 must prove whether a decorated two-line cue can retain separate source/translation styles without forking `SubtitlePainter`.
 3. The current GitHub Actions workflow does not automatically validate the feature branch or explicitly invoke unit tests. The M02 Stage Package adds an isolated validation workflow before its product changes are accepted.
-4. Android secret storage must balance Keystore protection with SmartTube's old-device support and backup/export behavior; decision deferred to a focused M04 spike.
+4. Open at M04-C7 pause: the G04-1 backup/Keystore behavior statement still needs current primary-source verification; owner is the next M04-C7 resumption, trigger is resume M04-C7, and resolution is either a source-backed closure or an explicit BLOCKED decision.
 5. KissTranslator tests/fixtures are GPL-covered repository content; target fixtures need independent authorship/provenance.
 6. Resolved by `M02-FIX-01`: M02 synchronous Fake completion is now consumed on the first cue-processing call.
 7. Resolved by `M02-FIX-01`: no M02 production reference requires an API newer than 17 (`EnableState` seam; explicit null-safe equality).
@@ -129,3 +140,5 @@ M03 is self-accepted and M04 is in progress under `worker-plans/M03-M06-plan.md`
 
 - M04-C6 local diagnostics (JDK 17): feature-owned provider settings UI and the single host hook landed; task review clean at `0cc5bd6c6`. Full milestone verification is recorded at M04-C7.
 - M04-C7 authoritative local verification (JDK 17): `git diff --check` clean; full ai-subtitle suite 281 total / 0 failed / 7 skipped (BUILD SUCCESSFUL, 1m 1s); `:common:lintStbetaDebug` BUILD SUCCESSFUL (1m 14s); JDK 11 settings/secret lane 62/62 with 0 skipped (BUILD SUCCESSFUL, 1m 15s). CRLF byte audit for `SubtitleSettingsPresenter.java` reports 93 CRLF / 0 LF / 0 CR; host diff is one import + one feature-owned entry call; secret/GPL/network/forbidden-path/SSE scans clean. Exact-SHA GitHub Actions status: `BLOCKED` — workstation Actions API is unreadable; see `.superpowers/sdd/M04-C7-report.md`.
+11. Open at M04-C7 pause: G04-2 provider endpoint/header details still need current official-source closure; owner is the next M04-C7 resumption, trigger is resume M04-C7, and resolution is either source-backed closure or an explicit BLOCKED decision.
+12. Open at M04-C7 pause: the M04 report must be restored to the complete plan section 13 template before acceptance; owner is the next M04-C7 resumption, trigger is resume M04-C7.

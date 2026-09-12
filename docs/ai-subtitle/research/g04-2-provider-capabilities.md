@@ -1,6 +1,6 @@
 # G04-2 — Provider Capability Failure and Model-Discovery UX
 
-Status: **Settled (Worker, M04-C0)**. Date: 2026-09-12.
+Status: **PAUSED (Worker, 2026-09-12) — M04-C7 source re-verification pending**. The policy remains implemented, but temporally unstable provider protocol facts are not source-complete for checkpoint acceptance.
 
 Evidence scope: Phase 0 official-documentation research recorded in `architecture.md` §6 and §12, plus repository facts. Live re-verification was unavailable from this workstation (see Limitations).
 
@@ -31,4 +31,12 @@ The full Phase 0 findings and source list live in `architecture.md` §6 and §12
 
 ## Limitations
 
-Provider documentation could not be re-fetched from this workstation during M04-C0. The table is the Phase 0-verified baseline. The adapter milestones (M04-C3..C5) must re-confirm temporally unstable details (endpoint paths, required headers) when network access is available, and every adapter test runs against a fake HTTP executor so no test depends on live endpoints.
+Provider documentation could not be re-fetched from this workstation during M04-C0. The table is the Phase 0-verified baseline, and every adapter test remains offline against a fake HTTP executor.
+
+## Paused follow-up (owned)
+
+- Owner: the next M04-C7 resumption agent.
+- Trigger: user resumes/continues this goal.
+- Required closure: verify temporally unstable endpoint paths and required authentication/version headers against current official provider documentation for OpenAI, Anthropic, OpenRouter, DeepSeek, and MiMo; record exact source URLs and outcomes here.
+- If a provider source is unavailable, record an explicit `BLOCKED` entry with the unavailable source and resolution trigger rather than leaving an unowned re-confirmation request.
+- Gate: M04-C7 acceptance and M05-C0 remain blocked until this obligation is closed.
