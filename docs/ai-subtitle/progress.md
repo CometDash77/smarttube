@@ -10,15 +10,15 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 
 ## Current state
 
-- Current milestone: M04 — Provider, model, persistence, and connection management (M03 self-acceptance complete; product tip `52877ed96`; exact-SHA CI `BLOCKED` at workstation API access)
-- Current task: `M04-C6 — manage and test provider profiles` (M04-C0..C5 landed: policy, persistence, credentials, both adapters, five presets, model discovery, and normalized connection results; next is the feature-owned settings UI and the single host hook)
-- Task state: M03 complete (C0–C5; product tip `52877ed96`; exact-SHA CI still needs GitHub UI verification); M04 in progress at C6; M02 remains accepted
-- Production code changes: M02 renderer/lifecycle slice present; M03 domain/session/cache/contracts added; M04-C1 adds Provider Profile persistence; M04-C2 adds separated Android secret storage; M04-C3 adds OpenAI-compatible responses; M04-C4 adds Anthropic-compatible responses; M04-C5 adds presets, capabilities, model discovery, and normalized connection results
+- Current milestone: M05 — Prompt Manager and resolved Translation Profile (M04 Worker self-acceptance complete; product tip `0cc5bd6c6`; exact-SHA CI `BLOCKED` at workstation API access)
+- Current task: `M05-C0 — settle prompt contract and resolution policy` (M04-C0..C7 landed: policy, persistence, credentials, both adapters, five presets, model discovery, settings UI, normalized connection results, and the M04 checkpoint; next is the M05 prompt contract/policy)
+- Task state: M03 and M04 Worker self-acceptance complete; M02 remains accepted; M05 starts next with no user relay
+- Production code changes: M02 renderer/lifecycle slice present; M03 domain/session/cache/contracts added; M04-C1 adds Provider Profile persistence; M04-C2 adds separated Android secret storage; M04-C3 adds OpenAI-compatible responses; M04-C4 adds Anthropic-compatible responses; M04-C5 adds presets, capabilities, model discovery, and normalized connection results; M04-C6 adds feature-owned provider settings UI and the single host settings hook
 - Actual upstream patch count: 3 existing SmartTube files, all inside the approved M02 budget
-- Remote sync: `feature/ai-bilingual-subtitles` tracks `origin`; M04-C0 tip `8d0c9a50e`, M04-C1 tip `3e1e1ed60`, M04-C2 tip `686768e54`, M04-C3 tip `47af3c992`, M04-C4 tip `54085bdf4`, and M04-C5 tip `46c780405` are pushed
-- Local compile/test status: diagnostic only (M04-C5 full ai-subtitle suite 251 passed / 0 failed / 7 skipped on JDK 17; settings/secret suite 41/41 on JDK 11; see Test status)
-- GitHub Actions status: M02 run `34660051184` green for `854460bb4`; M03 and M04 exact-SHA runs remain `BLOCKED` at the workstation Actions API (404) and require GitHub UI verification
-- Forward plan: `worker-plans/M03-M06-plan.md` is the single M03–M06 Worker program. Per ADR-011 it is handed off once and returned once; the Worker self-validates by milestone during the run, then the Commander performs a separate Superpowers second review for each milestone. Execution is unblocked: M03 self-acceptance is complete; M04-C6 is next.
+- Remote sync: `feature/ai-bilingual-subtitles` tracks `origin`; M04-C0..C5 tips are pushed; M04-C6 tip `0cc5bd6c6` and the M04-C7 checkpoint commit are pushed by this task
+- Local compile/test status: diagnostic only (M04-C7 full ai-subtitle suite 281 total / 0 failed / 7 skipped on JDK 17; settings/secret suite 62/62 on JDK 11; lint green; see Test status)
+- GitHub Actions status: M02 run `34660051184` green for `854460bb4`; M03 and M04 exact-SHA runs remain `BLOCKED` at the workstation Actions API and require GitHub UI verification
+- Forward plan: `worker-plans/M03-M06-plan.md` is the single M03–M06 Worker program. Per ADR-011 it is handed off once and returned once; the Worker self-validates by milestone during the run, then the Commander performs a separate Superpowers second review for each milestone. Execution is unblocked: M04 self-acceptance is complete; M05-C0 is next.
 
 ## Completed work
 
@@ -41,7 +41,7 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 - [x] Received and recorded the Commander second pass: 3 blocking items (settings-helper line endings, unproven re-enable completion, overstated automation coverage) plus 2 explicitly deferred judgement items.
 - [x] Completed `M02-FIX-02` corrections: byte-level CRLF repair of the settings helper (rows 70–81), strengthened re-enable assertions with mutation evidence, and corrected report statements; run `34660051184` green for `854460bb4`.
 - [x] Consolidated M03–M06 into one uninterrupted Worker execution plan with milestone-scoped commits, self-acceptance, exact-SHA CI evidence, subagent rules, Grill with Docs gates, live-document requirements, and post-return Commander Superpowers reviews; ADR-011 records the one-handoff/one-return policy.
-- [x] Completed M03-C0..C5 (domain/session/cache/contracts), M04-C0..C3 (profile persistence, credential protection, and the OpenAI-compatible adapter), and M04-C4 (Anthropic-compatible normal responses with top-level system, version/max-token policy, both auth shapes, named error mapping, cancellation, timeout, and redaction).
+- [x] Completed M03-C0..C5 (domain/session/cache/contracts) and M04-C0..C7 (provider persistence, credential protection, OpenAI/Anthropic adapters, presets/model discovery, provider settings UI, host hook, and the M04 checkpoint).
 
 ## Completed tasks
 
@@ -58,6 +58,8 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 | M04-C3 OpenAI-compatible adapter | Local TDD green; pushed; exact-SHA CI pending UI verification | `47af3c992` | RED 44 missing-symbol compile failures, then 14/14 adapter tests and full GREEN 221 passed / 0 failed / 7 skipped on JDK 17; authorization and JSON-escaping mutations produced 2/1 named failures and were reverted; lint green |
 | M04-C4 Anthropic-compatible adapter | Local TDD green; pushed; exact-SHA CI pending UI verification | `54085bdf4` | RED 15 missing-symbol compile failures, then 14/14 adapter tests and full GREEN 235 passed / 0 failed / 7 skipped on JDK 17; x-api-key and top-level-system mutations each produced 1 named failure and were reverted; lint green |
 | M04-C5 presets/model discovery | Local TDD green; pushed; exact-SHA CI pending UI verification | `46c780405` | RED 17 missing preset/resolver symbols plus missing model-catalog surface, then 16/16 C5 tests and full GREEN 251 passed / 0 failed / 7 skipped on JDK 17; preset-protocol and manual-model mutations produced 2/3 named failures and were reverted; lint green |
+| M04-C6 settings management and host hook | Local TDD green; task review clean; exact-SHA CI pending UI verification | `130c47e02..0cc5bd6c6` | Full milestone C7 verification: 281 total / 0 failed / 7 skipped on JDK 17 and 62/62 settings/secret on JDK 11; lint green; host hook is one import + one feature-owned entry call; CRLF preserved; task review clean at `0cc5bd6c6` |
+| M04-C7 checkpoint | Worker self-acceptance complete; exact-SHA CI pending UI verification | `0cc5bd6c6..M04-C7` | M04 exit table all MET; product tip `0cc5bd6c6`; full suite/lint/static/secret/CRLF/forbidden-path scans green; exact-SHA CI `BLOCKED` at workstation API |
 
 ## Accepted commits
 
@@ -124,3 +126,6 @@ M03 is self-accepted and M04 is in progress under `worker-plans/M03-M06-plan.md`
 - M04-C4 local diagnostics: witnessed RED as 15 missing production symbols, then GREEN 14/14 Anthropic protocol tests and the full ai-subtitle suite at 242 total / 235 passed / 0 failed / 7 skipped on JDK 17. Mutation checks replacing the x-api-key value and renaming top-level system each produced 1 named failure; both were reverted. `:common:lintStbetaDebug` is green.
 
 - M04-C5 local diagnostics: witnessed RED as 17 missing preset/resolver symbols plus a missing model-discovery surface, then GREEN 16/16 C5 tests and the full ai-subtitle suite at 258 total / 251 passed / 0 failed / 7 skipped on JDK 17. Mutation checks forcing MiMo to the Anthropic preset produced 2 named failures and dropping manual Model ID preservation produced 3; both mutations were reverted. `:common:lintStbetaDebug` is green.
+
+- M04-C6 local diagnostics (JDK 17): feature-owned provider settings UI and the single host hook landed; task review clean at `0cc5bd6c6`. Full milestone verification is recorded at M04-C7.
+- M04-C7 authoritative local verification (JDK 17): `git diff --check` clean; full ai-subtitle suite 281 total / 0 failed / 7 skipped (BUILD SUCCESSFUL, 1m 1s); `:common:lintStbetaDebug` BUILD SUCCESSFUL (1m 14s); JDK 11 settings/secret lane 62/62 with 0 skipped (BUILD SUCCESSFUL, 1m 15s). CRLF byte audit for `SubtitleSettingsPresenter.java` reports 93 CRLF / 0 LF / 0 CR; host diff is one import + one feature-owned entry call; secret/GPL/network/forbidden-path/SSE scans clean. Exact-SHA GitHub Actions status: `BLOCKED` — workstation Actions API is unreadable; see `.superpowers/sdd/M04-C7-report.md`.
