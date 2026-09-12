@@ -15,7 +15,7 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 - Task state: M03 complete (C0–C5; product tip `52877ed96`; exact-SHA CI still needs GitHub UI verification); M04 in progress at C2; M02 remains accepted
 - Production code changes: M02 renderer/lifecycle slice present; M03 domain/session/cache/contracts added; M04-C1 adds feature-owned Provider Profile persistence
 - Actual upstream patch count: 3 existing SmartTube files, all inside the approved M02 budget
-- Remote sync: `feature/ai-bilingual-subtitles` tracks `origin`; M04-C0 tip `8d0c9a50e` is pushed, and M04-C1 is pending commit/push during this turn
+- Remote sync: `feature/ai-bilingual-subtitles` tracks `origin`; M04-C0 tip `8d0c9a50e` and M04-C1 tip `3e1e1ed60` are pushed
 - Local compile/test status: diagnostic only (M04-C1 full ai-subtitle suite 193 passed / 0 failed / 6 skipped on JDK 17; settings Robolectric suite 6/6 on JDK 11; see Test status)
 - GitHub Actions status: M02 run `34660051184` green for `854460bb4`; M03 and M04 exact-SHA runs remain `BLOCKED` at the workstation Actions API (404) and require GitHub UI verification
 - Forward plan: `worker-plans/M03-M06-plan.md` is the single M03–M06 Worker program. Per ADR-011 it is handed off once and returned once; the Worker self-validates by milestone during the run, then the Commander performs a separate Superpowers second review for each milestone. Execution is unblocked: M03 self-acceptance is complete; M04-C2 is next.
@@ -53,7 +53,7 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 | M02-FIX-02 correction | Accepted by user 2026-09-12 | `854460bb4`, `0b1f4ab53`, `2716e5380` | Run `34660051184` green for `854460bb4`: 34 JVM tests on JDK 17 and 3/3 preference methods on JDK 11; docs-only run `34660774973` succeeded; mutation and CRLF-fit evidence recorded |
 | M03 domain/session/cache/contracts | Self-acceptance complete; Commander review pending | `422451df8..8a4bd175b`; product tip `52877ed96` | 168 passed / 0 failed / 3 skipped on JDK 17; lint green; static gate found 0 non-feature paths; exact-SHA CI blocked at workstation API |
 | M04-C0 policy settlement | Accepted as Worker evidence | `8d0c9a50e` | G04-1/ADR-012 and G04-2 research recorded; docs-only |
-| M04-C1 provider profile persistence | Local TDD green; push/CI pending | `M04-C1` (tip recorded in plan ledger) | Incremental RED plus full GREEN; JDK 17 193 passed / 0 failed / 6 skipped; JDK 11 settings suite 6/6; three mutation checks each produced named failures and were reverted |
+| M04-C1 provider profile persistence | Local TDD green; pushed; exact-SHA CI pending UI verification | `3e1e1ed60` | Incremental RED plus full GREEN; JDK 17 193 passed / 0 failed / 6 skipped; JDK 11 settings suite 6/6; three mutation checks each produced named failures and were reverted |
 
 ## Accepted commits
 
