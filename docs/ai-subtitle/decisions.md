@@ -176,8 +176,24 @@ Consequences: ADR-009 remains the default for other milestones but is superseded
 
 Upstream impact: none; delivery and review process only.
 
+## ADR-012 — Protect provider credentials with a separated, Keystore-backed secret store
+
+Status: Accepted by the Worker under the G04-1 plan gate; supersedes the open M04 ruling below
+
+Date: 2026-09-12
+
+Decision: Provider credentials never live inside serializable profile data. A dedicated `SecretStore` owns them. On API 23+ the secret is encrypted with a non-exportable AES-256-GCM key generated in AndroidKeyStore (fixed, versioned alias) and only ciphertext is persisted in a feature-owned private store; on API 17–22, where `KeyGenParameterSpec` does not exist (verified against the local SDK API database), the store falls back to the app-private preferences area as a documented compatibility exception. No host-manifest change is made: the M04 upstream budget authorizes only the settings-entry hook, and none is needed because Keystore key material does not travel with a backup. Any read or decryption failure normalizes to a configuration/auth failure and Source-Only Fallback.
+
+Reason: The app floor is API 17 (`SharedModules/constants.gradle`) while Keystore-backed AES-GCM requires API 23 (`KeyGenParameterSpec`, `KeyProperties` — verified locally in the SDK API database); `android:allowBackup="true"` with no exclusion rules means plaintext secrets would otherwise be captured by Auto Backup on API 23+.
+
+Alternatives: manifest `fullBackupContent` exclusion (outside the authorized upstream budget); memory-only secrets (unusable UX); plaintext storage on every API band (unacceptable); a third-party crypto dependency (rejected — no new dependencies).
+
+Consequences: Legacy-band devices get weaker protection by explicit, documented policy; decryption failure on a restored device is a first-class, expected path (re-enter the key) rather than an error state; the store is exercised with fakes on the JVM lane and with Robolectric where practical. Full evidence: `docs/ai-subtitle/research/g04-1-android-secret-storage.md`.
+
+Upstream impact: none (feature-owned files only).
+
 ## Open rulings
 
 - M02 evidence will decide whether ADR-005 can remain hook-free.
-- M04 must decide the exact Android Keystore/fallback policy after verifying minimum-API and app backup behavior.
+- Resolved by ADR-012 (M04-C0): the exact Android Keystore/fallback policy is settled; see the G04-1 research note for the verified evidence.
 - A `SubtitlePainter` fork is prohibited unless ADR-004 is explicitly superseded.
