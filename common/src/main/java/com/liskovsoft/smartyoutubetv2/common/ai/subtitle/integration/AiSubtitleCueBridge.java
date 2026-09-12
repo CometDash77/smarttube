@@ -5,6 +5,11 @@ import android.content.Context;
 import androidx.annotation.VisibleForTesting;
 
 import com.google.android.exoplayer2.text.Cue;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SourceTrackId;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationProfile;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSession;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionId;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionSnapshot;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.AiSubtitleData;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.FakeTranslationProvider;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCall;
@@ -25,22 +30,39 @@ import java.util.Map;
  * {@code AiSubtitleController}. The bridge owns no Activity, View, SubtitleView, Video, or
  * PlaybackPresenter reference.</p>
  *
- * <p>M02 scope: the in-memory lookup key is the normalized source text and results live only
- * for the current generation. M03 replaces this with timeline/segment identity before any
- * real provider is allowed.</p>
+ * <p>M03 scope: lifecycle ownership (session identity, generation, scheduling epoch, pause
+ * state) lives in a {@link TranslationSession}; a video, track, or profile identity change
+ * creates a new session generation and drops owned state, while a seek only advances the
+ * scheduling epoch. The in-memory result lookup is still source-text-keyed and is replaced
+ * by timeline/segment identity in M03-C3.</p>
  */
 public class AiSubtitleCueBridge {
     private static AiSubtitleCueBridge sInstance;
     private static Context sContext;
 
+    private static final String UNKNOWN_VIDEO_ID = "video:unknown";
+    private static final String UNKNOWN_TRACK_ID = "track:unknown";
+    private static final String UNKNOWN_LANGUAGE = "und";
+
+    /**
+     * M03 placeholder resolution. The real Provider/Prompt resolution arrives with M04/M05;
+     * until then the bridge runs against one deterministic default profile so session and
+     * cache identity stay well-defined for the current vertical slice.
+     */
+    private static final TranslationProfile DEFAULT_PROFILE =
+            new TranslationProfile("pending-profile", "pending-model", "pending-prompt", 1, "zh");
+
     private final EnableState mEnabledState;
     private final TranslationProvider mProvider;
     private final Map<String, String> mCompleted = new HashMap<>();
     private final Map<String, PendingRequest> mInFlight = new HashMap<>();
-    private long mGeneration;
-    private long mEpoch;
+
+    private TranslationProfile mProfile = DEFAULT_PROFILE;
+    private String mVideoId;
+    private SourceTrackId mSourceTrackId;
+    private TranslationSession mSession;
+    private long mGenerationSeed;
     private long mRequestIdSeed;
-    private boolean mPaused;
     private boolean mWasEnabled;
 
     /**
@@ -65,8 +87,14 @@ public class AiSubtitleCueBridge {
      */
     @VisibleForTesting
     AiSubtitleCueBridge(EnableState enabledState, TranslationProvider provider) {
+        this(enabledState, provider, DEFAULT_PROFILE);
+    }
+
+    @VisibleForTesting
+    AiSubtitleCueBridge(EnableState enabledState, TranslationProvider provider, TranslationProfile profile) {
         mEnabledState = enabledState;
         mProvider = provider;
+        mProfile = profile;
     }
 
     public static synchronized AiSubtitleCueBridge instance(Context context) {
@@ -100,7 +128,7 @@ public class AiSubtitleCueBridge {
 
             if (!mEnabledState.isEnabled()) {
                 if (mWasEnabled) {
-                    invalidate();
+                    dropSession();
                     mWasEnabled = false;
                 }
 
@@ -108,6 +136,7 @@ public class AiSubtitleCueBridge {
             }
 
             mWasEnabled = true;
+            ensureActiveSession();
 
             List<Cue> decorated = null;
 
@@ -133,39 +162,61 @@ public class AiSubtitleCueBridge {
 
     void onNewVideo(String videoId) {
         synchronized (this) {
-            invalidate();
+            mVideoId = videoId;
+            rebindSessionIfIdentityChanged();
         }
     }
 
     void onSubtitleTrackChanged(String trackIdentity) {
         synchronized (this) {
-            invalidate();
+            mSourceTrackId = toSourceTrackId(mVideoId, trackIdentity);
+            rebindSessionIfIdentityChanged();
+        }
+    }
+
+    /**
+     * Notifies the bridge that the resolved Translation Profile changed. M03 has no settings
+     * integration yet (arrives with M04/M05); the seam exists so identity changes and stale
+     * rejection are testable today.
+     */
+    void onProfileChanged(TranslationProfile profile) {
+        synchronized (this) {
+            if (profile == null) {
+                return;
+            }
+
+            mProfile = profile;
+            rebindSessionIfIdentityChanged();
         }
     }
 
     void onSeek(long positionMs) {
         synchronized (this) {
             cancelInFlight();
-            mEpoch++;
+
+            if (mSession != null) {
+                mSession.advanceEpoch();
+            }
         }
     }
 
     void onPause() {
         synchronized (this) {
-            mPaused = true;
+            ensureActiveSession();
+            mSession.pause();
         }
     }
 
     void onPlay() {
         synchronized (this) {
-            mPaused = false;
+            ensureActiveSession();
+            mSession.resume();
         }
     }
 
     void onRelease() {
         synchronized (this) {
-            invalidate();
-            mPaused = false;
+            dropSession();
         }
     }
 
@@ -177,9 +228,15 @@ public class AiSubtitleCueBridge {
      */
     public synchronized void onEnabledChanged(boolean enabled) {
         if (!enabled) {
-            invalidate();
+            dropSession();
             mWasEnabled = false;
         }
+    }
+
+    /** Snapshot of the active session, or null while no session is active. */
+    @VisibleForTesting
+    synchronized TranslationSessionSnapshot snapshotSession() {
+        return mSession != null ? mSession.snapshot() : null;
     }
 
     private Cue decorate(Cue cue) {
@@ -210,13 +267,15 @@ public class AiSubtitleCueBridge {
             return completed;
         }
 
-        if (mPaused || mInFlight.containsKey(source)) {
+        TranslationSession session = mSession;
+
+        if (session == null || session.isPaused() || mInFlight.containsKey(source)) {
             return null;
         }
 
         long requestId = ++mRequestIdSeed;
-        long generation = mGeneration;
-        long epoch = mEpoch;
+        long generation = session.getGeneration();
+        long epoch = session.getEpoch();
         PendingRequest pending = new PendingRequest(requestId, generation, epoch, null);
 
         // Track before starting so a synchronous provider callback is still accepted.
@@ -238,10 +297,79 @@ public class AiSubtitleCueBridge {
         return mCompleted.get(source);
     }
 
-    private void invalidate() {
-        mGeneration++;
+    private void ensureActiveSession() {
+        if (mSession == null || mSession.isClosed()) {
+            mSession = newSession(buildSessionId());
+        }
+    }
+
+    private TranslationSession newSession(TranslationSessionId sessionId) {
+        TranslationSession session = new TranslationSession(sessionId, ++mGenerationSeed);
+        session.markReady();
+        session.markActive();
+        return session;
+    }
+
+    private void rebindSessionIfIdentityChanged() {
+        TranslationSessionId nextId = buildSessionId();
+        TranslationSession current = mSession;
+
+        if (current != null && !current.isClosed() && current.getSessionId().equals(nextId)) {
+            // Idempotent: a repeated identical lifecycle event must not create a new generation.
+            return;
+        }
+
         cancelInFlight();
         mCompleted.clear();
+        mSession = newSession(nextId);
+    }
+
+    private void dropSession() {
+        if (mSession != null) {
+            mSession.close();
+            mSession = null;
+        }
+
+        cancelInFlight();
+        mCompleted.clear();
+    }
+
+    private TranslationSessionId buildSessionId() {
+        String videoId = isBlank(mVideoId) ? UNKNOWN_VIDEO_ID : mVideoId;
+        SourceTrackId trackId = mSourceTrackId != null ? mSourceTrackId : defaultTrackId(videoId);
+
+        return new TranslationSessionId(videoId, trackId, mProfile,
+                TranslationSessionId.ENGINE_SCHEMA_VERSION);
+    }
+
+    private static SourceTrackId defaultTrackId(String videoId) {
+        return new SourceTrackId(videoId, UNKNOWN_TRACK_ID, UNKNOWN_LANGUAGE);
+    }
+
+    /**
+     * Maps the controller's track-identity string onto a Source Track identity.
+     * {@code "subtitle:none"} means subtitles are off and leaves the bridge without a
+     * concrete track.
+     */
+    private static SourceTrackId toSourceTrackId(String videoId, String trackIdentity) {
+        if (trackIdentity == null || AiSubtitleController.IDENTITY_NONE.equals(trackIdentity)) {
+            return null;
+        }
+
+        String effectiveVideoId = isBlank(videoId) ? UNKNOWN_VIDEO_ID : videoId;
+        String language = UNKNOWN_LANGUAGE;
+
+        if (trackIdentity.startsWith("subtitle:")) {
+            String rest = trackIdentity.substring("subtitle:".length());
+            int separator = rest.indexOf(':');
+            String candidate = separator >= 0 ? rest.substring(0, separator) : rest;
+
+            if (!candidate.isEmpty()) {
+                language = candidate;
+            }
+        }
+
+        return new SourceTrackId(effectiveVideoId, trackIdentity, language);
     }
 
     private void cancelInFlight() {
@@ -256,6 +384,10 @@ public class AiSubtitleCueBridge {
         }
 
         mInFlight.clear();
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 
     private static final class PendingRequest {
@@ -293,15 +425,15 @@ public class AiSubtitleCueBridge {
 
             synchronized (AiSubtitleCueBridge.this) {
                 PendingRequest pending = mInFlight.get(mSource);
+                TranslationSession session = mSession;
 
-                // The callback applies only when both generation and request id still
-                // belong to the active request of the current session and epoch.
+                // The callback applies only when the request still belongs to the active
+                // session generation and scheduling epoch (request-owner identity) and the
+                // result repeats the request identity it answers.
                 if (pending == null
                         || pending.mRequestId != mRequestId
-                        || pending.mGeneration != mRequestGeneration
-                        || pending.mEpoch != mRequestEpoch
-                        || mGeneration != mRequestGeneration
-                        || mEpoch != mRequestEpoch
+                        || session == null
+                        || !session.owns(pending.mGeneration, pending.mEpoch)
                         || result.getGeneration() != mRequestGeneration
                         || result.getRequestId() != mRequestId) {
                     return;

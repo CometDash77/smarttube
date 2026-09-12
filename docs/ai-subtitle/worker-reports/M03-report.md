@@ -4,7 +4,7 @@ Task ID: `M03`
 
 Milestone: M03 — AI subtitle domain and session core
 
-Status: **IN PROGRESS — M03-C1 landed (domain value objects, 50 tests green); M03-C2..C5 remain**
+Status: **IN PROGRESS — M03-C1 and M03-C2 landed (domain + session core, 118 tests green, mutation checks recorded); M03-C3..C5 remain**
 
 ## Task/Milestone and pinned SHAs
 
@@ -44,7 +44,7 @@ Replace M02's normalized-source-text identity and bridge-owned lifecycle maps wi
 |---|---|---|---|
 | C0 | `docs(ai-subtitle): start consolidated M03 execution ledger` | M03 report start, live ledger, baseline pin, G03-1 disposition | MERGED (`2a1e45c65`) |
 | C1 | `feat(domain): add stable subtitle timeline identities` | `domain/` value objects + tests + CONTEXT.md if semantics change | MERGED (this commit) |
-| C2 | `feat(session): enforce generation and scheduling epoch ownership` | `session/` model, bridge/controller lifecycle ownership move + tests | NOT RUN |
+| C2 | `feat(session): enforce generation and scheduling epoch ownership` | `session/` model, bridge/controller lifecycle ownership move + tests | MERGED (this commit) |
 | C3 | `feat(cache): key in-memory translations by complete output identity` | `cache/` key/cache + isolation tests per architecture §9 | NOT RUN |
 | C4 | `refactor(translation): stabilize provider-neutral request contracts` | request/result/callback/stream/failure evolution + fake/bridge/controller adaptation + tests | NOT RUN |
 | C5 | `docs(ai-subtitle): record M03 domain and session checkpoint` | Self-acceptance, report completion, progress/ledger, CI evidence | NOT RUN |
@@ -72,9 +72,27 @@ Tests (5, under `common/src/test/java/.../ai/subtitle/domain/`, 50 test methods 
 
 `CONTEXT.md` unchanged: the implementation follows the existing `Source Track`, `Source Cue`, `Subtitle Segment`, `Translation Unit`, and `Translation Profile` definitions without changing their meaning.
 
+### M03-C2 — `feat(session): enforce generation and scheduling epoch ownership`
+
+Production (3, under `common/src/main/java/.../ai/subtitle/session/`):
+
+- `TranslationSessionId.java` — video + Source Track + Translation Profile + engine schema version; blank video id, null track/profile, and non-positive engine version rejected; `ENGINE_SCHEMA_VERSION = 1` constant; all four fields participate in equality.
+- `TranslationSession.java` — immutable identity/generation plus scheduling epoch and lifecycle state; documented state machine (`LOADING_SOURCE → READY → ACTIVE ⇄ PAUSED`, `SOURCE_ONLY`/`DEGRADED` reachable, terminal `CLOSED`); every transition is idempotent and a closed session ignores further events; `owns(generation, epoch)` is the request/callback ownership check.
+- `TranslationSessionSnapshot.java` — immutable snapshot of identity, generation, epoch, and state.
+
+Tests (3):
+
+- `session/TranslationSessionIdTest.java` (7) — per-identity-field inequality (video/track/profile/engine version; provider/model/prompt/version/language), blank/null rejection, exact getter values.
+- `session/TranslationSessionTest.java` (17) — state machine and idempotency, pause/resume semantics, seek advances the epoch but never identity or state, terminal/idempotent close, closed-session transition rejection, ownership accept/reject per generation and epoch, snapshot capture.
+- `integration/AiSubtitleCueBridgeSessionTest.java` (10) — bridge-level: seek advances only the epoch, identity changes create new generations, repeated identical events are idempotent, subtitles off/on restarts cleanly, profile change advances the generation and rejects stale callbacks, pause/play reflected in state, release closes the session, mismatched result identity never caches.
+
 ## Files modified
 
-`NOT RUN` (filled per commit). No non-feature SmartTube file is authorized in M03.
+### M03-C2
+
+- `integration/AiSubtitleCueBridge.java` (feature-owned M02 file) — lifecycle ownership moved from bridge fields into `TranslationSession`: session identity, generation, scheduling epoch, and pause state now live in the session; `onNewVideo`/`onSubtitleTrackChanged`/`onProfileChanged` rebind a session only when the identity actually changes; stale callbacks are rejected via session ownership plus pending/result request-identity comparison. Public seams (`process`, `instance`, `onEnabledChanged`) unchanged; `AiSubtitleController` unchanged.
+
+No non-feature SmartTube file is authorized in M03; none changed.
 
 ## Implementation summary by commit ID
 
@@ -90,9 +108,20 @@ Tests (5, under `common/src/test/java/.../ai/subtitle/domain/`, 50 test methods 
 
 Per-suite GREEN counts (XML artifacts): `SourceTrackIdTest` 9, `SourceCueTest` 9, `SubtitleSegmentTest` 13, `TranslationUnitTest` 11, `TranslationProfileTest` 8.
 
+### M03-C2 (local diagnostics, JDK 17; CI is authoritative)
+
+- Session package scaffold phase (no validation, no state machine, `owns()` returning true): `./gradlew :common:testStbetaDebugUnitTest --tests "com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.*"` → **24 tests completed, 19 failed** (EXIT=1), assertion-level RED.
+- Session implementation phase: same task → 24/24 green.
+- Full ai-subtitle regression after the bridge integration: **118 passed, 0 failed** — domain 50, session 24 (7 + 17), integration 39 (bridge 19 + bridge-session 10 + controller 10), translation 5; `settings.AiSubtitleDataTest` remains 3 skipped on JDK 17 by design (ADR-010).
+- **Mutation checks (required by the M03-C2 self-acceptance):**
+  1. `TranslationSession.owns` ignoring the generation comparison → `ownsAcceptsOnlyCurrentGenerationAndEpoch` and `everyIdentityFieldChangeRequiresADistinctSessionWithNewGeneration` fail (63 executed, 2 failed).
+  2. `TranslationSession.owns` ignoring the epoch comparison → `ownsAcceptsOnlyCurrentGenerationAndEpoch` fails (63 executed, 1 failed).
+  3. Bridge callback dropping the `result.getRequestId()` comparison → `resultWithMismatchedRequestIdentityIsRejected` fails (39 executed, 1 failed).
+  All three mutations were reverted and the full suite re-ran green (118 passed, 0 failed).
+
 ## Static checks
 
-`NOT RUN` (milestone static gate at M03-C5: `git diff --check`, declared file inventory, no undeclared host-file change, no line-ending/mode churn, `upstream-patches.md` unchanged because no host file is touched).
+`NOT RUN` as a full milestone gate (performed at M03-C5: `git diff --check`, declared file inventory, no undeclared host-file change, no line-ending/mode churn, `upstream-patches.md` unchanged because no host file is touched). Commit-level `git diff --check` stays clean; no existing SmartTube file has been modified so far.
 
 ## GitHub Actions runs
 
@@ -130,4 +159,4 @@ Per-suite GREEN counts (XML artifacts): `SourceTrackIdTest` 9, `SourceCueTest` 9
 
 ## Confirmation
 
-M03-C0 only. No production file has been changed for M03 yet. M03-C1 starts after this ledger commit.
+M03-C0, M03-C1, and M03-C2 are landed. No existing SmartTube file has been changed in M03; `upstream-patches.md` stays unchanged. M03-C3 (cache identity) starts after this commit.
