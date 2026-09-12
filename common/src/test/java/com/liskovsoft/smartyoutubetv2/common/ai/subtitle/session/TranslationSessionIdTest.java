@@ -17,9 +17,11 @@ public class TranslationSessionIdTest {
     private static final SourceTrackId TRACK = new SourceTrackId("video-1", "subtitle:en:asr-1", "en");
     private static final SourceTrackId OTHER_TRACK = new SourceTrackId("video-1", "subtitle:ja:asr-2", "ja");
     private static final TranslationProfile PROFILE =
-            new TranslationProfile("profile-1", "gpt-4o-mini", "prompt-1", 1, "zh");
+            new TranslationProfile("profile-1", "openai-chat-completions", "https://api.example.com/v1",
+                    "gpt-4o-mini", "prompt-1", 1, "zh");
     private static final TranslationProfile OTHER_PROFILE =
-            new TranslationProfile("profile-2", "gpt-4o-mini", "prompt-1", 1, "zh");
+            new TranslationProfile("profile-2", "openai-chat-completions", "https://api.example.com/v1",
+                    "gpt-4o-mini", "prompt-1", 1, "zh");
 
     @Test
     public void gettersExposeExactConstructorValues() {
@@ -54,10 +56,14 @@ public class TranslationSessionIdTest {
     public void modelPromptAndLanguageIdentityChangesAreNotEqual() {
         TranslationSessionId base = new TranslationSessionId("video-1", TRACK, PROFILE, 1);
 
-        TranslationProfile otherModel = new TranslationProfile("profile-1", "other-model", "prompt-1", 1, "zh");
-        TranslationProfile otherPrompt = new TranslationProfile("profile-1", "gpt-4o-mini", "prompt-2", 1, "zh");
-        TranslationProfile otherPromptVersion = new TranslationProfile("profile-1", "gpt-4o-mini", "prompt-1", 2, "zh");
-        TranslationProfile otherLanguage = new TranslationProfile("profile-1", "gpt-4o-mini", "prompt-1", 1, "ja");
+        TranslationProfile otherModel = new TranslationProfile("profile-1", "openai-chat-completions",
+                "https://api.example.com/v1", "other-model", "prompt-1", 1, "zh");
+        TranslationProfile otherPrompt = new TranslationProfile("profile-1", "openai-chat-completions",
+                "https://api.example.com/v1", "gpt-4o-mini", "prompt-2", 1, "zh");
+        TranslationProfile otherPromptVersion = new TranslationProfile("profile-1", "openai-chat-completions",
+                "https://api.example.com/v1", "gpt-4o-mini", "prompt-1", 2, "zh");
+        TranslationProfile otherLanguage = new TranslationProfile("profile-1", "openai-chat-completions",
+                "https://api.example.com/v1", "gpt-4o-mini", "prompt-1", 1, "ja");
 
         assertFalse("different model", base.equals(new TranslationSessionId("video-1", TRACK, otherModel, 1)));
         assertFalse("different prompt profile", base.equals(new TranslationSessionId("video-1", TRACK, otherPrompt, 1)));

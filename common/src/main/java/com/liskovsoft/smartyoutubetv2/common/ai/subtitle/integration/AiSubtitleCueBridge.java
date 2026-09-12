@@ -5,8 +5,13 @@ import android.content.Context;
 import androidx.annotation.VisibleForTesting;
 
 import com.google.android.exoplayer2.text.Cue;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.cache.InMemoryTranslationCache;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.cache.TranslationCache;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.cache.TranslationCacheKey;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SourceTrackId;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SubtitleSegmentId;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationProfile;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationUnit;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSession;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionId;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionSnapshot;
@@ -19,6 +24,7 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.Translation
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationResult;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,10 +37,11 @@ import java.util.Map;
  * PlaybackPresenter reference.</p>
  *
  * <p>M03 scope: lifecycle ownership (session identity, generation, scheduling epoch, pause
- * state) lives in a {@link TranslationSession}; a video, track, or profile identity change
- * creates a new session generation and drops owned state, while a seek only advances the
- * scheduling epoch. The in-memory result lookup is still source-text-keyed and is replaced
- * by timeline/segment identity in M03-C3.</p>
+ * state) lives in a {@link TranslationSession}; results are stored in a session-scoped
+ * {@link TranslationCache} keyed by the complete output identity of
+ * {@link TranslationCacheKey}. The translated unit currently maps one displayed cue to one
+ * single-segment unit on the session's Source Track; the real normalized timeline (segment
+ * indexes from the source pipeline) arrives with the source/segmentation milestones.</p>
  */
 public class AiSubtitleCueBridge {
     private static AiSubtitleCueBridge sInstance;
@@ -44,18 +51,26 @@ public class AiSubtitleCueBridge {
     private static final String UNKNOWN_TRACK_ID = "track:unknown";
     private static final String UNKNOWN_LANGUAGE = "und";
 
+    /** M03 has no context builder yet (arrives with M08); identity stays explicit and empty. */
+    private static final String CONTEXT_FINGERPRINT_NONE = "";
+
+    /** Placeholder versions until the segmentation/boundary implementations exist (M06). */
+    private static final int SEGMENTATION_VERSION_PENDING = 1;
+    private static final int BOUNDARY_VERSION_PENDING = 1;
+
     /**
      * M03 placeholder resolution. The real Provider/Prompt resolution arrives with M04/M05;
      * until then the bridge runs against one deterministic default profile so session and
      * cache identity stay well-defined for the current vertical slice.
      */
     private static final TranslationProfile DEFAULT_PROFILE =
-            new TranslationProfile("pending-profile", "pending-model", "pending-prompt", 1, "zh");
+            new TranslationProfile("pending-profile", "pending-protocol", "pending-endpoint",
+                    "pending-model", "pending-prompt", 1, "zh");
 
     private final EnableState mEnabledState;
     private final TranslationProvider mProvider;
-    private final Map<String, String> mCompleted = new HashMap<>();
-    private final Map<String, PendingRequest> mInFlight = new HashMap<>();
+    private final TranslationCache mCache = new InMemoryTranslationCache();
+    private final Map<TranslationCacheKey, PendingRequest> mInFlight = new HashMap<>();
 
     private TranslationProfile mProfile = DEFAULT_PROFILE;
     private String mVideoId;
@@ -261,15 +276,20 @@ public class AiSubtitleCueBridge {
     }
 
     private String findOrRequest(String source) {
-        String completed = mCompleted.get(source);
-
-        if (completed != null) {
-            return completed;
-        }
-
         TranslationSession session = mSession;
 
-        if (session == null || session.isPaused() || mInFlight.containsKey(source)) {
+        if (session == null) {
+            return null;
+        }
+
+        TranslationCacheKey key = keyFor(session, source);
+        TranslationResult cached = mCache.get(key);
+
+        if (cached != null) {
+            return cached.getTranslatedText();
+        }
+
+        if (session.isPaused() || mInFlight.containsKey(key)) {
             return null;
         }
 
@@ -279,14 +299,14 @@ public class AiSubtitleCueBridge {
         PendingRequest pending = new PendingRequest(requestId, generation, epoch, null);
 
         // Track before starting so a synchronous provider callback is still accepted.
-        mInFlight.put(source, pending);
+        mInFlight.put(key, pending);
 
         TranslationRequest request = new TranslationRequest(generation, requestId, source, null, null);
 
         try {
-            pending.mCall = mProvider.translate(request, new BridgeCallback(source, requestId, generation, epoch));
+            pending.mCall = mProvider.translate(request, new BridgeCallback(key, requestId, generation, epoch));
         } catch (Exception e) {
-            mInFlight.remove(source);
+            mInFlight.remove(key);
             return null;
         }
 
@@ -294,7 +314,35 @@ public class AiSubtitleCueBridge {
         // callback has already passed every identity guard and populated the cache, so the
         // result can be consumed in this same call. Deferred providers return null here and
         // stay source-only until a later rendering opportunity.
-        return mCompleted.get(source);
+        TranslationResult completed = mCache.get(key);
+
+        return completed != null ? completed.getTranslatedText() : null;
+    }
+
+    /**
+     * Builds the cache identity for one displayed cue under the given session: the session
+     * identity plus the cue's own single-segment unit coverage and text fingerprint.
+     */
+    private static TranslationCacheKey keyFor(TranslationSession session, String source) {
+        return TranslationCacheKey.from(
+                session.getSessionId(),
+                unitFor(session, source),
+                CONTEXT_FINGERPRINT_NONE,
+                SEGMENTATION_VERSION_PENDING,
+                BOUNDARY_VERSION_PENDING);
+    }
+
+    /**
+     * M03 placeholder timeline identity: one displayed cue maps to one single-segment unit on
+     * the session's Source Track. The track component already prevents identical text on two
+     * tracks from aliasing; segment indexes from the normalized timeline arrive with the
+     * source/segmentation milestones.
+     */
+    private static TranslationUnit unitFor(TranslationSession session, String source) {
+        SubtitleSegmentId segmentId = new SubtitleSegmentId(
+                session.getSessionId().getSourceTrackId(), 0);
+
+        return new TranslationUnit(Collections.singletonList(segmentId), source);
     }
 
     private void ensureActiveSession() {
@@ -320,7 +368,7 @@ public class AiSubtitleCueBridge {
         }
 
         cancelInFlight();
-        mCompleted.clear();
+        mCache.clear();
         mSession = newSession(nextId);
     }
 
@@ -331,7 +379,7 @@ public class AiSubtitleCueBridge {
         }
 
         cancelInFlight();
-        mCompleted.clear();
+        mCache.clear();
     }
 
     private TranslationSessionId buildSessionId() {
@@ -405,13 +453,13 @@ public class AiSubtitleCueBridge {
     }
 
     private final class BridgeCallback implements TranslationCallback {
-        private final String mSource;
+        private final TranslationCacheKey mKey;
         private final long mRequestId;
         private final long mRequestGeneration;
         private final long mRequestEpoch;
 
-        private BridgeCallback(String source, long requestId, long requestGeneration, long requestEpoch) {
-            mSource = source;
+        private BridgeCallback(TranslationCacheKey key, long requestId, long requestGeneration, long requestEpoch) {
+            mKey = key;
             mRequestId = requestId;
             mRequestGeneration = requestGeneration;
             mRequestEpoch = requestEpoch;
@@ -424,7 +472,7 @@ public class AiSubtitleCueBridge {
             }
 
             synchronized (AiSubtitleCueBridge.this) {
-                PendingRequest pending = mInFlight.get(mSource);
+                PendingRequest pending = mInFlight.get(mKey);
                 TranslationSession session = mSession;
 
                 // The callback applies only when the request still belongs to the active
@@ -439,18 +487,18 @@ public class AiSubtitleCueBridge {
                     return;
                 }
 
-                mInFlight.remove(mSource);
-                mCompleted.put(mSource, result.getTranslatedText());
+                mInFlight.remove(mKey);
+                mCache.put(mKey, result);
             }
         }
 
         @Override
         public void onFailure(Throwable error) {
             synchronized (AiSubtitleCueBridge.this) {
-                PendingRequest pending = mInFlight.get(mSource);
+                PendingRequest pending = mInFlight.get(mKey);
 
                 if (pending != null && pending.mRequestId == mRequestId) {
-                    mInFlight.remove(mSource);
+                    mInFlight.remove(mKey);
                 }
             }
         }

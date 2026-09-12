@@ -11,7 +11,7 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 ## Current state
 
 - Current milestone: M03 — AI subtitle domain and session core (M03–M06 consolidated Worker program)
-- Current task: `M03-C3 — key in-memory translations by complete output identity` (M03-C2 landed: session core + bridge lifecycle ownership, 118 tests green, three mutation checks recorded)
+- Current task: `M03-C4 — stabilize provider-neutral request contracts` (M03-C3 landed: cache key/cache + bridge cache identity, 150 tests green, isolation mutation check recorded)
 - Task state: M02 accepted — user relayed the Commander PASS on 2026-09-12 (product evidence run `34660051184` green for `854460bb4`); M03 execution started from base `422451df8`
 - Production code changes: M02 implementation present; both correction packages verified green by authoritative runs (`34618112103`, `34660051184`)
 - Actual upstream patch count: 3 existing SmartTube files, all inside the approved M02 budget
@@ -106,3 +106,4 @@ M03–M06 execution in progress by the Worker under `worker-plans/M03-M06-plan.m
 - M02-FIX-02 docs-only follow-up: run `34660494711` was cancelled by concurrency after the JDK 11 job completed; superseding run `34660774973` for `2716e5380` completed successfully with all steps and three artifacts.
 - M03-C1 local diagnostics (JDK 17): witnessed RED 50 tests / 32 failed, then GREEN 50/50; full ai-subtitle regression 84 passed / 0 failed (domain 50 + bridge 19 + controller 10 + provider 5); `AiSubtitleDataTest` stays 3-skipped on JDK 17 per ADR-010.
 - M03-C2 local diagnostics (JDK 17): witnessed RED 24 tests / 19 failed (session scaffold), then GREEN 24/24; full ai-subtitle regression 118 passed / 0 failed (domain 50 + session 24 + integration 39 + provider 5). Mutation checks: owns-ignoring-generation 2 named failures, owns-ignoring-epoch 1, dropped result-identity check 1 — all reverted, suite re-ran green.
+- M03-C3 local diagnostics (JDK 17): witnessed RED 26 tests / 6 failed (cache scaffold), then GREEN 26/26; full ai-subtitle regression 150 passed / 0 failed / 3 skipped (cache 26 + domain 53 + session 24 + integration 42 + provider 5). Mutation check: dropping the base-URL comparison from the cache key fails `baseUrlIdentityIsIsolated` — reverted, suite re-ran green.

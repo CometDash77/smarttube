@@ -4,7 +4,7 @@ Task ID: `M03`
 
 Milestone: M03 — AI subtitle domain and session core
 
-Status: **IN PROGRESS — M03-C1 and M03-C2 landed (domain + session core, 118 tests green, mutation checks recorded); M03-C3..C5 remain**
+Status: **IN PROGRESS — M03-C1..C3 landed (domain + session + cache core, 150 tests green, mutation checks recorded); M03-C4..C5 remain**
 
 ## Task/Milestone and pinned SHAs
 
@@ -45,7 +45,7 @@ Replace M02's normalized-source-text identity and bridge-owned lifecycle maps wi
 | C0 | `docs(ai-subtitle): start consolidated M03 execution ledger` | M03 report start, live ledger, baseline pin, G03-1 disposition | MERGED (`2a1e45c65`) |
 | C1 | `feat(domain): add stable subtitle timeline identities` | `domain/` value objects + tests + CONTEXT.md if semantics change | MERGED (this commit) |
 | C2 | `feat(session): enforce generation and scheduling epoch ownership` | `session/` model, bridge/controller lifecycle ownership move + tests | MERGED (this commit) |
-| C3 | `feat(cache): key in-memory translations by complete output identity` | `cache/` key/cache + isolation tests per architecture §9 | NOT RUN |
+| C3 | `feat(cache): key in-memory translations by complete output identity` | `cache/` key/cache + isolation tests per architecture §9 | MERGED (this commit) |
 | C4 | `refactor(translation): stabilize provider-neutral request contracts` | request/result/callback/stream/failure evolution + fake/bridge/controller adaptation + tests | NOT RUN |
 | C5 | `docs(ai-subtitle): record M03 domain and session checkpoint` | Self-acceptance, report completion, progress/ledger, CI evidence | NOT RUN |
 
@@ -86,7 +86,28 @@ Tests (3):
 - `session/TranslationSessionTest.java` (17) — state machine and idempotency, pause/resume semantics, seek advances the epoch but never identity or state, terminal/idempotent close, closed-session transition rejection, ownership accept/reject per generation and epoch, snapshot capture.
 - `integration/AiSubtitleCueBridgeSessionTest.java` (10) — bridge-level: seek advances only the epoch, identity changes create new generations, repeated identical events are idempotent, subtitles off/on restarts cleanly, profile change advances the generation and rejects stale callbacks, pause/play reflected in state, release closes the session, mismatched result identity never caches.
 
+### M03-C3 — `feat(cache): key in-memory translations by complete output identity`
+
+Production (3, under `common/src/main/java/.../ai/subtitle/cache/`):
+
+- `TranslationCache.java` — cache contract (`get`/`put`/`clear`); session-scoped by design, only accepted results are stored.
+- `TranslationCacheKey.java` — immutable key over all 14 output-affecting components from architecture §9: engine schema version, video id, Source Track, source coverage + text fingerprint, Provider Profile id, provider protocol, base URL identity, model id, Prompt Profile id, prompt version, target language, context fingerprint, segmentation version, and boundary version. Raw source text is reduced to a length + hash fingerprint so no subtitle content can reach a log; null session/unit are rejected.
+- `InMemoryTranslationCache.java` — `HashMap`-backed implementation; a null result can never create or replace an entry.
+
+Tests (3):
+
+- `cache/TranslationCacheKeyTest.java` (21) — one isolation test per architecture §9 field (14 fields, one varied at a time), equal-input equality/hash, equal text across tracks cannot collide, null rejection, `toString` exposes identity values for diagnostics but never raw source text, and a reflection check that no credential-bearing field exists.
+- `cache/InMemoryTranslationCacheTest.java` (5) — round trip, miss, overwrite, non-aliasing keys, clear.
+- `integration/AiSubtitleCueBridgeCacheTest.java` (3) — a failed translation is never cached and is re-requested; equal text on another track is re-requested; the cache is cleared when session identity changes (bounded to the active session scope).
+
+Contract evolution in the same commit: `TranslationProfile` gained `providerProtocol` and `baseUrlIdentity` (the base URL identity rejects values embedding user information, so credentials can never enter profile, session, or cache identity); its tests, the session tests, and the bridge default profile were updated together.
+
 ## Files modified
+
+### M03-C3
+
+- `integration/AiSubtitleCueBridge.java` (feature-owned M02 file) — the text-keyed result map is replaced by the session-scoped `TranslationCache`; pending requests are keyed by `TranslationCacheKey`; one displayed cue maps to one single-segment unit on the session's Source Track (placeholder context fingerprint and version fields until M06/M08 supply the real pipeline). Public seams and the controller stay unchanged.
+- `domain/TranslationProfile.java` (feature-owned M03 file) — contract evolution: protocol and credential-free base URL identity added; tests updated in the same commit.
 
 ### M03-C2
 
@@ -118,6 +139,13 @@ Per-suite GREEN counts (XML artifacts): `SourceTrackIdTest` 9, `SourceCueTest` 9
   2. `TranslationSession.owns` ignoring the epoch comparison → `ownsAcceptsOnlyCurrentGenerationAndEpoch` fails (63 executed, 1 failed).
   3. Bridge callback dropping the `result.getRequestId()` comparison → `resultWithMismatchedRequestIdentityIsRejected` fails (39 executed, 1 failed).
   All three mutations were reverted and the full suite re-ran green (118 passed, 0 failed).
+
+### M03-C3 (local diagnostics, JDK 17; CI is authoritative)
+
+- Cache package scaffold phase (`TranslationCacheKey` without validation, equality, or `toString`; cache as no-op): `./gradlew :common:testStbetaDebugUnitTest --tests "com.liskovsoft.smartyoutubetv2.common.ai.subtitle.cache.*"` → **26 tests completed, 6 failed** (EXIT=1) — assertion-level RED on equality, `toString`, null rejection, and all cache behaviors. (The per-field isolation tests assert inequality, so they only become meaningful once equality exists; their effectiveness is proven by the mutation check below.)
+- Implementation phase: same task → 26/26 green.
+- Full ai-subtitle regression after the bridge integration: **150 passed, 0 failed, 3 skipped (ADR-010)** — cache 26, domain 53, session 24, integration 42 (bridge 19 + bridge-session 10 + bridge-cache 3 + controller 10), translation 5.
+- **Mutation check:** dropping the `baseUrlIdentity` comparison from `TranslationCacheKey.equals` → `baseUrlIdentityIsIsolated` fails (26 executed, 1 failed); reverted and the full suite re-ran green.
 
 ## Static checks
 
@@ -159,4 +187,4 @@ Per-suite GREEN counts (XML artifacts): `SourceTrackIdTest` 9, `SourceCueTest` 9
 
 ## Confirmation
 
-M03-C0, M03-C1, and M03-C2 are landed. No existing SmartTube file has been changed in M03; `upstream-patches.md` stays unchanged. M03-C3 (cache identity) starts after this commit.
+M03-C0 through M03-C3 are landed. No existing SmartTube file has been changed in M03; `upstream-patches.md` stays unchanged. M03-C4 (provider-neutral request contracts) starts after this commit.

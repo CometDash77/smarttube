@@ -19,7 +19,8 @@ import static org.junit.Assert.fail;
  */
 public class TranslationSessionTest {
     private static final TranslationProfile PROFILE =
-            new TranslationProfile("profile-1", "gpt-4o-mini", "prompt-1", 1, "zh");
+            new TranslationProfile("profile-1", "openai-chat-completions", "https://api.example.com/v1",
+                    "gpt-4o-mini", "prompt-1", 1, "zh");
 
     private static TranslationSessionId sessionId(String videoId, String trackId) {
         return new TranslationSessionId(videoId, new SourceTrackId(videoId, trackId, "en"),

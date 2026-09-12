@@ -135,7 +135,8 @@ public class AiSubtitleCueBridgeSessionTest {
         bridge.process(cues("Hello"));
         TranslationSessionSnapshot before = bridge.snapshotSession();
 
-        TranslationProfile other = new TranslationProfile("other-profile", "pending-model", "pending-prompt", 1, "zh");
+        TranslationProfile other = new TranslationProfile("other-profile", "pending-protocol",
+                "pending-endpoint", "pending-model", "pending-prompt", 1, "zh");
         bridge.onProfileChanged(other);
         TranslationSessionSnapshot after = bridge.snapshotSession();
 
