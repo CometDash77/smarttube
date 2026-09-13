@@ -135,6 +135,15 @@ public class TranslationCacheKeyTest {
     }
 
     @Test
+    public void promptContentHashIsIsolated() {
+        TranslationProfile other = new TranslationProfile("profile-1", "openai-chat-completions",
+                "https://api.example.com/v1", "gpt-4o-mini", "prompt-1", 2,
+                "different-content", "zh");
+
+        assertFalse(key().equals(keyWithProfile(other)));
+    }
+
+    @Test
     public void targetLanguageIsIsolated() {
         TranslationProfile other = new TranslationProfile("profile-1", "openai-chat-completions",
                 "https://api.example.com/v1", "gpt-4o-mini", "prompt-1", 2, "ja");

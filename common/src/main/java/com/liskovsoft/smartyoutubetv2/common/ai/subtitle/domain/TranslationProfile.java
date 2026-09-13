@@ -17,16 +17,25 @@ public final class TranslationProfile {
     private final String mModelId;
     private final String mPromptProfileId;
     private final int mPromptVersion;
+    private final String mPromptContentHash;
     private final String mTargetLanguage;
 
     public TranslationProfile(String providerProfileId, String providerProtocol, String baseUrlIdentity,
                               String modelId, String promptProfileId, int promptVersion,
                               String targetLanguage) {
+        this(providerProfileId, providerProtocol, baseUrlIdentity, modelId, promptProfileId,
+                promptVersion, legacyPromptHash(promptProfileId, promptVersion), targetLanguage);
+    }
+
+    public TranslationProfile(String providerProfileId, String providerProtocol, String baseUrlIdentity,
+                              String modelId, String promptProfileId, int promptVersion,
+                              String promptContentHash, String targetLanguage) {
         mProviderProfileId = requireNonBlank(providerProfileId, "providerProfileId");
         mProviderProtocol = requireNonBlank(providerProtocol, "providerProtocol");
         mBaseUrlIdentity = requireCredentialFree(requireNonBlank(baseUrlIdentity, "baseUrlIdentity"));
         mModelId = requireNonBlank(modelId, "modelId");
         mPromptProfileId = requireNonBlank(promptProfileId, "promptProfileId");
+        mPromptContentHash = requireNonBlank(promptContentHash, "promptContentHash");
         mTargetLanguage = requireNonBlank(targetLanguage, "targetLanguage");
 
         if (promptVersion < 1) {
@@ -60,6 +69,10 @@ public final class TranslationProfile {
         return mPromptVersion;
     }
 
+    public String getPromptContentHash() {
+        return mPromptContentHash;
+    }
+
     public String getTargetLanguage() {
         return mTargetLanguage;
     }
@@ -79,6 +92,7 @@ public final class TranslationProfile {
                 && sameValue(mBaseUrlIdentity, other.mBaseUrlIdentity)
                 && sameValue(mModelId, other.mModelId)
                 && sameValue(mPromptProfileId, other.mPromptProfileId)
+                && sameValue(mPromptContentHash, other.mPromptContentHash)
                 && sameValue(mTargetLanguage, other.mTargetLanguage);
     }
 
@@ -92,6 +106,7 @@ public final class TranslationProfile {
         result = 31 * result + valueHash(mModelId);
         result = 31 * result + valueHash(mPromptProfileId);
         result = 31 * result + mPromptVersion;
+        result = 31 * result + valueHash(mPromptContentHash);
         result = 31 * result + valueHash(mTargetLanguage);
         return result;
     }
@@ -103,6 +118,7 @@ public final class TranslationProfile {
                 + ", baseUrl=" + mBaseUrlIdentity
                 + ", model=" + mModelId
                 + ", prompt=" + mPromptProfileId + "@" + mPromptVersion
+                + "#" + mPromptContentHash
                 + ", target=" + mTargetLanguage + "}";
     }
 
@@ -127,5 +143,9 @@ public final class TranslationProfile {
 
     private static int valueHash(Object value) {
         return value != null ? value.hashCode() : 0;
+    }
+
+    private static String legacyPromptHash(String promptProfileId, int promptVersion) {
+        return Integer.toHexString((String.valueOf(promptProfileId) + "@" + promptVersion).hashCode());
     }
 }

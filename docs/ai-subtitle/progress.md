@@ -10,13 +10,13 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 
 ## Current state
 
-- Current milestone: M05 — Prompt profiles, rendering, and atomic translation resolution (Gate 1 closed M04; M05 implementation is next)
-- Current task: `Gate 2 — prompt persistence, strict rendering, and atomic translation resolution`
-- Task state: **Gate 1 implementation complete locally on 2026-09-13; CI verification is deferred to Gate 7 because the local Gradle run is blocked by the non-ASCII workspace path**; M03 is self-accepted; M02 remains accepted; M04-C0..C6 are implementation-complete and task-reviewed; M04-C7 correction is now included in the Gate 1 commit
-- Production code changes: M02 renderer/lifecycle slice present; M03 domain/session/cache/contracts added; M04-C1 adds Provider Profile persistence; M04-C2 adds separated Android secret storage; M04-C3 adds OpenAI-compatible responses; M04-C4 adds Anthropic-compatible responses; M04-C5 adds presets, capabilities, model discovery, and normalized connection results; M04-C6 adds feature-owned provider settings UI and the single host settings hook
+- Current milestone: M05 — Prompt profiles, rendering, and atomic translation resolution (Gate 2 closed; Gate 3 UI is next)
+- Current task: `Gate 3 — prompt manager and target language`
+- Task state: **Gate 2 implementation complete locally on 2026-09-13; local Gradle verification is blocked before test execution by the non-ASCII workspace path, so final CI remains required at Gate 7**; M03 is self-accepted; M02 remains accepted; M04 is closed by Gate 1
+- Production code changes: M02 renderer/lifecycle slice present; M03 domain/session/cache/contracts added; M04 provider persistence, secret storage, adapters, discovery, and settings UI present; M05 prompt persistence, strict rendering, content-aware profile identity, and atomic runtime resolution added
 - Actual upstream patch count: 3 existing SmartTube files, all inside the approved M02 budget
-- Remote sync: `feature/ai-bilingual-subtitles` tracks `origin`; the latest successfully pushed tip remains `6a2af2d2c` until credentials are available. The Gate 1 correction is committed locally and remains unpushed
-- Local compile/test status: the Gate 1 focused command was attempted with Android Studio JDK 21 but Gradle stopped before test execution because the workspace path contains non-ASCII characters; no local test pass is claimed. Full ai-subtitle and final CI evidence remain Gate 7 work
+- Remote sync: `feature/ai-bilingual-subtitles` tracks `origin`; the latest successfully pushed tip remains `6a2af2d2c` until credentials are available. Gate 1 and Gate 2 commits are local and remain unpushed
+- Local compile/test status: Gate 2's focused command was attempted with Android Studio JDK 21 but Gradle stopped before test execution because the workspace path contains non-ASCII characters; no local test pass is claimed. Full ai-subtitle and final CI evidence remain Gate 7 work
 - GitHub Actions status: M02 run `34660051184` green for `854460bb4`; M03 and M04 exact-SHA runs remain `BLOCKED` at the workstation Actions API and require GitHub UI verification
 - Forward plan: `worker-plans/M03-M06-plan.md` (Ponytail revision, 2026-09-13) is the single remaining program and supersedes the earlier C7 report-restoration and independent re-review requirement. Resume at Gate 1: preserve the retained five-file correction, run focused verification, commit it, and close M04; then continue through the seven gates with one final review, one final CI run, and one device smoke test.
 

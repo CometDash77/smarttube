@@ -7,6 +7,7 @@ public final class AiSubtitleSchema {
     public static final int LEGACY_VERSION = 0;
     public static final int CURRENT_VERSION = 1;
     public static final String PROVIDER_PROFILES_KEY = "provider_profiles";
+    public static final String PROMPT_PROFILES_KEY = "prompt_profiles";
 
     static final String JSON_SCHEMA_VERSION = "schemaVersion";
     static final String JSON_PROFILES = "profiles";

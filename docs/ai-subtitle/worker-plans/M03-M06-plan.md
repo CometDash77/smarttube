@@ -58,12 +58,12 @@ Preserve and review the retained five-file diff; do not reset, stash-drop, or re
 
 Planned files: `prompt/PromptProfile.java`, `prompt/PromptRepository.java`, `prompt/PromptSerializer.java`, `prompt/PromptMigration.java`, `prompt/PromptVariable.java`, `prompt/PromptRenderer.java`, `prompt/BuiltInSubtitlePrompts.java`, `translation/TranslationProfileResolver.java`, plus matching tests.
 
-- [ ] Versioned built-in/custom prompt persistence: stable IDs, schema migration, corrupt-data repair, built-in immutability plus copy-to-custom, deterministic selection repair, restart/profile-switch stability.
-- [ ] Strict renderer: fixed allow-listed variable catalog; repeated variables, literal escaping, unknown/missing variables, and malformed input produce explicit diagnostics - never silent erasure.
-- [ ] `TranslationProfileResolver`: Provider Profile + Model + Prompt Profile + Target Language resolve to exactly one immutable valid profile or one normalized failure; every output-affecting field (protocol/base identity, model ID, prompt ID/content/version, target language) invalidates session/cache identity; cosmetic name changes do not.
-- [ ] Independently authored baseline translation and indexed-output built-in prompts.
-- [ ] Missing secret/model/prompt/language yields Source-Only Fallback without issuing a request.
-- [ ] Commit: `feat(prompt): add versioned profiles and atomic translation resolution`
+- [x] Versioned built-in/custom prompt persistence: stable IDs, schema migration, corrupt-data repair, built-in immutability plus copy-to-custom, deterministic selection repair, restart/profile-switch stability.
+- [x] Strict renderer: fixed allow-listed variable catalog; repeated variables, literal escaping, unknown/missing variables, and malformed input produce explicit diagnostics - never silent erasure.
+- [x] `TranslationProfileResolver`: Provider Profile + Model + Prompt Profile + Target Language resolve to exactly one immutable valid profile or one normalized failure; every output-affecting field (protocol/base identity, model ID, prompt ID/content/version, target language) invalidates session/cache identity; cosmetic name changes do not.
+- [x] Independently authored baseline translation and indexed-output built-in prompts.
+- [x] Missing secret/model/prompt/language yields Source-Only Fallback without issuing a request.
+- [x] Commit: `feat(prompt): add versioned profiles and atomic translation resolution`
 
 ## Gate 3 - M05 UI: prompt manager and target language
 

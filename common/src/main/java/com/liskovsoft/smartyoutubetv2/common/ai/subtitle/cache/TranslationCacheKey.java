@@ -30,6 +30,7 @@ public final class TranslationCacheKey {
     private final String mModelId;
     private final String mPromptProfileId;
     private final int mPromptVersion;
+    private final String mPromptContentHash;
     private final String mTargetLanguage;
     private final String mContextFingerprint;
     private final int mSegmentationVersion;
@@ -38,7 +39,8 @@ public final class TranslationCacheKey {
     private TranslationCacheKey(int engineSchemaVersion, String videoId, SourceTrackId sourceTrackId,
                                 String sourceCoverageFingerprint, String providerProfileId,
                                 String providerProtocol, String baseUrlIdentity, String modelId,
-                                String promptProfileId, int promptVersion, String targetLanguage,
+                                String promptProfileId, int promptVersion, String promptContentHash,
+                                String targetLanguage,
                                 String contextFingerprint, int segmentationVersion,
                                 int boundaryVersion) {
         mEngineSchemaVersion = engineSchemaVersion;
@@ -51,6 +53,7 @@ public final class TranslationCacheKey {
         mModelId = modelId;
         mPromptProfileId = promptProfileId;
         mPromptVersion = promptVersion;
+        mPromptContentHash = promptContentHash;
         mTargetLanguage = targetLanguage;
         mContextFingerprint = contextFingerprint;
         mSegmentationVersion = segmentationVersion;
@@ -83,6 +86,7 @@ public final class TranslationCacheKey {
                 profile.getModelId(),
                 profile.getPromptProfileId(),
                 profile.getPromptVersion(),
+                profile.getPromptContentHash(),
                 profile.getTargetLanguage(),
                 contextFingerprint,
                 segmentationVersion,
@@ -129,6 +133,10 @@ public final class TranslationCacheKey {
         return mPromptVersion;
     }
 
+    public String getPromptContentHash() {
+        return mPromptContentHash;
+    }
+
     public String getTargetLanguage() {
         return mTargetLanguage;
     }
@@ -166,6 +174,7 @@ public final class TranslationCacheKey {
                 && sameValue(mBaseUrlIdentity, other.mBaseUrlIdentity)
                 && sameValue(mModelId, other.mModelId)
                 && sameValue(mPromptProfileId, other.mPromptProfileId)
+                && sameValue(mPromptContentHash, other.mPromptContentHash)
                 && sameValue(mTargetLanguage, other.mTargetLanguage)
                 && sameValue(mContextFingerprint, other.mContextFingerprint);
     }
@@ -184,6 +193,7 @@ public final class TranslationCacheKey {
         result = 31 * result + valueHash(mModelId);
         result = 31 * result + valueHash(mPromptProfileId);
         result = 31 * result + mPromptVersion;
+        result = 31 * result + valueHash(mPromptContentHash);
         result = 31 * result + valueHash(mTargetLanguage);
         result = 31 * result + valueHash(mContextFingerprint);
         result = 31 * result + mSegmentationVersion;
@@ -201,6 +211,7 @@ public final class TranslationCacheKey {
                 + ", baseUrl=" + mBaseUrlIdentity
                 + ", model=" + mModelId
                 + ", prompt=" + mPromptProfileId + "@" + mPromptVersion
+                + "#" + mPromptContentHash
                 + ", target=" + mTargetLanguage
                 + ", context=" + mContextFingerprint
                 + ", seg=" + mSegmentationVersion

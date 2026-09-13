@@ -6,6 +6,7 @@ import androidx.annotation.VisibleForTesting;
 
 import com.liskovsoft.sharedutils.prefs.SharedPreferencesBase;
 import com.liskovsoft.smartyoutubetv2.common.prefs.AppPrefs;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.prompt.PromptRepository;
 
 /**
  * Dedicated versioned preference store for AI subtitle settings.
@@ -42,6 +43,20 @@ public class AiSubtitleData extends SharedPreferencesBase
 
     public SecretStore secrets() {
         return new AndroidSecretStore(getContext());
+    }
+
+    public PromptRepository prompts() {
+        return new PromptRepository(new PromptRepository.Store() {
+            @Override
+            public String read() {
+                return AppPrefs.instance(getContext()).getProfileData(AiSubtitleSchema.PROMPT_PROFILES_KEY);
+            }
+
+            @Override
+            public void write(String payload) {
+                AppPrefs.instance(getContext()).setProfileData(AiSubtitleSchema.PROMPT_PROFILES_KEY, payload);
+            }
+        });
     }
 
     @Override
