@@ -43,6 +43,7 @@
 - 2026-09-13 Bridge 状态单测：`AiSubtitleCueBridgeModeTest` => `BUILD SUCCESSFUL in 51s`。
 - 2026-09-13 全量 common 单测：`:common:testStbetaDebugUnitTest` => `BUILD SUCCESSFUL in 49s`；解析 41 个 XML：tests=316, failures=0, errors=0, skipped=10。
 - 2026-09-13 本地预检：`./gradlew :smarttubetv:lintStbetaRelease :smarttubetv:assembleStbetaRelease` => `BUILD SUCCESSFUL in 1m 46s`；本地产物未签名，仅作预检，不用于发布。
+- 2026-09-13 CI 分支验证：run `34746345513` 在 `:common:lintStbetaRelease` 失败；报告定位到手机输入服务使用 API 19 的 `Closeable` 转型和 `StandardCharsets#UTF_8`。已改为显式 `ServerSocket` / `Socket` 关闭和 `Charset.forName("UTF-8")`。
 - 2026-09-13 修复回归：`ProviderPresetTest` 旧契约误要求 `CUSTOM` 默认 URL 非空；已按“Custom 必须用户输入 URL”的契约更新并通过。
 - 真机验收：待用户设备信息与实测。
 - Release：计划 `ai-subtitle-test-2026.09.13-r6`，由 GitHub Actions 签名/验签并发布；完成后补记 run ID 与资产哈希，不覆盖旧 tag。

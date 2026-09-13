@@ -22,7 +22,6 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
-import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -33,7 +32,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
 import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
+import java.nio.charset.Charset;
 import java.security.SecureRandom;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -50,6 +49,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * the user's API key is never echoed by the server and never appears in a URL.
  */
 public final class AiSubtitlePhoneInputServer {
+    private static final Charset UTF_8 = Charset.forName("UTF-8");
+
     public interface Listener {
         void onConnected(String address);
         void onDraftChanged(Draft draft, boolean connected);
@@ -142,7 +143,7 @@ public final class AiSubtitlePhoneInputServer {
 
     private void handle(Socket socket) throws IOException {
         BufferedReader reader = new BufferedReader(
-                new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+                new InputStreamReader(socket.getInputStream(), UTF_8));
         String requestLine = reader.readLine();
         if (requestLine == null || !requestLine.startsWith("GET /")
                 && !requestLine.startsWith("POST /")) {
@@ -403,9 +404,9 @@ public final class AiSubtitlePhoneInputServer {
 
     private static void writeResponse(Socket socket, int status, String contentType,
                                       String body) throws IOException {
-        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = body.getBytes(UTF_8);
         BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
-                socket.getOutputStream(), StandardCharsets.UTF_8));
+                socket.getOutputStream(), UTF_8));
         writer.write("HTTP/1.1 " + status + " OK\r\n");
         writer.write("Content-Type: " + contentType + "\r\n");
         writer.write("Content-Length: " + bytes.length + "\r\n");
@@ -496,10 +497,19 @@ public final class AiSubtitlePhoneInputServer {
         return second != null ? second : "";
     }
 
-    private static void closeQuietly(Closeable closeable) {
-        if (closeable != null) {
+    private static void closeQuietly(ServerSocket serverSocket) {
+        if (serverSocket != null) {
             try {
-                closeable.close();
+                serverSocket.close();
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    private static void closeQuietly(Socket socket) {
+        if (socket != null) {
+            try {
+                socket.close();
             } catch (IOException ignored) {
             }
         }
