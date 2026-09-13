@@ -192,6 +192,20 @@ Consequences: Legacy-band devices retain the explicitly documented weaker protec
 
 Upstream impact: none (feature-owned files only).
 
+## ADR-013 — Publish tagged test APKs from the Actions runner
+
+Status: Accepted for the AI subtitle test release
+
+Date: 2026-09-13
+
+Decision: The validation workflow publishes a GitHub Pre-release only when a tag matching `ai-subtitle-test-*` is pushed. The release job waits for the JDK 17 validation, lint, beta APK assembly, and JDK 11 preference-test jobs; it downloads the same-run beta APK artifact and creates the release with the runner-provided `GITHUB_TOKEN`. Local GitHub CLI/API credentials are not part of the release path.
+
+Reason: The repository and Actions UI are available, but the local process contained an invalid `GITHUB_TOKEN` that overrode the valid keyring login, and the Actions/Release REST endpoints continued to return intermittent 404 responses. Removing the user-level override fixes local GitHub CLI authentication; runner-owned publication avoids making a test release depend on that local state.
+
+Consequences: Ordinary feature-branch pushes never publish a release. The first test tag is `ai-subtitle-test-2026.09.13`; its generated release and APK asset must be confirmed in the GitHub UI. Future test releases use the pinned artifact-download action and a new `ai-subtitle-test-*` tag.
+
+Upstream impact: none; feature-owned workflow and release metadata only.
+
 ## Open rulings
 
 - M02 evidence will decide whether ADR-005 can remain hook-free.
