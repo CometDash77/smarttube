@@ -10,17 +10,14 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 
 ## Current state
 
-- Current milestone: M06 — Subtitle processing behavioral port (Gate 7 device smoke pending)
-- Current task: `Gate 7 — install the test pre-release and perform one-device smoke test`
-- Task state: **Gates 1–6 implementation complete; the retry-tag CI checks and Pre-release APK publication are green; only the one-device smoke test remains because no TV/device is connected**; M03 is self-accepted; M02 remains accepted; M04 is closed by Gate 1
-- Production code changes: M02 renderer/lifecycle slice present; M03 domain/session/cache/contracts added; M04 provider persistence, secret storage, adapters, discovery, and settings UI present; M05 prompt persistence, strict rendering, content-aware profile identity, atomic runtime resolution, prompt CRUD UI, and target-language setting added; M06 source normalization, independent fixtures, ASR timing, sentence breaking, translation chunking, boundary validation, tail recovery, metrics, and deterministic fallback added
-- Actual upstream patch count: 3 existing SmartTube files, all inside the approved M02 budget
-- Remote sync: `feature/ai-bilingual-subtitles` is synchronized with `origin`; the prompt-rendering implementation tip `4f3c6946c` and the verification-ledger updates are pushed
-- Local compile/test status: Gradle still stops before test execution because the workspace path contains non-ASCII characters. Supplementary JDK 21 diagnostics compiled the feature main sources (excluding Android UI), passed the pure subtitle harness 93/93, the prompt renderer/repository harness 6/6, and the provider/model harness 18/18. These diagnostics do not replace CI acceptance
-- GitHub Actions status: retry tag commit `c267abd` has two `AI Subtitle Validation` check suites, both `COMPLETED/SUCCESS` (GraphQL run IDs `34741010798`, `34741022391`). Its [Pre-release](https://github.com/CometDash77/smartube/releases/tag/ai-subtitle-test-2026.09.13-r2) includes universal, arm64-v8a, armeabi-v7a, and x86 APKs
-- GitHub access repair: the invalid user-level `GITHUB_TOKEN` override was removed; `gh auth status` uses the keyring login. Although the Actions/Release REST endpoints can return 404 from this workstation, GraphQL repository, Checks, and Release queries are reliable; `tools/check-ai-subtitle-release.ps1` is the persisted local verifier
-- Device status: smoke test not run; Android SDK `adb.exe` exists at `C:\Users\77182\AppData\Local\Android\Sdk\platform-tools\adb.exe`, but `adb devices` reports no connected device
-- Forward plan: `worker-plans/M03-M06-plan.md` remains the single remaining program. Install the universal APK from the Pre-release, run the manual smoke checklist on one connected TV/device, and record the result.
+- Current milestone: **M07 — phone repair, full subtitle timeline, scheduler and settings (implementation in progress)**; M06 Gate 7 device smoke remains pending separately.
+- Current task: `M07 Task A — phone local editing, optimistic save, and real save/test feedback`
+- Task A status: **A1-A8 implemented and automatically verified (74/74 focused settings tests); device/CI acceptance pending.**
+- M07 production changes in working tree: `AiSubtitlePhoneInputServer` now uses explicit save/test routes, pairing token on requests, strict version equality, no state-field overwrite, provider/protocol/base URL/model/target language/prompt fields, keep/replace/clear secret actions, prompt/provider rollback, and the existing `ProviderProfilesPresenter` save/test path; TV test callbacks are main-thread guarded and suppress late results after cancel/close. `ProviderProfilesPresenter.clearSecret` supports the explicit clear action.
+- M07 automatic verification: local JDK 11 command `:common:testStbetaDebugUnitTest --tests 'com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.*'` => `BUILD SUCCESSFUL in 1m 9s`; parsed 11 XML suites, tests=74, failures=0, errors=0, skipped=0.
+- M07 source/scheduler status: `SmartTubeSubtitleSourceAdapter` and `TranslationScheduler` still do not exist; Task B/C/D/E are not started.
+- Baseline preserved: M02-M06 code remains present. M06 and earlier device checks remain pending; r6 CI/release evidence does not validate these uncommitted M07 changes.
+- Device status: no TV/device connected; no M07 device validation attempted.
 
 ## Pause checkpoint (2026-09-12)
 

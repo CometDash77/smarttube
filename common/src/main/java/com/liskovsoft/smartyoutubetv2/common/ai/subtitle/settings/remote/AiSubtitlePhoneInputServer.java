@@ -34,6 +34,7 @@ import java.net.SocketException;
 import java.net.URLDecoder;
 import java.nio.charset.Charset;
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
@@ -63,6 +64,8 @@ public final class AiSubtitlePhoneInputServer {
     private final ExecutorService mExecutor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean mRunning = new AtomicBoolean(true);
     private final String mToken;
+    private final ProviderProfilesPresenter mProfiles;
+    private final PromptProfilesPresenter mPrompts;
     private final Draft mDraft = new Draft();
     private final AtomicLong mVersion = new AtomicLong(1);
     private volatile String mClientAddress;
@@ -70,12 +73,17 @@ public final class AiSubtitlePhoneInputServer {
 
     private AiSubtitlePhoneInputServer(Context context, Listener listener,
                                       ServerSocket serverSocket, String token,
-                                      ProviderProfile profile, PromptProfile prompt) {
+                                      ProviderProfile profile, PromptProfile prompt,
+                                      ProviderProfilesPresenter profiles,
+                                      PromptProfilesPresenter prompts) {
         mContext = context.getApplicationContext();
         mListener = listener;
         mServerSocket = serverSocket;
         mToken = token;
+        mProfiles = profiles;
+        mPrompts = prompts;
         mExpiresAt = System.currentTimeMillis() + 5 * 60 * 1000;
+        mVersion.set(2);
         mDraft.from(profile, prompt);
         mDraft.version = mVersion.get();
         startAcceptLoop();
@@ -89,7 +97,37 @@ public final class AiSubtitlePhoneInputServer {
             ServerSocket socket = new ServerSocket(0, 8,
                     InetAddress.getByAddress(new byte[]{0, 0, 0, 0}));
             return new AiSubtitlePhoneInputServer(context, listener, socket, newToken(),
-                    profile, prompt);
+                    profile, prompt, null, null);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    static AiSubtitlePhoneInputServer startForTesting(Context context,
+                                                      Listener listener,
+                                                      ProviderProfile profile,
+                                                      PromptProfile prompt,
+                                                      ProviderProfilesPresenter profiles,
+                                                      PromptProfilesPresenter prompts) {
+        try {
+            ServerSocket socket = new ServerSocket(0, 8,
+                    InetAddress.getByAddress(new byte[]{0, 0, 0, 0}));
+            return new AiSubtitlePhoneInputServer(context, listener, socket, newToken(),
+                    profile, prompt, profiles, prompts);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    static AiSubtitlePhoneInputServer startForTesting(Context context,
+                                                      Listener listener,
+                                                      ProviderProfile profile,
+                                                      PromptProfile prompt) {
+        try {
+            ServerSocket socket = new ServerSocket(0, 8,
+                    InetAddress.getByAddress(new byte[]{0, 0, 0, 0}));
+            return new AiSubtitlePhoneInputServer(context, listener, socket, newToken(),
+                    profile, prompt, null, null);
         } catch (IOException e) {
             return null;
         }
@@ -215,15 +253,32 @@ public final class AiSubtitlePhoneInputServer {
         } else if ("/state".equals(path)) {
             JSONObject state = state();
             writeResponse(socket, 200, "application/json; charset=utf-8", state.toString());
-        } else if ("/update".equals(path) || "/save".equals(path)) {
-            boolean save = "/save".equals(path) || "true".equals(form.get("save"));
-            applyForm(form, save);
-            JSONObject state = state();
-            try {
-                state.put("saved", save && mDraft.saveSucceeded);
-            } catch (JSONException ignored) {
+        } else if ("/select".equals(path)) {
+            if (!selectProfile(form)) {
+                writeResponse(socket, 404, "application/json; charset=utf-8",
+                        conflictState().toString());
+                return;
             }
-            writeResponse(socket, 200, "application/json; charset=utf-8", state.toString());
+            mDraft.version = mVersion.incrementAndGet();
+            writeResponse(socket, 200, "application/json; charset=utf-8", state().toString());
+        } else if ("/test".equals(path)) {
+            startTest();
+            writeResponse(socket, 200, "application/json; charset=utf-8", state().toString());
+        } else if ("/save".equals(path)) {
+            boolean save = "/save".equals(path);
+            if (save) {
+                if (!applyForm(form)) {
+                    writeResponse(socket, 409, "application/json; charset=utf-8",
+                            conflictState().toString());
+                    return;
+                }
+                saveDraft();
+                if (mDraft.saveSucceeded) {
+                    startTest();
+                }
+            }
+            writeResponse(socket, 200, "application/json; charset=utf-8",
+                    state().toString());
         } else {
             writeResponse(socket, 404, "text/plain", "Not found");
         }
@@ -233,99 +288,147 @@ public final class AiSubtitlePhoneInputServer {
         JSONObject state = new JSONObject();
         try {
             state.put("version", mDraft.version);
-            state.put("name", valueOrEmpty(mDraft.name));
-            state.put("baseUrl", valueOrEmpty(mDraft.baseUrl));
-            state.put("modelId", valueOrEmpty(mDraft.modelId));
-            state.put("prompt", valueOrEmpty(mDraft.promptContent));
-            state.put("promptName", valueOrEmpty(mDraft.promptName));
-            state.put("secretSet", mDraft.originalSecretSet || !TextUtils.isEmpty(mDraft.secret));
+            state.put("saveSucceeded", mDraft.saveSucceeded);
+            state.put("saveFailed", !mDraft.saveSucceeded && mDraft.saveAttempted);
+            state.put("testSucceeded", mDraft.testSucceeded);
+            state.put("testFailed", mDraft.testFailed);
+            state.put("testError", valueOrEmpty(mDraft.testError));
             state.put("connected", isClientConnected());
-            state.put("lastError", valueOrEmpty(mDraft.lastError));
         } catch (Exception ignored) {
         }
         return state;
     }
 
-    private void applyForm(Map<String, String> form, boolean save) {
-        long incoming = parseLong(form.get("version"), mDraft.version);
-        if (incoming >= mDraft.version) {
-            mDraft.name = nonNull(form.get("name"));
-            mDraft.baseUrl = nonNull(form.get("baseUrl"));
-            mDraft.modelId = nonNull(form.get("modelId"));
-            mDraft.promptName = nonNull(form.get("promptName"));
-            mDraft.promptContent = nonNull(form.get("prompt"));
-            if (!TextUtils.isEmpty(form.get("secret"))) {
-                mDraft.secret = form.get("secret");
-            }
-            if ("true".equals(form.get("clearSecret"))) {
-                mDraft.secret = "";
-            }
-            mDraft.version = mVersion.incrementAndGet();
+    private JSONObject conflictState() {
+        JSONObject state = new JSONObject();
+        try {
+            state.put("version", mDraft.version);
+            state.put("conflict", true);
+            state.put("connected", isClientConnected());
+        } catch (Exception ignored) {
+        }
+        return state;
+    }
+
+    private boolean applyForm(Map<String, String> form) {
+        long incoming = parseLong(form.get("version"), -1);
+        if (incoming != mDraft.version) {
+            return false;
         }
 
-        if (save) {
-            saveDraft();
-        } else {
-            mDraft.saveSucceeded = false;
-            notifyDraftChanged();
-        }
+        mDraft.name = nonNull(form.get("name")).trim();
+        mDraft.baseUrl = nonNull(form.get("baseUrl")).trim();
+        mDraft.modelId = nonNull(form.get("modelId")).trim();
+        mDraft.promptName = nonNull(form.get("promptName")).trim();
+        mDraft.promptContent = nonNull(form.get("prompt"));
+        mDraft.targetLanguage = nonNull(form.get("targetLanguage")).trim();
+        mDraft.secret = "replace".equals(form.get("secretAction"))
+                ? nonNull(form.get("secret")) : "";
+        mDraft.secretAction = firstNonBlank(form.get("secretAction"), "keep");
+        mDraft.providerType = firstNonBlank(form.get("providerType"),
+                ProviderType.OPENAI_COMPATIBLE.name());
+        mDraft.protocol = firstNonBlank(form.get("protocol"),
+                ProviderProtocol.OPENAI_CHAT_COMPLETIONS.name());
+        mDraft.version = mVersion.incrementAndGet();
+        return true;
     }
 
     private void saveDraft() {
-        boolean success;
+        boolean success = false;
+        boolean rollbackFailed = false;
+        PromptProfile originalPrompt = null;
+        PromptProfilesPresenter.SaveResult promptResult = null;
         try {
             AiSubtitleData data = AiSubtitleData.instance(mContext);
             SecretStore secrets = data.secrets();
             ProviderProfileResolver resolver =
                     new ProviderProfileResolver(new OkHttpRequestExecutor(), secrets);
-            ProviderProfilesPresenter profiles =
-                    new ProviderProfilesPresenter(data.providerProfiles(), secrets, resolver,
+            ProviderProfilesPresenter profiles = mProfiles != null ? mProfiles
+                    : new ProviderProfilesPresenter(data.providerProfiles(), secrets, resolver,
                             new ModelCatalog(new OkHttpRequestExecutor()));
-            ProviderProtocol protocol = mDraft.originalProfile != null
-                    ? mDraft.originalProfile.getProtocol() : ProviderProtocol.OPENAI_CHAT_COMPLETIONS;
-            ProviderType type = mDraft.originalProfile != null
-                    ? mDraft.originalProfile.getProviderType() : ProviderType.OPENAI_COMPATIBLE;
-            String defaultUrl = ProviderPreset.forType(type, protocol).getBaseUrl();
-            String baseUrl = firstNonBlank(mDraft.baseUrl, defaultUrl);
-
-            ProviderProfilesPresenter.SaveResult result;
-            if (mDraft.originalProfile != null) {
-                result = profiles.save(mDraft.originalProfile.getId(), mDraft.name, type,
-                        protocol, baseUrl, mDraft.modelId, mDraft.secret,
-                        !TextUtils.isEmpty(mDraft.secret));
-            } else {
-                result = profiles.save(null, mDraft.name, type, protocol, baseUrl,
-                        mDraft.modelId, mDraft.secret, true);
+            PromptProfilesPresenter prompts = mPrompts != null ? mPrompts
+                    : new PromptProfilesPresenter(data.prompts());
+            if (!TextUtils.isEmpty(mDraft.promptProfileId)) {
+                originalPrompt = prompts.getProfile(mDraft.promptProfileId);
             }
-            success = result.isSuccess() && result.getProfile() != null;
+            promptResult = savePrompt(prompts);
+
+            success = promptResult == null || promptResult.isSuccess();
             if (success) {
-                mDraft.originalProfile = result.getProfile();
-                mDraft.originalSecretSet = true;
-                mDraft.secret = "";
-                if (!TextUtils.isEmpty(mDraft.promptContent)) {
-                    savePrompt(data);
+                ProviderType type = ProviderType.valueOf(mDraft.providerType);
+                ProviderProtocol protocol = ProviderProtocol.valueOf(mDraft.protocol);
+                String defaultUrl = ProviderPreset.forType(type, protocol).getBaseUrl();
+                String baseUrl = firstNonBlank(mDraft.baseUrl, defaultUrl);
+                boolean clearSecret = "clear".equals(mDraft.secretAction)
+                        && mDraft.originalProfile != null;
+                boolean replaceSecret = "replace".equals(mDraft.secretAction)
+                        && !TextUtils.isEmpty(mDraft.secret);
+
+                ProviderProfilesPresenter.SaveResult result;
+                if (clearSecret) {
+                    result = profiles.clearSecret(mDraft.originalProfile.getId());
+                } else if (mDraft.originalProfile != null) {
+                    result = profiles.save(mDraft.originalProfile.getId(), mDraft.name, type,
+                            protocol, baseUrl, mDraft.modelId, mDraft.secret, replaceSecret);
+                } else {
+                    result = profiles.save(null, mDraft.name, type, protocol, baseUrl,
+                            mDraft.modelId, mDraft.secret, replaceSecret);
                 }
-                com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration.AiSubtitleRuntime.applyToBridge(mContext);
+
+                success = result.isSuccess() && result.getProfile() != null;
+                if (success) {
+                    if (clearSecret) {
+                        mDraft.originalProfile = result.getProfile();
+                        mDraft.originalSecretSet = false;
+                        mDraft.secret = "";
+                    } else {
+                        mDraft.originalProfile = result.getProfile();
+                        mDraft.originalSecretSet = true;
+                        mDraft.secret = "";
+                    }
+                    if (!TextUtils.isEmpty(mDraft.targetLanguage)) {
+                        data.setTargetLanguage(mDraft.targetLanguage);
+                    }
+                    com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration.AiSubtitleRuntime.applyToBridge(mContext);
+                } else {
+                    rollbackFailed = !rollbackPrompt(prompts, originalPrompt, promptResult);
+                }
             }
         } catch (RuntimeException e) {
             success = false;
+            try {
+                PromptProfilesPresenter prompts = mPrompts != null ? mPrompts
+                        : new PromptProfilesPresenter(
+                                AiSubtitleData.instance(mContext).prompts());
+                rollbackFailed = !rollbackPrompt(prompts, originalPrompt, promptResult);
+            } catch (RuntimeException rollbackError) {
+                rollbackFailed = true;
+            }
         }
 
+        mDraft.saveAttempted = true;
         mDraft.saveSucceeded = success;
-        mDraft.lastError = success ? "" : mContext.getString(R.string.ai_subtitle_phone_save_failed);
+        mDraft.testSucceeded = false;
+        mDraft.testFailed = false;
+        mDraft.testError = "";
+        mDraft.lastError = success ? "" : mContext.getString(R.string.ai_subtitle_phone_save_failed)
+                + (rollbackFailed ? " Prompt restore failed." : "");
         if (mListener != null) {
             mListener.onSaved(mDraft.copy(), success);
         }
     }
 
-    private void savePrompt(AiSubtitleData data) {
-        PromptProfilesPresenter prompts = new PromptProfilesPresenter(data.prompts());
+    private PromptProfilesPresenter.SaveResult savePrompt(PromptProfilesPresenter prompts) {
+        if (TextUtils.isEmpty(mDraft.promptContent)) {
+            return null;
+        }
         if (!TextUtils.isEmpty(mDraft.promptProfileId)) {
             for (PromptProfile profile : prompts.getProfiles()) {
-                if (mDraft.promptProfileId.equals(profile.getId()) && !profile.isBuiltIn()) {
-                    prompts.update(profile.getId(), firstNonBlank(mDraft.promptName,
-                            profile.getName()), mDraft.promptContent);
-                    return;
+                if (mDraft.promptProfileId.equals(profile.getId())
+                        && !profile.isBuiltIn()) {
+                    return prompts.update(profile.getId(),
+                            firstNonBlank(mDraft.promptName, profile.getName()),
+                            mDraft.promptContent);
                 }
             }
         }
@@ -334,6 +437,107 @@ public final class AiSubtitlePhoneInputServer {
         if (result.isSuccess() && result.getProfile() != null) {
             mDraft.promptProfileId = result.getProfile().getId();
         }
+        return result;
+    }
+
+    private boolean rollbackPrompt(PromptProfilesPresenter prompts,
+                                   PromptProfile originalPrompt,
+                                   PromptProfilesPresenter.SaveResult saved) {
+        if (saved == null || !saved.isSuccess() || saved.getProfile() == null) {
+            return true;
+        }
+        try {
+            if (originalPrompt != null) {
+                return prompts.update(originalPrompt.getId(), originalPrompt.getName(),
+                        originalPrompt.getContent()).isSuccess();
+            }
+            return prompts.delete(saved.getProfile().getId());
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    private void startTest() {
+        try {
+            AiSubtitleData data = AiSubtitleData.instance(mContext);
+            SecretStore secrets = data.secrets();
+            ProviderProfileResolver resolver =
+                    new ProviderProfileResolver(new OkHttpRequestExecutor(), secrets);
+            ProviderProfilesPresenter profiles = mProfiles != null ? mProfiles
+                    : new ProviderProfilesPresenter(data.providerProfiles(), secrets, resolver,
+                            new ModelCatalog(new OkHttpRequestExecutor()));
+            ProviderProfile profile = profiles.getProfile(mDraft.originalProfile.getId());
+            if (profile == null) {
+                setTestResult(false, new com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailure(
+                        com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailureCategory.PROTOCOL,
+                        "Saved profile is missing."));
+                return;
+            }
+            profiles.testTranslationConnection(profile,
+                    firstNonBlank(mDraft.targetLanguage, data.getTargetLanguage()),
+                    new ProviderProfilesPresenter.ConnectionTestListener() {
+                        @Override
+                        public void onStarted() {
+                            mDraft.testSucceeded = false;
+                            mDraft.testFailed = false;
+                            mDraft.testError = "";
+                            notifyDraftChanged();
+                        }
+
+                        @Override
+                        public void onResult(
+                                com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.ConnectionTestResult result) {
+                            setTestResult(result != null && result.isSuccess(),
+                                    result == null ? null : result.getFailure());
+                        }
+                    });
+        } catch (RuntimeException e) {
+            setTestResult(false, new com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailure(
+                    com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailureCategory.NETWORK,
+                    "Translation test could not start."));
+        }
+    }
+
+    private synchronized void setTestResult(boolean success,
+            com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailure failure) {
+        mDraft.testSucceeded = success;
+        mDraft.testFailed = !success;
+        mDraft.testError = success || failure == null ? ""
+                : failure.getCategory().name() + ": " + failure.getMessage();
+        notifyDraftChanged();
+    }
+
+    private boolean selectProfile(Map<String, String> form) {
+        try {
+            String id = nonNull(form.get("profileId"));
+            AiSubtitleData data = AiSubtitleData.instance(mContext);
+            PromptProfilesPresenter prompts = mPrompts != null ? mPrompts
+                    : new PromptProfilesPresenter(data.prompts());
+            PromptProfile prompt = prompts.getProfile(prompts.getSelectedProfileId());
+            if ("NEW".equals(id)) {
+                mDraft.from(null, prompt);
+                mDraft.isNewProfile = true;
+                return true;
+            }
+            ProviderProfilesPresenter profiles = mProfiles != null ? mProfiles
+                    : profilesPresenter(data);
+            ProviderProfile profile = profiles.getProfile(id);
+            if (profile == null) {
+                return false;
+            }
+            mDraft.from(profile, prompt);
+            mDraft.isNewProfile = false;
+            return true;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    private ProviderProfilesPresenter profilesPresenter(AiSubtitleData data) {
+        SecretStore secrets = data.secrets();
+        return new ProviderProfilesPresenter(data.providerProfiles(), secrets,
+                new ProviderProfileResolver(new OkHttpRequestExecutor(), secrets),
+                new ModelCatalog(new OkHttpRequestExecutor()));
     }
 
     private void notifyDraftChanged() {
@@ -343,42 +547,121 @@ public final class AiSubtitlePhoneInputServer {
     }
 
     private String buildPage() {
+        String currentProfile = mDraft.originalProfile != null
+                ? mDraft.originalProfile.getId() : "NEW";
+        StringBuilder profiles = new StringBuilder();
+        if (mDraft.originalProfile != null) {
+            profiles.append("<option value=\"").append(htmlEscape(currentProfile))
+                    .append("\" selected>").append(htmlEscape(mDraft.name)).append("</option>");
+        }
+        try {
+            ProviderProfilesPresenter presenter = mProfiles;
+            if (presenter == null) {
+                presenter = profilesPresenter(AiSubtitleData.instance(mContext));
+            }
+            for (ProviderProfile profile : presenter.getProfiles()) {
+                if (profile.getId().equals(currentProfile)) {
+                    continue;
+                }
+                profiles.append("<option value=\"").append(htmlEscape(profile.getId()))
+                        .append("\">").append(htmlEscape(profile.getName())).append("</option>");
+            }
+        } catch (RuntimeException ignored) {
+        }
+        profiles.append("<option value=\"NEW\"").append(mDraft.originalProfile == null
+                ? " selected" : "").append(">New profile</option>");
+
+        ProviderType[] types = ProviderType.values();
+        ProviderProtocol[] protocols = ProviderProtocol.values();
+        StringBuilder typeOptions = new StringBuilder();
+        for (ProviderType type : types) {
+            typeOptions.append("<option value=\"").append(type.name()).append('\"')
+                    .append(type.name().equals(mDraft.providerType) ? " selected" : "")
+                    .append('>').append(htmlEscape(ProviderPreset.forType(type).getDisplayName()))
+                    .append("</option>");
+        }
+        StringBuilder protocolOptions = new StringBuilder();
+        for (ProviderProtocol protocol : protocols) {
+            protocolOptions.append("<option value=\"").append(protocol.name()).append('\"')
+                    .append(protocol.name().equals(mDraft.protocol) ? " selected" : "")
+                    .append('>').append(htmlEscape(protocol.name())).append("</option>");
+        }
+
         return "<!doctype html><html lang=\"zh\"><head><meta charset=\"utf-8\">"
                 + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
                 + "<title>SmartTube AI</title>"
                 + "<style>body{font-family:system-ui;background:#111;color:#eee;padding:16px}"
-                + "label{display:block;margin:14px 0 6px}input,textarea{width:100%;font-size:17px;"
-                + "padding:10px;border-radius:8px;border:1px solid #555;background:#222;color:#fff}"
-                + "textarea{min-height:150px}button{width:100%;padding:12px;margin-top:16px;"
-                + "border:0;border-radius:8px;background:#0af;color:#fff;font-size:17px}"
-                + ".status{margin-top:14px;min-height:22px}</style></head><body>"
-                + "<h1>AI 字幕手机输入</h1>"
-                + "<label>配置名称</label><input id=\"name\">"
-                + "<label>接口地址（Custom 才需要修改）</label><input id=\"baseUrl\">"
-                + "<label>模型 ID</label><input id=\"modelId\">"
-                + "<label>API 密钥（留空保持不变）</label>"
-                + "<input id=\"secret\" type=\"password\" autocomplete=\"off\">"
-                + "<label>Prompt 名称</label><input id=\"promptName\" autocomplete=\"off\"><label>Prompt</label><textarea id=\"prompt\"></textarea>"
-                + "<button id=\"save\">保存并测试</button><div id=\"status\" class=\"status\"></div>"
-                + "<script>const v={version:0};const ids=['name','baseUrl','modelId','prompt','promptName'];"
-                + "let timer=null;function s(){return {version:v.version,save:false,"
-                + "name:document.getElementById('name').value,baseUrl:document.getElementById('baseUrl').value,"
-                + "modelId:document.getElementById('modelId').value,secret:document.getElementById('secret').value,"
-                + "prompt:document.getElementById('prompt').value,promptName:document.getElementById('promptName').value};}"
-                + "function send(url,body,onDone){fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},"
-                + "body:new URLSearchParams(body).toString()}).then(r=>r.json()).then(onDone).catch(()=>"
-                + "{document.getElementById('status').textContent='断线，请检查局域网';});}"
-                + "function schedule(){clearTimeout(timer);timer=setTimeout(()=>send('/update',s(),x=>apply(x,false)),900);}"
-                + "function apply(x,isSave){if(document.activeElement===document.getElementById('prompt')&&!isSave)return;"
-                + "v.version=x.version;if(!isSave){document.getElementById('name').value=x.name;"
-                + "document.getElementById('baseUrl').value=x.baseUrl;document.getElementById('modelId').value=x.modelId;"
-                + "document.getElementById('prompt').value=x.prompt;} document.getElementById('status').textContent="
-                + "x.saved?'已保存并同步到电视':(x.lastError||'草稿已同步');}"
-                + "document.getElementById('save').onclick=()=>send('/save',Object.assign(s(),{save:'true'}),x=>apply(x,true));"
-                + "ids.concat(['secret']).forEach(id=>document.getElementById(id).addEventListener('input',schedule));"
-                + "function poll(){fetch('/state?k=" + mToken + "&v='+v.version).then(r=>r.json()).then(x=>apply(x,false)).catch("
-                + "()=>{document.getElementById('status').textContent='断线，请检查局域网';});setTimeout(poll,1500);}"
-                + "poll();</script></body></html>";
+                + "label{display:block;margin:14px 0 6px}input,select,textarea{width:100%;"
+                + "font-size:17px;padding:10px;border-radius:8px;border:1px solid #555;"
+                + "background:#222;color:#fff}textarea{min-height:150px}button{width:100%;"
+                + "padding:12px;margin-top:10px;border:0;border-radius:8px;background:#0af;"
+                + "color:#fff;font-size:17px}.secondary{background:#345}.status{margin:12px 0;"
+                + "min-height:40px;white-space:pre-wrap}</style></head><body>"
+                + "<h1>AI 字幕手机输入</h1><form id=\"editor\" autocomplete=\"off\">"
+                + "<label>Profile</label><select id=\"profileId\">" + profiles + "</select>"
+                + "<label>配置名称</label><input id=\"name\" value=\""
+                + htmlEscape(mDraft.name) + "\">"
+                + "<label>Provider</label><select id=\"providerType\">" + typeOptions + "</select>"
+                + "<label>Protocol</label><select id=\"protocol\">" + protocolOptions + "</select>"
+                + "<label>接口地址</label><input id=\"baseUrl\" value=\""
+                + htmlEscape(mDraft.baseUrl) + "\">"
+                + "<label>模型 ID</label><input id=\"modelId\" value=\""
+                + htmlEscape(mDraft.modelId) + "\">"
+                + "<label>目标语言</label><input id=\"targetLanguage\" value=\""
+                + htmlEscape(mDraft.targetLanguage) + "\">"
+                + "<label>API 密钥动作</label><select id=\"secretAction\">"
+                + "<option value=\"keep\">保留</option><option value=\"replace\">替换</option>"
+                + "<option value=\"clear\">清除</option></select>"
+                + "<input id=\"secret\" type=\"password\">"
+                + "<label>Prompt 名称</label><input id=\"promptName\" value=\""
+                + htmlEscape(mDraft.promptName) + "\">"
+                + "<label>Prompt</label><textarea id=\"prompt\">"
+                + htmlEscape(mDraft.promptContent) + "</textarea>"
+                + "<button type=\"button\" id=\"save\">保存并测试</button>"
+                + "<button type=\"button\" id=\"test\" class=\"secondary\">测试当前已保存配置</button>"
+                + "</form><div id=\"status\"></div>"
+                + "<script>const v={version:" + mDraft.version + "};"
+                + "function val(id){return document.getElementById(id).value;}"
+                + "function data(){return {version:v.version,name:val('name'),"
+                + "providerType:val('providerType'),protocol:val('protocol'),"
+                + "baseUrl:val('baseUrl'),modelId:val('modelId'),"
+                + "targetLanguage:val('targetLanguage'),secretAction:val('secretAction'),"
+                + "secret:val('secret'),promptName:val('promptName'),prompt:val('prompt')};}"
+                + "function send(path,body,done){fetch('/'+path+'?k=" + mToken
+                + "',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},"
+                + "body:new URLSearchParams(body).toString()})"
+                + ".then(function(r){return r.text();})"
+                + ".then(function(text){var x;try{x=JSON.parse(text);}catch(e){x={};}"
+                + "done({ok:true,body:x});})"
+                + ".catch(function(){status('断线，请检查局域网');});}"
+                + "function status(text){document.getElementById('status').textContent=text;}"
+                + "function saveState(x){v.version=x.body.version||v.version;"
+                + "if(x.body.conflict){status('保存冲突：页面已过期，请手动重载。');return;}"
+                + "let text=x.body.saveSucceeded?'已保存':'保存失败：请检查必填项和密钥。';"
+                + "if(x.body.testSucceeded){text+='\\n测试成功。';}"
+                + "else if(x.body.testFailed){text+='\\n测试失败：'+(x.body.testError||'未知原因');}"
+                + "status(text);}"
+                + "document.getElementById('save').onclick=()=>send('save',data(),saveState);"
+                + "document.getElementById('test').onclick=()=>send('test',{},saveState);"
+                + "document.getElementById('profileId').onchange=()=>{"
+                + "if(confirm('切换会丢弃未保存内容，继续？')){"
+                + "send('select',{profileId:val('profileId')},()=>location.reload());}};"
+                + "function poll(){fetch('/state?k=" + mToken
+                + "').then(r=>r.json()).then(x=>{if(!x.saveSucceeded&&!x.testSucceeded"
+                + "&&!x.testFailed&&!x.connected)return;"
+                + "let text=x.saveSucceeded?'已保存':'已保存';"
+                + "if(x.testSucceeded){text+='\\n测试成功。';}"
+                + "else if(x.testFailed){text+='\\n测试失败：'+(x.testError||'未知原因');}"
+                + "else{text+='\\n测试进行中…';} status(text);}).catch(function(){});"
+                + "setTimeout(poll,1500);}poll();</script></body></html>";
+    }
+
+    private static String htmlEscape(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;").replace("\"", "&quot;");
     }
 
     private static Map<String, String> params(String query) {
@@ -470,7 +753,8 @@ public final class AiSubtitlePhoneInputServer {
         InetAddress address = firstSiteLocalAddress();
         String hostName = address != null ? address.getHostAddress() : "192.168.1.255";
         String expected = hostName + ":" + mServerSocket.getLocalPort();
-        return host.equalsIgnoreCase(expected);
+        String loopback = "127.0.0.1:" + mServerSocket.getLocalPort();
+        return host.equalsIgnoreCase(expected) || host.equalsIgnoreCase(loopback);
     }
 
     private static long parseLong(String value, long fallback) {
@@ -516,28 +800,53 @@ public final class AiSubtitlePhoneInputServer {
     }
 
     public static final class Draft {
+        public String profileId = "";
+        public boolean isNewProfile;
         public String name = "";
         public String baseUrl = "";
         public String modelId = "";
         public String secret = "";
+        public String secretAction = "keep";
+        public String providerType = ProviderType.OPENAI_COMPATIBLE.name();
+        public String protocol = ProviderProtocol.OPENAI_CHAT_COMPLETIONS.name();
+        public String targetLanguage = "";
         public String promptProfileId = "";
         public String promptName = "";
         public String promptContent = "";
         public String lastError = "";
+        public String testError = "";
         public boolean originalSecretSet;
+        public boolean saveAttempted;
         public boolean saveSucceeded;
+        public boolean testSucceeded;
+        public boolean testFailed;
         public long version = 1;
         public long lastSeenAt;
         public ProviderProfile originalProfile;
 
         Draft from(ProviderProfile profile, PromptProfile prompt) {
             originalProfile = profile;
-            if (profile != null) {
-                name = nonNull(profile.getName());
-                baseUrl = nonNull(profile.getBaseUrl());
-                modelId = nonNull(profile.getModelId());
-                originalSecretSet = !TextUtils.isEmpty(profile.getSecretReference());
-            }
+            isNewProfile = profile == null;
+            profileId = profile != null ? profile.getId() : "";
+            name = profile != null ? nonNull(profile.getName()) : "";
+            baseUrl = profile != null ? nonNull(profile.getBaseUrl()) : "";
+            modelId = profile != null ? nonNull(profile.getModelId()) : "";
+            originalSecretSet = profile != null
+                    && !TextUtils.isEmpty(profile.getSecretReference());
+            secret = "";
+            secretAction = "keep";
+            providerType = profile != null
+                    ? profile.getProviderType().name()
+                    : ProviderType.OPENAI_COMPATIBLE.name();
+            protocol = profile != null
+                    ? profile.getProtocol().name()
+                    : ProviderProtocol.OPENAI_CHAT_COMPLETIONS.name();
+            saveAttempted = false;
+            saveSucceeded = false;
+            testSucceeded = false;
+            testFailed = false;
+            testError = "";
+            lastError = "";
             if (prompt != null) {
                 promptProfileId = nonNull(prompt.getId());
                 promptName = nonNull(prompt.getName());
@@ -548,16 +857,26 @@ public final class AiSubtitlePhoneInputServer {
 
         Draft copy() {
             Draft copy = new Draft();
+            copy.profileId = profileId;
+            copy.isNewProfile = isNewProfile;
             copy.name = name;
             copy.baseUrl = baseUrl;
             copy.modelId = modelId;
             copy.secret = secret;
+            copy.secretAction = secretAction;
+            copy.providerType = providerType;
+            copy.protocol = protocol;
+            copy.targetLanguage = targetLanguage;
             copy.promptProfileId = promptProfileId;
             copy.promptName = promptName;
             copy.promptContent = promptContent;
             copy.lastError = lastError;
+            copy.testError = testError;
             copy.originalSecretSet = originalSecretSet;
+            copy.saveAttempted = saveAttempted;
             copy.saveSucceeded = saveSucceeded;
+            copy.testSucceeded = testSucceeded;
+            copy.testFailed = testFailed;
             copy.version = version;
             copy.lastSeenAt = lastSeenAt;
             copy.originalProfile = originalProfile;

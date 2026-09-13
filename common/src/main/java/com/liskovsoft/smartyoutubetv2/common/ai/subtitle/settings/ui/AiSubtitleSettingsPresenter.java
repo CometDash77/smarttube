@@ -38,6 +38,7 @@ import com.liskovsoft.smartyoutubetv2.common.utils.SimpleEditDialog;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Feature-owned subtitle settings entry point used by the single authorized upstream host
@@ -321,10 +322,14 @@ public class AiSubtitleSettingsPresenter extends BasePresenter<Void> {
         presenter.closeDialog();
         final ProviderProfilesPresenter.ConnectionTest[] handle =
                 new ProviderProfilesPresenter.ConnectionTest[1];
+        final AtomicBoolean cancelled = new AtomicBoolean(false);
+        final AtomicBoolean delivered = new AtomicBoolean(false);
+        final Handler handler = new Handler(Looper.getMainLooper());
 
         presenter.appendSingleButton(UiOptionItem.from(
                 getContext().getString(R.string.ai_subtitle_cancel),
                 option -> {
+                    cancelled.set(true);
                     if (handle[0] != null) {
                         handle[0].cancel();
                     }
@@ -336,13 +341,22 @@ public class AiSubtitleSettingsPresenter extends BasePresenter<Void> {
                 new ProviderProfilesPresenter.ConnectionTestListener() {
                     @Override
                     public void onStarted() {
-                        presenter.showDialog(getContext().getString(
-                                R.string.ai_subtitle_test_connection_running));
+                        handler.post(() -> {
+                            if (!cancelled.get() && !delivered.get()) {
+                                presenter.showDialog(getContext().getString(
+                                        R.string.ai_subtitle_test_connection_running));
+                            }
+                        });
                     }
 
                     @Override
                     public void onResult(ConnectionTestResult result) {
-                        showConnectionResult(result);
+                        handler.post(() -> {
+                            if (cancelled.get() || delivered.getAndSet(true)) {
+                                return;
+                            }
+                            showConnectionResult(result);
+                        });
                     }
                 });
     }
@@ -443,7 +457,7 @@ public class AiSubtitleSettingsPresenter extends BasePresenter<Void> {
                     public void onDraftChanged(final AiSubtitlePhoneInputServer.Draft draft,
                                                final boolean connected) {
                         handler.post(() -> {
-                            statusView.setText(phoneStatus(connected, false, draft.lastError));
+                            statusView.setText(phoneStatus(connected, draft));
                             updatePhoneDraft(draftView, draft);
                         });
                     }
@@ -452,7 +466,7 @@ public class AiSubtitleSettingsPresenter extends BasePresenter<Void> {
                     public void onSaved(final AiSubtitlePhoneInputServer.Draft draft,
                                         final boolean success) {
                         handler.post(() -> {
-                            statusView.setText(phoneStatus(true, success, draft.lastError));
+                            statusView.setText(phoneStatus(server[0].isClientConnected(), draft));
                             updatePhoneDraft(draftView, draft);
                             if (success) {
                                 AiSubtitleRuntime.applyToBridge(getContext());
@@ -476,16 +490,37 @@ public class AiSubtitleSettingsPresenter extends BasePresenter<Void> {
         dialog[0].show();
     }
 
-    private String phoneStatus(boolean connected, boolean saved, String error) {
-        if (error != null && error.length() > 0) {
-            return error;
+    private String phoneStatus(boolean connected,
+                               AiSubtitlePhoneInputServer.Draft draft) {
+        if (draft == null) {
+            return getContext().getString(connected
+                    ? R.string.ai_subtitle_phone_connected
+                    : R.string.ai_subtitle_phone_waiting);
         }
-        if (saved) {
-            return getContext().getString(R.string.ai_subtitle_phone_saved);
+
+        StringBuilder status = new StringBuilder();
+        if (draft.saveAttempted && !draft.saveSucceeded) {
+            status.append(draft.lastError != null ? draft.lastError
+                    : getContext().getString(R.string.ai_subtitle_phone_save_failed));
+        } else if (draft.saveSucceeded) {
+            status.append(getContext().getString(R.string.ai_subtitle_phone_saved));
+        } else {
+            status.append(getContext().getString(connected
+                    ? R.string.ai_subtitle_phone_connected
+                    : R.string.ai_subtitle_phone_waiting));
         }
-        return getContext().getString(connected
-                ? R.string.ai_subtitle_phone_connected
-                : R.string.ai_subtitle_phone_waiting);
+
+        if (draft.testSucceeded) {
+            status.append('\n').append(getContext().getString(
+                    R.string.ai_subtitle_test_connection_success));
+        } else if (draft.testFailed) {
+            status.append('\n').append(getContext().getString(
+                    R.string.ai_subtitle_test_connection_failed));
+            if (!TextUtils.isEmpty(draft.testError)) {
+                status.append('\n').append(draft.testError);
+            }
+        }
+        return status.toString();
     }
 
     private void updatePhoneDraft(TextView draftView,

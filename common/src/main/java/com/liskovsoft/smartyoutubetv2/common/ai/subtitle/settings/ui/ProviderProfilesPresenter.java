@@ -169,6 +169,25 @@ public final class ProviderProfilesPresenter {
         return mRepository.delete(id);
     }
 
+    public synchronized SaveResult clearSecret(String id) {
+        try {
+            ProviderProfile existing = mRepository.load().getProfile(id);
+            if (existing == null || existing.getSecretReference() == null) {
+                return SaveResult.failure();
+            }
+
+            ProviderProfile updated = new ProviderProfile(existing.getId(), existing.getName(),
+                    existing.getProviderType(), existing.getProtocol(), existing.getBaseUrl(),
+                    null, existing.getModelId(), existing.getAvailableModelIds(),
+                    existing.getHeaders(), existing.getOptions());
+            mRepository.update(updated);
+            mSecrets.delete(existing.getSecretReference());
+            return SaveResult.success(updated);
+        } catch (RuntimeException e) {
+            return SaveResult.failure();
+        }
+    }
+
     public synchronized boolean select(String id) {
         ProviderProfile profile = mRepository.load().getProfile(id);
         if (!isComplete(profile)) {
