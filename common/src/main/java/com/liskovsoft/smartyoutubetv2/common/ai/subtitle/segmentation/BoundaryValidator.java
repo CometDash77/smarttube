@@ -11,13 +11,18 @@ public final class BoundaryValidator {
         if (sourceTexts == null || sourceTexts.isEmpty() || requestedStart < 0
                 || requestedStart >= sourceTexts.size()) return BoundaryValidationResult.failure("invalid source range");
         if (items == null || items.isEmpty()) return BoundaryValidationResult.failure("no boundary items");
-        if (items.get(0).getStartIndex() != requestedStart) return BoundaryValidationResult.failure("prefix does not start at request");
+        if (items.get(0) == null || items.get(0).getStartIndex() != requestedStart) {
+            return BoundaryValidationResult.failure("prefix does not start at request");
+        }
         StringBuilder source = new StringBuilder();
         List<String> warnings = new ArrayList<>();
         int previousEnd = requestedStart - 1;
         for (BoundaryProtocol.Item item : items) {
             if (item == null || item.getStartIndex() < requestedStart
                     || item.getEndIndex() >= sourceTexts.size()) return BoundaryValidationResult.failure("boundary is out of range");
+            if (item.getEndIndex() < item.getStartIndex()) {
+                return BoundaryValidationResult.failure("boundary range is reversed");
+            }
             if (item.getStartIndex() <= previousEnd) return BoundaryValidationResult.failure("duplicate or overlapping boundary");
             if (item.getStartIndex() != previousEnd + 1) return BoundaryValidationResult.failure("boundary has a coverage hole");
             for (int i = item.getStartIndex(); i <= item.getEndIndex(); i++) {

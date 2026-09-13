@@ -79,6 +79,15 @@ public class BoundaryProtocolTest {
         assertTrue(metrics.isComplete());
     }
 
+    @Test
+    public void validatorRejectsNullAndReversedItemsWithoutThrowing() {
+        List<String> source = Arrays.asList("one", "two");
+        assertFalse(new BoundaryValidator().validate(source,
+                Collections.<BoundaryProtocol.Item>singletonList(null), 0, false).isValid());
+        assertFalse(new BoundaryValidator().validate(source,
+                Collections.singletonList(new BoundaryProtocol.Item(0, 0, "ONE")), 1, false).isValid());
+    }
+
     private static SubtitleSegment segment(int index, String text) {
         return new SubtitleSegment(new SubtitleSegmentId(TRACK, index), index * 100, index * 100 + 50, text);
     }

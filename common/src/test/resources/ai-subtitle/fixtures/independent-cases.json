@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "provenance": "synthetic-smartube-ai-subtitle-v1",
+  "events": [
+    {"eventId":"manual-001","startMs":0,"endMs":900,"text":"Manual caption.","captionKind":"manual","language":"en","provenanceId":"synthetic-manual"},
+    {"eventId":"asr-001","startMs":900,"endMs":1700,"text":"ASR words arrive quickly","captionKind":"asr","language":"en","provenanceId":"synthetic-asr"},
+    {"eventId":"word-001","startMs":1700,"endMs":2400,"text":"one two three","captionKind":"asr-word-timing","language":"en","provenanceId":"synthetic-word-timing"},
+    {"eventId":"ja-001","startMs":2400,"endMs":3200,"text":"字幕試験です","captionKind":"asr","language":"ja","provenanceId":"synthetic-no-space"},
+    {"eventId":"noise-001","startMs":3200,"endMs":3500,"text":"[music]","captionKind":"noise","language":"en","provenanceId":"synthetic-noise"},
+    {"eventId":"fast-001","startMs":3500,"endMs":3850,"text":"Fast speech.","captionKind":"asr","language":"en","provenanceId":"synthetic-fast"},
+    {"eventId":"slow-001","startMs":3850,"endMs":5000,"text":"Slow speech with a pause.","captionKind":"manual","language":"en","provenanceId":"synthetic-slow"},
+    {"eventId":"overlap-001","startMs":4900,"endMs":5600,"text":"Overlapping event","captionKind":"asr","language":"en","provenanceId":"synthetic-overlap"},
+    {"eventId":"gap-001","startMs":6000,"endMs":6700,"text":"After a gap","captionKind":"manual","language":"en","provenanceId":"synthetic-gap"},
+    {"eventId":"duplicate-001","startMs":6700,"endMs":7100,"text":"After a gap","captionKind":"asr","language":"en","provenanceId":"synthetic-duplicate"},
+    {"eventId":"long-001","startMs":7100,"endMs":8900,"text":"A deliberately long subtitle segment for deterministic splitting.","captionKind":"manual","language":"en","provenanceId":"synthetic-long"}
+  ]
+}

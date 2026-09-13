@@ -26,7 +26,7 @@ public final class AiSegmentationCoordinator {
         if (source == null || source.isEmpty()) return Acceptance.sourceOnly();
         ParseResult first = parse(firstOutput);
         if (!first.valid) return Acceptance.fromFallback(mFallback.fallback(source, 0));
-        BoundaryValidationResult prefix = mValidator.validate(source, first.items, 0, false);
+        BoundaryValidationResult prefix = mValidator.validate(sourceTexts(source), first.items, 0, false);
         if (!prefix.isValid()) return Acceptance.fromFallback(mFallback.fallback(source, 0));
         List<BoundaryProtocol.Item> accepted = new ArrayList<>(first.items);
         if (prefix.isComplete()) return Acceptance.complete(accepted);
@@ -35,7 +35,7 @@ public final class AiSegmentationCoordinator {
             String tailOutput = tailRequester.request(tailStart);
             ParseResult tail = parse(tailOutput);
             if (tail.valid) {
-                BoundaryValidationResult tailResult = mValidator.validate(source, tail.items, tailStart, true);
+                BoundaryValidationResult tailResult = mValidator.validate(sourceTexts(source), tail.items, tailStart, true);
                 if (tailResult.isValid() && tailResult.isComplete()) {
                     accepted.addAll(tail.items);
                     return Acceptance.complete(accepted);
@@ -53,6 +53,12 @@ public final class AiSegmentationCoordinator {
     private ParseResult parse(String output) {
         BoundaryProtocolParser.ParseResult parsed = mParser.parse(output);
         return new ParseResult(parsed.isValid(), parsed.getItems());
+    }
+
+    private static List<String> sourceTexts(List<SubtitleSegment> source) {
+        List<String> texts = new ArrayList<>();
+        for (SubtitleSegment segment : source) texts.add(segment.getSourceText());
+        return texts;
     }
 
     public interface TailRequester { String request(int startIndex); }
