@@ -9,5 +9,6 @@ public enum ProviderType {
     ANTHROPIC_COMPATIBLE,
     OPENROUTER,
     DEEPSEEK,
-    MIMO
+    MIMO,
+    CUSTOM
 }

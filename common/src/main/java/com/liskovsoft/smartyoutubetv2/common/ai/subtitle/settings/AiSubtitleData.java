@@ -20,6 +20,7 @@ public class AiSubtitleData extends SharedPreferencesBase
         implements ProviderProfileRepository.Store {
     private static final String ENABLED = "enabled";
     private static final String TARGET_LANGUAGE = "target_language";
+    private static final String DISPLAY_MODE = "display_mode";
     public static final String DEFAULT_TARGET_LANGUAGE = "zh";
     private static AiSubtitleData sInstance;
     private static Context sContext;
@@ -90,6 +91,25 @@ public class AiSubtitleData extends SharedPreferencesBase
             throw new IllegalArgumentException("language must not be blank");
         }
         putString(TARGET_LANGUAGE, language.trim());
+    }
+
+    public AiSubtitleDisplayMode getDisplayMode() {
+        String value = getString(DISPLAY_MODE, AiSubtitleDisplayMode.BILINGUAL.name());
+
+        try {
+            return AiSubtitleDisplayMode.valueOf(value);
+        } catch (IllegalArgumentException e) {
+            // Values written by earlier builds were either absent or represented the old
+            // hard-coded bilingual output; never let a corrupt value break subtitles.
+            return AiSubtitleDisplayMode.BILINGUAL;
+        }
+    }
+
+    public void setDisplayMode(AiSubtitleDisplayMode mode) {
+        if (mode == null) {
+            throw new IllegalArgumentException("mode must not be null");
+        }
+        putString(DISPLAY_MODE, mode.name());
     }
 
     @VisibleForTesting

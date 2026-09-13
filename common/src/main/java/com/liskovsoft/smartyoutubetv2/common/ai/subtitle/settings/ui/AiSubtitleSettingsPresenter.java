@@ -1,6 +1,16 @@
 package com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.ui;
 
+import android.app.AlertDialog;
 import android.content.Context;
+import android.text.TextUtils;
+import android.graphics.Bitmap;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.Gravity;
+import android.view.ViewGroup;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import com.liskovsoft.sharedutils.helpers.MessageHelpers;
 import com.liskovsoft.smartyoutubetv2.common.R;
@@ -16,6 +26,9 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.ProviderType;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.http.OkHttpRequestExecutor;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.prompt.PromptProfile;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.AiSubtitleData;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.AiSubtitleDisplayMode;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.remote.AiSubtitlePhoneInputServer;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.remote.AiSubtitleQrCode;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.SecretStore;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.OptionItem;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.UiOptionItem;
@@ -60,12 +73,20 @@ public class AiSubtitleSettingsPresenter extends BasePresenter<Void> {
                 option -> showProviderProfiles()));
 
         settingsPresenter.appendSingleButton(UiOptionItem.from(
+                getContext().getString(R.string.ai_subtitle_phone_input),
+                option -> showPhoneInput()));
+
+        settingsPresenter.appendSingleButton(UiOptionItem.from(
                 getContext().getString(R.string.ai_subtitle_prompt_profiles),
                 option -> showPromptProfiles()));
 
         settingsPresenter.appendSingleButton(UiOptionItem.from(
                 getContext().getString(R.string.ai_subtitle_target_language),
                 option -> showTargetLanguage()));
+
+        settingsPresenter.appendSingleButton(UiOptionItem.from(
+                getContext().getString(R.string.ai_subtitle_display_mode),
+                option -> showDisplayMode()));
     }
 
     private void showProviderProfiles() {
@@ -155,9 +176,14 @@ public class AiSubtitleSettingsPresenter extends BasePresenter<Void> {
 
         List<OptionItem> types = new ArrayList<>();
         for (ProviderType type : ProviderType.values()) {
-            ProviderPreset preset = ProviderPreset.forType(type);
-            types.add(UiOptionItem.from(preset.getDisplayName(),
-                    option -> showCreateName(type, preset.getProtocol())));
+            if (type == ProviderType.CUSTOM) {
+                types.add(UiOptionItem.from(ProviderPreset.forType(type).getDisplayName(),
+                        option -> showCreateCustomProtocol()));
+            } else {
+                ProviderPreset preset = ProviderPreset.forType(type);
+                types.add(UiOptionItem.from(preset.getDisplayName(),
+                        option -> showCreateName(type, preset.getProtocol())));
+            }
         }
 
         presenter.appendRadioCategory(
@@ -165,22 +191,41 @@ public class AiSubtitleSettingsPresenter extends BasePresenter<Void> {
         presenter.showDialog(getContext().getString(R.string.ai_subtitle_add_profile));
     }
 
+    private void showCreateCustomProtocol() {
+        AppDialogPresenter presenter = AppDialogPresenter.instance(getContext());
+        presenter.closeDialog();
+
+        List<OptionItem> protocols = new ArrayList<>();
+        protocols.add(UiOptionItem.from(
+                getContext().getString(R.string.ai_subtitle_protocol_openai),
+                option -> showCreateName(ProviderType.CUSTOM,
+                        ProviderProtocol.OPENAI_CHAT_COMPLETIONS)));
+        protocols.add(UiOptionItem.from(
+                getContext().getString(R.string.ai_subtitle_protocol_anthropic),
+                option -> showCreateName(ProviderType.CUSTOM,
+                        ProviderProtocol.ANTHROPIC_MESSAGES)));
+        presenter.appendRadioCategory(
+                getContext().getString(R.string.ai_subtitle_choose_protocol), protocols);
+        presenter.showDialog(getContext().getString(R.string.ai_subtitle_choose_protocol));
+    }
+
     private void showCreateName(final ProviderType type, final ProviderProtocol protocol) {
         final ProviderProfileEditor editor = ProviderProfileEditor.create(type, protocol);
+        final String defaultBaseUrl = ProviderPreset.forType(type, protocol).getBaseUrl();
 
         SimpleEditDialog.show(getContext(),
                 getContext().getString(R.string.ai_subtitle_profile_name),
                 "", newValue -> {
                     editor.setName(newValue);
-                    showCreateBaseUrl(editor);
+                    showCreateBaseUrl(editor, defaultBaseUrl);
                     return true;
                 });
     }
 
-    private void showCreateBaseUrl(final ProviderProfileEditor editor) {
+    private void showCreateBaseUrl(final ProviderProfileEditor editor, final String defaultBaseUrl) {
         SimpleEditDialog.show(getContext(),
                 getContext().getString(R.string.ai_subtitle_profile_base_url),
-                "", newValue -> {
+                defaultBaseUrl != null ? defaultBaseUrl : "", newValue -> {
                     editor.setBaseUrl(newValue);
                     showCreateModel(editor);
                     return true;
@@ -286,7 +331,8 @@ public class AiSubtitleSettingsPresenter extends BasePresenter<Void> {
                     presenter.closeDialog();
                 }));
 
-        handle[0] = profilesPresenter().testConnection(profile,
+        handle[0] = profilesPresenter().testTranslationConnection(profile,
+                AiSubtitleData.instance(getContext()).getTargetLanguage(),
                 new ProviderProfilesPresenter.ConnectionTestListener() {
                     @Override
                     public void onStarted() {
@@ -296,14 +342,27 @@ public class AiSubtitleSettingsPresenter extends BasePresenter<Void> {
 
                     @Override
                     public void onResult(ConnectionTestResult result) {
-                        presenter.closeDialog();
-                        MessageHelpers.showMessage(getContext(), result.isSuccess()
-                                ? getContext().getString(
-                                        R.string.ai_subtitle_test_connection_success)
-                                : getContext().getString(
-                                        R.string.ai_subtitle_test_connection_failed));
+                        showConnectionResult(result);
                     }
                 });
+    }
+
+    private void showConnectionResult(ConnectionTestResult result) {
+        AppDialogPresenter presenter = AppDialogPresenter.instance(getContext());
+        presenter.closeDialog();
+
+        String title = getContext().getString(result.isSuccess()
+                ? R.string.ai_subtitle_test_connection_success
+                : R.string.ai_subtitle_test_connection_failed);
+        presenter.appendStringsCategory(title, new ArrayList<>());
+
+        String reason = result.getFailure() != null
+                ? result.getFailure().getMessage() : null;
+        if (!result.isSuccess() && reason != null && !reason.trim().isEmpty()) {
+            presenter.appendStringsCategory(reason, new ArrayList<>());
+        }
+
+        presenter.showDialog(title);
     }
 
     private ProviderProfilesPresenter profilesPresenter() {
@@ -331,6 +390,174 @@ public class AiSubtitleSettingsPresenter extends BasePresenter<Void> {
         }
         presenter.appendRadioCategory(getContext().getString(R.string.ai_subtitle_target_language), options);
         presenter.showDialog(getContext().getString(R.string.ai_subtitle_target_language));
+    }
+
+    private void showPhoneInput() {
+        AiSubtitleData data = AiSubtitleData.instance(getContext());
+        ProviderProfilesPresenter profiles = profilesPresenter();
+        ProviderProfile profile = profiles.getProfile(profiles.getSelectedProfileId());
+        PromptProfilesPresenter promptProfiles = new PromptProfilesPresenter(data.prompts());
+        PromptProfile prompt = promptProfiles.getProfile(promptProfiles.getSelectedProfileId());
+
+        final TextView statusView = new TextView(getContext());
+        statusView.setText(getContext().getString(R.string.ai_subtitle_phone_starting));
+        statusView.setPadding(dp(24), dp(8), dp(24), dp(8));
+
+        final ImageView qrView = new ImageView(getContext());
+        qrView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        qrView.setAdjustViewBounds(true);
+
+        final TextView draftView = new TextView(getContext());
+        draftView.setPadding(dp(24), dp(16), dp(24), dp(8));
+        draftView.setTextIsSelectable(false);
+
+        final LinearLayout layout = new LinearLayout(getContext());
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setGravity(Gravity.CENTER_HORIZONTAL);
+        layout.addView(statusView, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        layout.addView(qrView, new LinearLayout.LayoutParams(dp(300), dp(300)));
+        layout.addView(draftView, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        final AiSubtitlePhoneInputServer[] server = new AiSubtitlePhoneInputServer[1];
+        final Handler handler = new Handler(Looper.getMainLooper());
+        final AlertDialog[] dialog = new AlertDialog[1];
+
+        server[0] = AiSubtitlePhoneInputServer.start(getContext(),
+                new AiSubtitlePhoneInputServer.Listener() {
+                    @Override
+                    public void onConnected(String address) {
+                        handler.post(() -> {
+                            Bitmap qr = AiSubtitleQrCode.create(address, 600);
+                            if (qr != null) {
+                                qrView.setImageBitmap(qr);
+                            }
+                            statusView.setText(getContext().getString(
+                                    R.string.ai_subtitle_phone_scan) + "\n" + address);
+                            updatePhoneDraft(draftView, server[0].getDraft());
+                        });
+                    }
+
+                    @Override
+                    public void onDraftChanged(final AiSubtitlePhoneInputServer.Draft draft,
+                                               final boolean connected) {
+                        handler.post(() -> {
+                            statusView.setText(phoneStatus(connected, false, draft.lastError));
+                            updatePhoneDraft(draftView, draft);
+                        });
+                    }
+
+                    @Override
+                    public void onSaved(final AiSubtitlePhoneInputServer.Draft draft,
+                                        final boolean success) {
+                        handler.post(() -> {
+                            statusView.setText(phoneStatus(true, success, draft.lastError));
+                            updatePhoneDraft(draftView, draft);
+                            if (success) {
+                                AiSubtitleRuntime.applyToBridge(getContext());
+                            }
+                        });
+                    }
+                }, profile, prompt);
+
+        if (server[0] == null) {
+            MessageHelpers.showMessage(getContext(),
+                    getContext().getString(R.string.ai_subtitle_phone_start_failed));
+            return;
+        }
+
+        dialog[0] = new AlertDialog.Builder(getContext())
+                .setTitle(R.string.ai_subtitle_phone_input)
+                .setView(layout)
+                .setPositiveButton(android.R.string.ok, null)
+                .setOnDismissListener(d -> server[0].close())
+                .create();
+        dialog[0].show();
+    }
+
+    private String phoneStatus(boolean connected, boolean saved, String error) {
+        if (error != null && error.length() > 0) {
+            return error;
+        }
+        if (saved) {
+            return getContext().getString(R.string.ai_subtitle_phone_saved);
+        }
+        return getContext().getString(connected
+                ? R.string.ai_subtitle_phone_connected
+                : R.string.ai_subtitle_phone_waiting);
+    }
+
+    private void updatePhoneDraft(TextView draftView,
+                                 AiSubtitlePhoneInputServer.Draft draft) {
+        if (draftView == null || draft == null) {
+            return;
+        }
+
+        Context context = getContext();
+        boolean secretSet = draft.originalSecretSet
+                || !TextUtils.isEmpty(draft.secret);
+        draftView.setText(context.getString(R.string.ai_subtitle_phone_draft)
+                + "\n" + context.getString(R.string.ai_subtitle_profile_name) + ": "
+                + shortDraftValue(draft.name)
+                + "\n" + context.getString(R.string.ai_subtitle_profile_base_url) + ": "
+                + shortDraftValue(draft.baseUrl)
+                + "\n" + context.getString(R.string.ai_subtitle_profile_model) + ": "
+                + shortDraftValue(draft.modelId)
+                + "\n" + context.getString(R.string.ai_subtitle_profile_secret) + ": "
+                + context.getString(secretSet
+                ? R.string.ai_subtitle_phone_secret_set
+                : R.string.ai_subtitle_phone_secret_missing)
+                + "\n" + context.getString(R.string.ai_subtitle_prompt_name) + ": "
+                + shortDraftValue(draft.promptName)
+                + "\n" + context.getString(R.string.ai_subtitle_prompt_content) + ": "
+                + shortDraftValue(draft.promptContent));
+    }
+
+    private String shortDraftValue(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return "-";
+        }
+
+        String clean = value.replace('\n', ' ').trim();
+        return clean.length() <= 80 ? clean : clean.substring(0, 77) + "…";
+    }
+
+    private int dp(int value) {
+
+        return Math.round(value * getContext().getResources().getDisplayMetrics().density);
+    }
+
+    private void showDisplayMode() {
+        AppDialogPresenter presenter = AppDialogPresenter.instance(getContext());
+        presenter.closeDialog();
+
+        List<OptionItem> modes = new ArrayList<>();
+        for (final AiSubtitleDisplayMode mode : AiSubtitleDisplayMode.values()) {
+            modes.add(UiOptionItem.from(displayModeName(mode), option -> {
+                if (mode != AiSubtitleData.instance(getContext()).getDisplayMode()) {
+                    AiSubtitleData.instance(getContext()).setDisplayMode(mode);
+                    AiSubtitleCueBridge.instance(getContext()).setDisplayMode(mode);
+                }
+                showDisplayMode();
+            }, mode == AiSubtitleData.instance(getContext()).getDisplayMode()));
+        }
+
+        presenter.appendRadioCategory(
+                getContext().getString(R.string.ai_subtitle_display_mode), modes);
+        presenter.showDialog(getContext().getString(R.string.ai_subtitle_display_mode));
+    }
+
+    private String displayModeName(AiSubtitleDisplayMode mode) {
+        switch (mode) {
+            case SOURCE:
+                return getContext().getString(R.string.ai_subtitle_display_mode_source);
+            case TRANSLATION_ONLY:
+                return getContext().getString(R.string.ai_subtitle_display_mode_translation_only);
+            case BILINGUAL:
+            default:
+                return getContext().getString(R.string.ai_subtitle_display_mode_bilingual);
+        }
     }
 
     private void showPromptProfiles() {

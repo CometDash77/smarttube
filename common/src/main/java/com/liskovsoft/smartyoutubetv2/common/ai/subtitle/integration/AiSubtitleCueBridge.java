@@ -16,6 +16,7 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSess
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionId;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionSnapshot;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.AiSubtitleData;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.AiSubtitleDisplayMode;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCall;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCallback;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailure;
@@ -72,6 +73,8 @@ public class AiSubtitleCueBridge {
                     "pending-model", "pending-prompt", 1, "zh");
 
     private final EnableState mEnabledState;
+    private AiSubtitleDisplayMode mDisplayMode = AiSubtitleDisplayMode.BILINGUAL;
+    private RefreshListener mRefreshListener;
     private TranslationProvider mProvider;
     private final TranslationCache mCache = new InMemoryTranslationCache();
     private final Map<TranslationCacheKey, PendingRequest> mInFlight = new HashMap<>();
@@ -83,6 +86,19 @@ public class AiSubtitleCueBridge {
     private long mGenerationSeed;
     private long mRequestIdSeed;
     private boolean mWasEnabled;
+
+    /** Real state of the last cue decoration/request for status screens. */
+    public enum RuntimeStatus {
+        WAITING, TRANSLATING, TRANSLATED, FAILED
+    }
+
+    private RuntimeStatus mStatus = RuntimeStatus.WAITING;
+    private String mLastError = "";
+
+    /** Listener used to repaint the currently displayed cues when an async result arrives. */
+    public interface RefreshListener {
+        void onTranslationArrived();
+    }
 
     /**
      * Minimum-SDK-safe enable-state seam. {@code java.util.function} types are API 24+, which
@@ -127,8 +143,10 @@ public class AiSubtitleCueBridge {
         if (sInstance == null || sContext != appContext) {
             com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationProfileResolver.Resolution resolved =
                     AiSubtitleRuntime.resolve(appContext);
-            sInstance = new AiSubtitleCueBridge(appContext,
+            AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(appContext,
                     resolved.getProvider(), resolved.getProfile());
+            bridge.setDisplayMode(AiSubtitleData.instance(appContext).getDisplayMode());
+            sInstance = bridge;
             sContext = appContext;
         }
 
@@ -158,6 +176,9 @@ public class AiSubtitleCueBridge {
                     dropSession();
                     mWasEnabled = false;
                 }
+
+                mStatus = RuntimeStatus.WAITING;
+                mLastError = "";
 
                 return processedSourceCues;
             }
@@ -297,14 +318,60 @@ public class AiSubtitleCueBridge {
             return cue;
         }
 
+        if (mDisplayMode == AiSubtitleDisplayMode.SOURCE) {
+            mStatus = RuntimeStatus.WAITING;
+            return cue;
+        }
+
         String source = text.toString();
         String translation = findOrRequest(source);
 
         if (translation == null) {
+            if (mStatus != RuntimeStatus.FAILED) {
+                mStatus = RuntimeStatus.TRANSLATING;
+            }
             return cue;
         }
 
+        mStatus = RuntimeStatus.TRANSLATED;
+        mLastError = "";
+
+        if (mDisplayMode == AiSubtitleDisplayMode.TRANSLATION_ONLY) {
+            return new Cue(translation);
+        }
+
         return new Cue(source + "\n" + translation);
+    }
+
+    /**
+     * Changes how completed translations are presented. The listener refreshes the current
+     * cue list immediately so mode switches are visible without waiting for the next cue.
+     */
+    public synchronized void setDisplayMode(AiSubtitleDisplayMode mode) {
+        AiSubtitleDisplayMode previous = mDisplayMode;
+        mDisplayMode = mode != null ? mode : AiSubtitleDisplayMode.BILINGUAL;
+
+        if (previous != mDisplayMode) {
+            notifyTranslationArrived();
+        }
+    }
+
+    public synchronized void setRefreshListener(RefreshListener listener) {
+        mRefreshListener = listener;
+    }
+
+    private RefreshListener getRefreshListener() {
+        return mRefreshListener;
+    }
+
+    /** Best-effort runtime status for user-facing state screens. */
+    public synchronized RuntimeStatus getRuntimeStatus() {
+        return mStatus;
+    }
+
+    /** Short, non-sensitive reason for the last failed request, or an empty string. */
+    public synchronized String getLastError() {
+        return mLastError;
     }
 
     private String findOrRequest(String source) {
@@ -411,6 +478,9 @@ public class AiSubtitleCueBridge {
     }
 
     private void dropSession() {
+        mStatus = RuntimeStatus.WAITING;
+        mLastError = "";
+
         if (mSession != null) {
             mSession.close();
             mSession = null;
@@ -470,6 +540,18 @@ public class AiSubtitleCueBridge {
         }
 
         mInFlight.clear();
+    }
+
+    private void notifyTranslationArrived() {
+        RefreshListener listener = getRefreshListener();
+
+        if (listener != null) {
+            try {
+                listener.onTranslationArrived();
+            } catch (Exception ignored) {
+                // Rendering failure must not break translation lifecycle or callback delivery.
+            }
+        }
     }
 
     private static boolean isBlank(String value) {
@@ -533,6 +615,13 @@ public class AiSubtitleCueBridge {
                 mInFlight.remove(mKey);
                 mCache.put(mKey, result);
             }
+
+            mStatus = RuntimeStatus.TRANSLATED;
+            mLastError = "";
+
+            // Never repaint while holding the bridge lock; the listener may synchronously
+            // re-enter process() on the UI thread.
+            notifyTranslationArrived();
         }
 
         @Override
@@ -542,6 +631,11 @@ public class AiSubtitleCueBridge {
 
                 if (pending != null && pending.mRequestId == mRequestId) {
                     mInFlight.remove(mKey);
+                }
+
+                if (mInFlight.isEmpty()) {
+                    mStatus = RuntimeStatus.FAILED;
+                    mLastError = failure != null ? failure.getMessage() : "";
                 }
             }
         }

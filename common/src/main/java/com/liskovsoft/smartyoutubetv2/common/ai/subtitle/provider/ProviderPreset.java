@@ -37,11 +37,20 @@ public final class ProviderPreset {
     }
 
     public static ProviderPreset forType(ProviderType type) {
+        return forType(type, ProviderProtocol.OPENAI_CHAT_COMPLETIONS);
+    }
+
+    public static ProviderPreset forType(ProviderType type, ProviderProtocol protocol) {
         if (type == null) {
             throw new IllegalArgumentException("type must not be null");
         }
 
         ProviderCapabilities capabilities = new ProviderCapabilities(true, true, true, true);
+        if (type == ProviderType.CUSTOM) {
+            return create(type, "Custom",
+                    protocol != null ? protocol : ProviderProtocol.OPENAI_CHAT_COMPLETIONS,
+                    "", capabilities, null, null);
+        }
         switch (type) {
             case OPENAI_COMPATIBLE:
                 return create(type, "OpenAI-Compatible",

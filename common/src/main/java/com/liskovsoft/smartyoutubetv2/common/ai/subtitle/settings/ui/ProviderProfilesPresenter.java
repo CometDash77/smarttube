@@ -7,14 +7,26 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.ProviderProfil
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.ProviderProfileRepository;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.ProviderProfileResolver;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.ProviderProtocol;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.ProtocolAdapter;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.ProviderType;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SourceTrackId;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SubtitleSegmentId;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationProfile;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationUnit;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionId;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.SecretStore;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailure;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailureCategory;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCall;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCallback;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationRequest;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationResult;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Pure-JVM management layer for Provider Profiles.
@@ -217,6 +229,93 @@ public final class ProviderProfilesPresenter {
         return handle;
     }
 
+    /**
+     * Tests the selected model with one minimal real translation request. Model discovery is
+     * not treated as provider usability by the Android settings UI.
+     */
+    public ConnectionTest testTranslationConnection(ProviderProfile profile,
+                                                    final String targetLanguage,
+                                                    ConnectionTestListener listener) {
+        if (listener == null) {
+            throw new IllegalArgumentException("listener must not be null");
+        }
+
+        final ConnectionTest handle = new ConnectionTest();
+        listener.onStarted();
+
+        if (profile == null) {
+            listener.onResult(ConnectionTestResult.failure(new TranslationFailure(
+                    TranslationFailureCategory.PROTOCOL, "Provider profile is missing.")));
+            return handle;
+        }
+
+        ProviderProfileResolver.Resolution resolution = mResolver.resolve(profile);
+        if (!resolution.isResolved()) {
+            listener.onResult(ConnectionTestResult.failure(
+                    resolution.getFailure() != null ? resolution.getFailure()
+                            : new TranslationFailure(TranslationFailureCategory.PROTOCOL,
+                                    "Provider profile could not be resolved.")));
+            return handle;
+        }
+
+        final AtomicBoolean delivered = new AtomicBoolean();
+        try {
+            TranslationProfile testProfile = new TranslationProfile(
+                    profile.getId() != null && !profile.getId().trim().isEmpty()
+                            ? profile.getId() : "connection-test",
+                    profile.getProtocol().name(),
+                    profile.getBaseUrl(),
+                    profile.getModelId(),
+                    "connection-test-prompt", 1, "connection-test",
+                    targetLanguage != null && !targetLanguage.trim().isEmpty()
+                            ? targetLanguage : "zh");
+            SourceTrackId track = new SourceTrackId(
+                    "connection-test", "track:connection-test", "en");
+            TranslationUnit unit = new TranslationUnit(
+                    Collections.singletonList(new SubtitleSegmentId(track, 0)), "Hello.");
+            TranslationRequest request = new TranslationRequest(
+                    new TranslationSessionId("connection-test", track, testProfile,
+                            TranslationSessionId.ENGINE_SCHEMA_VERSION), 1, unit);
+
+            handle.setTranslationCall(resolution.getAdapter().translate(request,
+                    new TranslationCallback() {
+                        @Override
+                        public void onSuccess(TranslationResult result) {
+                            if (handle.isCancelled()
+                                    || !delivered.compareAndSet(false, true)) {
+                                return;
+                            }
+                            listener.onResult(result != null && result.isFinal()
+                                    && result.getTranslatedText().trim().length() > 0
+                                    ? ConnectionTestResult.success(Collections.<String>emptyList())
+                                    : ConnectionTestResult.failure(new TranslationFailure(
+                                            TranslationFailureCategory.INVALID_OUTPUT,
+                                            "Provider returned no usable translation.")));
+                        }
+
+                        @Override
+                        public void onFailure(TranslationFailure failure) {
+                            if (handle.isCancelled()
+                                    || !delivered.compareAndSet(false, true)) {
+                                return;
+                            }
+                            listener.onResult(ConnectionTestResult.failure(
+                                    failure != null ? failure : new TranslationFailure(
+                                            TranslationFailureCategory.NETWORK,
+                                            "Translation request failed.")));
+                        }
+                    }));
+        } catch (RuntimeException e) {
+            if (delivered.compareAndSet(false, true) && !handle.isCancelled()) {
+                listener.onResult(ConnectionTestResult.failure(new TranslationFailure(
+                        TranslationFailureCategory.PROTOCOL,
+                        "Translation request could not be constructed.")));
+            }
+        }
+
+        return handle;
+    }
+
     private SaveResult create(String name, ProviderType type, ProviderProtocol protocol,
                               String baseUrl, String modelId, String secret) {
         ProviderPreset preset = ProviderPreset.forType(type);
@@ -308,8 +407,8 @@ public final class ProviderProfilesPresenter {
         if (protocol == null) {
             throw new IllegalArgumentException("protocol must not be null");
         }
-        ProviderPreset preset = ProviderPreset.forType(type);
-        if (preset.getProtocol() != protocol) {
+        ProviderPreset preset = ProviderPreset.forType(type, protocol);
+        if (type != ProviderType.CUSTOM && preset.getProtocol() != protocol) {
             throw new IllegalArgumentException("protocol does not match provider type");
         }
         if (!isValidBaseUrl(baseUrl)) {
@@ -358,12 +457,16 @@ public final class ProviderProfilesPresenter {
 
     public static final class ConnectionTest {
         private ModelCatalog.DiscoveryCall mCall;
+        private TranslationCall mTranslationCall;
         private boolean mCancelled;
 
         public synchronized void cancel() {
             mCancelled = true;
             if (mCall != null) {
                 mCall.cancel();
+            }
+            if (mTranslationCall != null) {
+                mTranslationCall.cancel();
             }
         }
 
@@ -375,6 +478,13 @@ public final class ProviderProfilesPresenter {
             mCall = call;
             if (mCancelled && mCall != null) {
                 mCall.cancel();
+            }
+        }
+
+        synchronized void setTranslationCall(TranslationCall call) {
+            mTranslationCall = call;
+            if (mCancelled && mTranslationCall != null) {
+                mTranslationCall.cancel();
             }
         }
     }

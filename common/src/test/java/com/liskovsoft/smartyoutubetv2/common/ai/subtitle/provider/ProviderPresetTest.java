@@ -50,14 +50,33 @@ public class ProviderPresetTest {
     }
 
     @Test
-    public void presetsDoNotExposeUnsupportedProviderTypes() {
+    public void officialPresetsDoNotExposeUnsupportedProviderTypes() {
         for (ProviderType type : ProviderType.values()) {
+            if (type == ProviderType.CUSTOM) {
+                continue;
+            }
+
             ProviderPreset preset = ProviderPreset.forType(type);
 
             assertFalse(preset.getDisplayName().trim().isEmpty());
             assertFalse(preset.getBaseUrl().trim().isEmpty());
             assertEquals(type, preset.getType());
         }
+    }
+
+    @Test
+    public void customPresetRequiresUserEnteredBaseUrlAndChoosableProtocol() {
+        ProviderPreset openAiCustom = ProviderPreset.forType(
+                ProviderType.CUSTOM, ProviderProtocol.OPENAI_CHAT_COMPLETIONS);
+        ProviderPreset anthropicCustom = ProviderPreset.forType(
+                ProviderType.CUSTOM, ProviderProtocol.ANTHROPIC_MESSAGES);
+
+        assertEquals("", openAiCustom.getBaseUrl());
+        assertEquals(ProviderProtocol.OPENAI_CHAT_COMPLETIONS,
+                openAiCustom.getProtocol());
+        assertEquals("", anthropicCustom.getBaseUrl());
+        assertEquals(ProviderProtocol.ANTHROPIC_MESSAGES,
+                anthropicCustom.getProtocol());
     }
 
     private static void assertPreset(ProviderType type, ProviderProtocol protocol) {

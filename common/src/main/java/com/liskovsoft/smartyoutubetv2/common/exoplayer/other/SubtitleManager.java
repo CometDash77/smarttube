@@ -3,6 +3,8 @@ package com.liskovsoft.smartyoutubetv2.common.exoplayer.other;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.Build.VERSION;
 import android.util.TypedValue;
 import android.view.View;
@@ -22,6 +24,7 @@ import com.liskovsoft.smartyoutubetv2.common.prefs.AppPrefs;
 import com.liskovsoft.smartyoutubetv2.common.prefs.common.DataChangeBase.OnDataChange;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -33,6 +36,8 @@ public class SubtitleManager implements TextOutput, OnDataChange {
     private final AppPrefs mPrefs;
     private final PlayerData mPlayerData;
     private CharSequence subsBuffer;
+    private List<Cue> mCurrentSourceCues;
+    private final Handler mMainHandler = new Handler(Looper.getMainLooper());
 
     public static class SubtitleStyle {
         public final int nameResId;
@@ -63,6 +68,7 @@ public class SubtitleManager implements TextOutput, OnDataChange {
         mPlayerData = PlayerData.instance(mContext);
         mPlayerData.setOnChange(this);
         configureSubtitleView();
+        AiSubtitleCueBridge.instance(mContext).setRefreshListener(new TranslationRefreshListener(this));
     }
 
     @Override
@@ -73,8 +79,18 @@ public class SubtitleManager implements TextOutput, OnDataChange {
     @Override
     public void onCues(List<Cue> cues) {
         if (mSubtitleView != null) {
-            mSubtitleView.setCues(AiSubtitleCueBridge.instance(mContext).process(forceCenterAlignment(cues)));
+            List<Cue> sourceCues = forceCenterAlignment(cues);
+            mCurrentSourceCues = sourceCues;
+            mSubtitleView.setCues(AiSubtitleCueBridge.instance(mContext).process(sourceCues));
         }
+    }
+
+    private void refreshCurrentCues() {
+        if (mSubtitleView == null || mCurrentSourceCues == null) {
+            return;
+        }
+
+        mSubtitleView.setCues(AiSubtitleCueBridge.instance(mContext).process(mCurrentSourceCues));
     }
 
     public void show(boolean show) {
@@ -187,5 +203,22 @@ public class SubtitleManager implements TextOutput, OnDataChange {
     private float getTextSizePx() {
         float textSizePx = mSubtitleView.getContext().getResources().getDimension(R.dimen.subtitle_text_size);
         return textSizePx * mPlayerData.getSubtitleScale();
+    }
+
+    private static final class TranslationRefreshListener implements AiSubtitleCueBridge.RefreshListener {
+        private final WeakReference<SubtitleManager> mManager;
+
+        TranslationRefreshListener(SubtitleManager manager) {
+            mManager = new WeakReference<>(manager);
+        }
+
+        @Override
+        public void onTranslationArrived() {
+            SubtitleManager manager = mManager.get();
+
+            if (manager != null) {
+                manager.mMainHandler.post(manager::refreshCurrentCues);
+            }
+        }
     }
 }

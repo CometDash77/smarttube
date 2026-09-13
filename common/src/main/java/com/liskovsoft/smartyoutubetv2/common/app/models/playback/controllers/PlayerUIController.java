@@ -18,6 +18,10 @@ import com.liskovsoft.sharedutils.helpers.MessageHelpers;
 import com.liskovsoft.sharedutils.mylogger.Log;
 import com.liskovsoft.sharedutils.rx.RxHelper;
 import com.liskovsoft.smartyoutubetv2.common.R;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration.AiSubtitleCueBridge;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration.AiSubtitleRuntime;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.AiSubtitleData;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.ui.AiSubtitleSettingsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.BasePlayerController;
@@ -186,6 +190,43 @@ public class PlayerUIController extends BasePlayerController {
         }
     }
 
+    private void showAiSubtitleDialog() {
+        AppDialogPresenter presenter = getAppDialogPresenter();
+        presenter.appendStringsCategory(aiSubtitleStatusText(), new ArrayList<OptionItem>());
+        AiSubtitleSettingsPresenter.instance(getContext()).append(presenter);
+        presenter.showDialog(getContext().getString(R.string.ai_subtitle_player_entry));
+    }
+
+    private String aiSubtitleStatusText() {
+        if (!AiSubtitleData.instance(getContext()).isEnabled()
+                || AiSubtitleRuntime.resolve(getContext()).getProvider() == null) {
+            return getContext().getString(R.string.ai_subtitle_status_not_configured);
+        }
+
+        FormatItem track = getPlayer() != null ? getPlayer().getSubtitleFormat() : null;
+
+        if (track == null || FormatItem.SUBTITLE_NONE.equals(track)) {
+            return getContext().getString(R.string.ai_subtitle_status_waiting);
+        }
+
+        AiSubtitleCueBridge bridge = AiSubtitleCueBridge.instance(getContext());
+        AiSubtitleCueBridge.RuntimeStatus status = bridge.getRuntimeStatus();
+
+        switch (status) {
+            case TRANSLATING:
+                return getContext().getString(R.string.ai_subtitle_status_translating);
+            case TRANSLATED:
+                return getContext().getString(R.string.ai_subtitle_status_translated);
+            case FAILED:
+                String error = bridge.getLastError();
+                String failed = getContext().getString(R.string.ai_subtitle_status_failed);
+                return error == null || error.trim().isEmpty()
+                        ? failed : failed + ": " + error;
+            case WAITING:
+            default:
+                return getContext().getString(R.string.ai_subtitle_status_waiting);
+        }
+    }
     private void onSubtitleLongClicked() {
         if (getPlayer() == null) {
             return;
@@ -616,6 +657,8 @@ public class PlayerUIController extends BasePlayerController {
             onPlaylistAddClicked();
         } else if (buttonId == R.id.lb_control_closed_captioning) {
             onSubtitleClicked(buttonState);
+        } else if (buttonId == R.id.action_ai_subtitle) {
+            showAiSubtitleDialog();
         } else if (buttonId == R.id.action_thumbs_down) {
             onDislikeClicked(buttonState);
         } else if (buttonId == R.id.action_thumbs_up) {
