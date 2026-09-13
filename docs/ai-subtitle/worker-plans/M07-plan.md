@@ -17,9 +17,9 @@
 - Working tree: Task A code/test are ready for review. `AiSubtitlePhoneInputServer`, `AiSubtitleSettingsPresenter`, and `ProviderProfilesPresenter` were updated; the new real-socket remote server test is present. The M07 plan and progress ledgers are updated in the same review unit. No submodule or KissTranslator files were changed.
 - Task A implementation: local edit with explicit save/test, no `/update` auto submit, no state-field overwrite, `?k=` pairing on every POST, strict version-equality conflict handling, provider/protocol/base URL/model/target language/prompt fields, keep/replace/clear secret actions, existing repository save path, real `testTranslationConnection`, prompt/provider cross-store rollback, main-thread TV UI, and suppression of late results after cancel/close.
 - Task A automatic verification passed on local JDK 11: focused `settings.*` run => 11 XML suites / 74 tests / 0 failures / 0 errors / 0 skipped, `BUILD SUCCESSFUL in 50s`. The remote test exercises the real socket routes and explicit page script route names.
-- Task B remains unimplemented: no `SmartTubeSubtitleSourceAdapter` and no `TranslationScheduler` exist; `AiSubtitleCueBridge` still requests displayed cues only.
+- Task B implemented and automatically verified: `SmartTubeSubtitleSourceAdapter` and `SourceTimeline` now supply the full normalized timeline through VTT parsing, SubtitleNormalizer, RuleSentenceBreaker, and TranslationChunker; `AiSubtitleCueBridge` uses real segment IDs and time-based unit lookup when the timeline is available, falling back to displayed-cue mapping otherwise.
 - No device or CI verification has been run for these changes. Task A is code/automatic-test complete, not device-accepted.
-- Next action: commit Task A as one reviewable unit, then proceed to Task B.
+- Next action: commit Task B as one reviewable unit, then proceed to Task C.
 
 ## 1. 执行优先级与全局约束
 
@@ -94,12 +94,12 @@
 
 **输入/输出：** 活动视频及实际字幕轨 → `List<SourceCue>` → 有稳定 `SubtitleSegmentId` 与真实起止时间的 `List<SubtitleSegment>` → `TranslationChunker.chunk(List<SubtitleSegment>, int, int)` 的 `List<TranslationUnit>`。时间通过 segment ID 查回，不另外复制成一套 timeline 模型。
 
-- [ ] B1 按 ADR-005 检查 `MediaItemService.getFormatInfoObserve(videoId)`、`MediaItemFormatInfo`、`MediaSubtitle` 及项目已安装字幕解析器。记录可复用方法、支持格式、格式信息是否重复请求；同语言人工/ASR 必须匹配用户实际选择的轨，不能只按 language 猜。
-- [ ] B2 编写真实格式响应的独立小 fixture：同语言两条轨、空字幕、重复文本但不同时间、轨切换时源请求迟到。调用已有解析器；确有未支持格式才补有边界的格式适配，先执行本计划复用检索门槛。
-- [ ] B3 用独立 adapter 获取并缓存当前选中轨的源结果，取消/身份校验复用现有模式。未知或歧义轨回退原文并记录原因；不静默翻译另一条轨，不拉取整视频的翻译结果。
-- [ ] B4 串接 M06 normalizer、已实现断句/时序/分块。segment 索引必须稳定且覆盖关系可回查；删掉生产路径“一律 segment 0”的临时代码。重复文字在不同时段不得借错译文，句子跨多个 cue 的覆盖也须验证。
-- [ ] B5 给当前 cue 匹配时间与 segment 覆盖，再查相应 unit 的译文。多 segment 译文只能在它对应的覆盖时间内使用，保留宿主原始 cues 与渲染时序；原文回退不改原播放行为。不得靠重复进入 process() 重跑归一化/分块。
-- [ ] B6 运行 source、segmentation、integration tests：即使当前没有新的 onCues，未来 30 秒的原文也已可供调度；当前句映射不会取到另一个 segment 的缓存。若这一步失败，先修源/映射，再验 Task C 的真实集成；其纯调度测试继续。
+- [x] B1 按 ADR-005 检查 `MediaItemService.getFormatInfoObserve(videoId)`、`MediaItemFormatInfo`、`MediaSubtitle` 及项目已安装字幕解析器。记录可复用方法、支持格式、格式信息是否重复请求；同语言人工/ASR 必须匹配用户实际选择的轨，不能只按 language 猜。
+- [x] B2 编写真实格式响应的独立小 fixture：同语言两条轨、空字幕、重复文本但不同时间、轨切换时源请求迟到。调用已有解析器；确有未支持格式才补有边界的格式适配，先执行本计划复用检索门槛。
+- [x] B3 用独立 adapter 获取并缓存当前选中轨的源结果，取消/身份校验复用现有模式。未知或歧义轨回退原文并记录原因；不静默翻译另一条轨，不拉取整视频的翻译结果。
+- [x] B4 串接 M06 normalizer、已实现断句/时序/分块。segment 索引必须稳定且覆盖关系可回查；删掉生产路径“一律 segment 0”的临时代码。重复文字在不同时段不得借错译文，句子跨多个 cue 的覆盖也须验证。
+- [x] B5 给当前 cue 匹配时间与 segment 覆盖，再查相应 unit 的译文。多 segment 译文只能在它对应的覆盖时间内使用，保留宿主原始 cues 与渲染时序；原文回退不改原播放行为。不得靠重复进入 process() 重跑归一化/分块。
+- [x] B6 运行 source、segmentation、integration tests：即使当前没有新的 onCues，未来 30 秒的原文也已可供调度；当前句映射不会取到另一个 segment 的缓存。若这一步失败，先修源/映射，再验 Task C 的真实集成；其纯调度测试继续。
 
 **停止条件：** 没有完整时间线时只能标记源接线未完成，不能用“多缓存当前 cue”声称实现 lookahead。源格式或轨匹配在测试输入不能判定时，先补证据；只有该证据必须来自设备才触发提前局部真机检查。
 
@@ -192,4 +192,5 @@ git diff --stat
 - [ ] 自动检查和精确代码 SHA 的 CI 通过；未做的设备检查如实记录。
 - [ ] 统一真机在 M07 实现完成后执行；每个提前验证例外均有明确串行依赖证据。
 - [ ] 已保留全部旧八项用户路径，修复过程中没有遗失设置/密钥，原播放器及原文字幕不受影响。
+
 

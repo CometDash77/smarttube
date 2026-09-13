@@ -9,6 +9,8 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.cache.InMemoryTranslati
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.cache.TranslationCache;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.cache.TranslationCacheKey;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SourceTrackId;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.source.SourceTimeline;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.source.SmartTubeSubtitleSourceAdapter;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SubtitleSegmentId;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationProfile;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationUnit;
@@ -86,6 +88,13 @@ public class AiSubtitleCueBridge {
     private long mGenerationSeed;
     private long mRequestIdSeed;
     private boolean mWasEnabled;
+
+    /** Full normalized timeline for the active track; null until the source adapter completes. */
+    private SourceTimeline mTimeline;
+    /** Latest playback position in milliseconds; -1 until the first position event. */
+    private long mPositionMs = -1;
+    /** Optional source adapter; when null the bridge falls back to displayed-cue-only mapping. */
+    private SmartTubeSubtitleSourceAdapter mSourceAdapter;
 
     /** Real state of the last cue decoration/request for status screens. */
     public enum RuntimeStatus {
@@ -344,7 +353,64 @@ public class AiSubtitleCueBridge {
     }
 
     /**
-     * Changes how completed translations are presented. The listener refreshes the current
+     * Installs the full-timeline source adapter. When non-null and the session is active,
+     * the bridge triggers one timeline load per video/track pair instead of mapping each
+     * displayed cue to a synthetic single-segment unit.
+     */
+    public synchronized void setSourceAdapter(SmartTubeSubtitleSourceAdapter adapter) {
+        mSourceAdapter = adapter;
+        mTimeline = null;
+        triggerTimelineLoad();
+    }
+
+    /** Receives the adapter's async timeline result. */
+    void onTimelineReady(SourceTrackId trackId, SourceTimeline timeline) {
+        synchronized (this) {
+            if (trackId == null || timeline == null
+                    || mSourceTrackId == null || !trackId.equals(mSourceTrackId)) {
+                return; // stale arrival after identity change
+            }
+            mTimeline = timeline;
+        }
+        notifyTranslationArrived();
+    }
+
+    /** Receives the adapter's failure; keeps source-only fallback without retry. */
+    void onTimelineFailed(SourceTrackId trackId, String reason) {
+        // Timeline stays null; the bridge continues with displayed-cue fallback.
+    }
+
+    /** Called from the controller on tickle and seek with the current playback position. */
+    void onPositionUpdate(long positionMs) {
+        synchronized (this) {
+            mPositionMs = positionMs;
+        }
+    }
+
+    private void triggerTimelineLoad() {
+        SmartTubeSubtitleSourceAdapter adapter = mSourceAdapter;
+        SourceTrackId trackId = mSourceTrackId;
+        String videoId = mVideoId;
+
+        if (adapter == null || trackId == null || isBlank(videoId)) {
+            return;
+        }
+
+        adapter.load(videoId, trackId, new SmartTubeSubtitleSourceAdapter.Callback() {
+            @Override
+            public void onTimelineReady(SourceTrackId tid, SourceTimeline timeline) {
+                onTimelineReady(tid, timeline);
+            }
+
+            @Override
+            public void onTimelineFailed(SourceTrackId tid, String reason) {
+                onTimelineFailed(tid, reason);
+            }
+        });
+    }
+
+    /**
+     * Changes how completed translations are presented.' The listener refreshes the current
      * cue list immediately so mode switches are visible without waiting for the next cue.
      */
     public synchronized void setDisplayMode(AiSubtitleDisplayMode mode) {
@@ -438,7 +504,26 @@ public class AiSubtitleCueBridge {
     }
 
     /**
-     * M03 placeholder timeline identity: one displayed cue maps to one single-segment unit on
+     * Resolves the translation unit for the current cue. When the full timeline is loaded
+     * and the position is known, uses the real segment/unit covering that position. Falls
+     * back to the M03 synthetic single-segment unit when the timeline is unavailable.
+     */
+    private TranslationUnit timelineUnitFor(TranslationSession session, String source) {
+        SourceTimeline timeline = mTimeline;
+
+        if (timeline != null && mPositionMs >= 0) {
+            TranslationUnit unit = timeline.unitAt(mPositionMs);
+
+            if (unit != null) {
+                return unit;
+            }
+        }
+
+        return unitFor(session, source);
+    }
+
+    /**
+     * M03 placeholder timeline identity': one displayed cue maps to one single-segment unit on
      * the session's Source Track. The track component already prevents identical text on two
      * tracks from aliasing; segment indexes from the normalized timeline arrive with the
      * source/segmentation milestones.
@@ -641,3 +726,8 @@ public class AiSubtitleCueBridge {
         }
     }
 }
+
+
+
+
+
