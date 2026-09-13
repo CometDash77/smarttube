@@ -4,13 +4,13 @@ Task ID: `M04`
 
 Milestone: M04 — Provider, model, persistence, and connection management
 
-Status: **PAUSED — M04-C7 checkpoint review returned `CHANGES_REQUIRED`; M04 is not accepted and M05-C0 has not started. Local tests are green, but the report/evidence gate and research-source gate remain open.**
+Status: **PAUSED — M04-C7 checkpoint review returned `CHANGES_REQUIRED`; M04 is not accepted and M05-C0 has not started. G04-2 research is verified, G04-1 policy correction is uncommitted, and the latest focused test was interrupted.**
 
 ## Task/Milestone and pinned SHAs
 
 - Milestone: `M04` — provider, model, persistence, and connection management (M03-M06 consolidated Worker program, plan section 9).
 - Pinned base: `8a4bd175b` (M03-C5 checkpoint = M03 final tip).
-- Final product SHA: `0cc5bd6c6` (M04-C6); M04-C7 appends this docs-only finalization commit.
+- Final product SHA: `0cc5bd6c6` (M04-C6); the historical M04-C7 checkpoint is `6a2af2d2c`; current local HEAD is `1cbeb95bb` with an uncommitted correction diff.
 - Checkpoint commit subject: `docs(ai-subtitle): record M04 provider and persistence checkpoint`.
 - Branch: `feature/ai-bilingual-subtitles`.
 
@@ -26,8 +26,8 @@ Status: **PAUSED — M04-C7 checkpoint review returned `CHANGES_REQUIRED`; M04 i
 
 ## G04-1 / G04-2 disposition
 
-- **G04-1** (Android secret storage, backup/export exclusion, API 17 fallback): **settled** — `research/g04-1-android-secret-storage.md`, recorded as **ADR-012**. Locally verified evidence: `KeyGenParameterSpec`/`KeyProperties` since API 23 (SDK `api-versions.xml`), app floor 17 (`SharedModules/constants.gradle`), `android:allowBackup="true"` with no exclusion rules (`smarttubetv/src/main/AndroidManifest.xml`). Policy: separated `SecretStore`; Keystore AES-256-GCM on API 23+; documented app-private fallback on API 17–22; no host-manifest change; fail-safe reads normalize to configuration/auth failure + Source-Only Fallback.
-- **G04-2** (Provider capability failure and model-discovery UX): **settled** — `research/g04-2-provider-capabilities.md`. Policy: runtime capability checks only; manual Model ID first-class; discovery failure never invalidates a saved profile; presets are defaults, not capability claims; normalized connection-test categories reuse the M03 `TranslationFailureCategory` vocabulary.
+- **G04-1** (Android secret storage, backup/export exclusion, API 17 fallback): **research verified; policy correction open** — current primary sources verify API 23 Keystore availability and the backup risk of the existing SharedPreferences location. ADR-012 is reopened because the current storage is included by default backup guidance. The retained five-file correction is uncommitted and its focused JDK 17 test was interrupted; no acceptance claim is made.
+- **G04-2** (Provider capability failure and model-discovery UX): **verified** — current primary sources and `research/g04-2-provider-capabilities.md` cover all five provider types. Policy remains runtime capability checks, manual Model ID first-class, discovery failure preserving saved profiles, editable presets, and normalized connection-test categories.
 
 ## Scope
 
@@ -51,7 +51,7 @@ Implement five user-facing Provider Types through two shared normal-response pro
 - C6 range: `130c47e02..0cc5bd6c6`; task review outcome recorded in `.superpowers/sdd/progress.md` as review clean at `0cc5bd6c6`.
 - Deferred Minor findings from C6 review: trailing newline at `ProviderProfileRuntimeTest` EOF; best-effort rollback cleanup could preserve the original failure. Both are Minor and do not affect any M04 acceptance criterion; neither is changed in C7.
 
-## Pause checkpoint and resume instructions (2026-09-12)
+## Pause checkpoint and resume instructions (2026-09-12 historical)
 
 The C7 checkpoint at `6a2af2d2c` is pushed, and its local verification evidence is retained, but independent task review returned `CHANGES_REQUIRED`. Work was paused before any correction edits. A resumption must complete the following in order:
 
@@ -63,8 +63,16 @@ The C7 checkpoint at `6a2af2d2c` is pushed, and its local verification evidence 
 Review findings being carried forward:
 
 - The current file-inventory section is aggregate-only and does not satisfy `worker-plans/M03-M06-plan.md` section 13 lines 903–917.
-- `research/g04-1-android-secret-storage.md` still needs primary-source closure for the Keystore/Auto-Backup behavior statement.
-- `research/g04-2-provider-capabilities.md` still needs primary-source closure for temporally unstable provider endpoint/header details.
+- At that time, `research/g04-1-android-secret-storage.md` still needed primary-source closure for the Keystore/Auto-Backup behavior statement.
+- At that time, `research/g04-2-provider-capabilities.md` still needed primary-source closure for temporally unstable provider endpoint/header details; this was subsequently closed in `a0aab0d77`.
+
+## Current interruption (2026-09-13)
+
+- User explicitly paused development while the backup/export correction Worker was active.
+- Current HEAD: `1cbeb95bb`; latest pushed origin tip: `6a2af2d2c`; no correction commit or push exists.
+- Retained uncommitted files: `AndroidSecretStore.java`, `AndroidSecretStoreRobolectricTest.java`, `AndroidSecretStoreTest.java`, `docs/ai-subtitle/decisions.md`, and `docs/ai-subtitle/research/g04-1-android-secret-storage.md`.
+- The focused JDK 17 test for the two `AndroidSecretStore` test classes was interrupted before completion. There is no current pass/fail result; prior full-suite results apply only to the pre-correction product tip.
+- Resume gate: inspect the retained diff, finish focused verification, repair the complete section 13 evidence, then obtain an independent clean M04-C7 review. M05-C0 must remain blocked.
 ## Authoritative C7 local verification (JDK 17)
 
 Commands run from `X:\SmartTube` (ASCII junction workaround for the non-ASCII workspace path) with `JAVA_HOME` set to `C:\Users\77182\.gradle\jdks\jetbrains_s_r_o_-17-amd64-windows.2`:
@@ -111,14 +119,14 @@ Worker first-pass self-review is **incomplete for checkpoint acceptance**: the i
 
 ## Decisions / ADRs / glossary / research / upstream ledger
 
-- **ADR-012** added (credential protection policy).
-- Research notes created for G04-1 and G04-2.
+- **ADR-012** added (credential protection policy) and reopened pending backup/export correction.
+- Research notes created; G04-2 is verified and G04-1 source research is complete but its policy disposition is not accepted.
 - `CONTEXT.md`: Provider Profile clarified as non-secret configuration plus a separate credential reference.
 - `upstream-patches.md`: exactly one M04-C6 host patch is recorded; its actual diff matches the ledger (one import + one feature-owned entry call).
 
 ## Deviations, unexpected discoveries, remaining risks, deferred Minor findings
 
-- Web research was unavailable from this workstation during M04-C0; the C7 pause now assigns the outstanding source checks to the next M04-C7 resumption with explicit owner/trigger instead of leaving unowned “must re-confirm” language.
+- Web research was unavailable during M04-C0; the later research closure is recorded in `a0aab0d77`. The remaining G04-1 issue is implementation/policy correction, not an unowned source lookup.
 - Remaining risk: the API 17–22 plaintext fallback band is exercised by M04-C2 tests; decryption failure after device restore remains an expected physical-device acceptance path and is `NOT RUN`.
 - Deferred Minor findings from C6 review are preserved in `.superpowers/sdd/progress.md`; neither affects an M04 acceptance criterion.
 
@@ -135,7 +143,7 @@ No unavailable evidence is reported as PASS.
 |---|---|---|---|
 | 1 | Five Provider Types resolve through exactly two normal-response protocol adapters | MET | `ProviderPreset` maps OpenAI/OpenRouter/DeepSeek/MiMo to `OPENAI_CHAT_COMPLETIONS` and Anthropic to `ANTHROPIC_MESSAGES`; `ProviderProfileResolverTest` proves all five resolve to one of the two shared adapters; only `OpenAiChatCompletionsAdapter` and `AnthropicMessagesAdapter` implement `ProtocolAdapter`. |
 | 2 | Profile/schema migration and default repair are deterministic across restart/profile switch | MET | `ProviderProfileMigrationTest`, `ProviderProfileSerializerTest`, `ProviderProfileRepositoryTest`, and `AiSubtitleDataTest` cover corrupt JSON repair, future-schema rejection, stable IDs, CRUD, dangling selected/default repair, enabled-flag preservation, and app-profile switching; 62/62 settings/secret tests green on JDK 11. |
-| 3 | Secrets satisfy the accepted API 17/backup/export policy and do not appear in logs/reports/artifacts | MET | `AndroidSecretStore` selects `KEYSTORE_AES_256_GCM` on API 23+ and the documented `APP_PRIVATE_PLAINTEXT` fallback below 23; `SecretStore.Failure`/`toString()` redact secret values; deletion/reset clears stored secrets; secret scan found no real credential in logs/reports/artifacts. Physical-device backup/export acceptance remains `NOT RUN`. |
+| 3 | Secrets satisfy the accepted API 17/backup/export policy and do not appear in logs/reports/artifacts | NOT MET | The prior implementation had API 17/23 paths and clean redaction scans, but current primary-source review reopened ADR-012 because the existing SharedPreferences location is included by default backup guidance. The retained correction is uncommitted and its focused test was interrupted. |
 | 4 | Manual model entry works when discovery is unsupported or fails | MET | `ModelCatalogTest` proves discovery failure/unsupported preserves the saved manual Model ID; `ProviderProfilesPresenterTest` covers save/edit of manual Model IDs; `repairSelectedModel` only substitutes when the profile has no saved Model ID. |
 | 5 | Every Provider failure category proves Source-Only Fallback | MET | `AiSubtitleCueBridgeTest.everyProviderFailureCategoryKeepsSourceOnly` iterates every `TranslationFailureCategory` and asserts the cue stays source-only; `nullProviderStaysSourceOnlyWhenEnabled` and `authFailureStillLeavesCueSourceOnly` cover null-provider and auth paths. |
 | 6 | No SSE, scheduler retry, prompt CRUD, or persistent translation cache was added | MET | Static scans over the M04 range find no SSE/event-stream, no scheduler/retry loop, no prompt CRUD repository/API, and no persistent translation cache; `TranslationFailure.isRetryable` is a domain label with no scheduler attached. |
@@ -143,4 +151,4 @@ No unavailable evidence is reported as PASS.
 
 ## Confirmation
 
-M04-C0 through M04-C6 are landed (product tip `0cc5bd6c6`). The C7 checkpoint at `6a2af2d2c` is pushed, but it is **not accepted**: independent review returned `CHANGES_REQUIRED`, and the correction is paused. Local verification is diagnostic and green: 281 ai-subtitle tests passed on JDK 17 with 0 failures, 62/62 settings/secret tests passed on JDK 11, lint green, CRLF/host-hook/static/secret scans clean. Exact-SHA GitHub Actions status for the pushed C7 tip remains `BLOCKED` at the workstation API and requires GitHub UI verification; it is never reported as PASS from local results.
+M04-C0 through M04-C6 are landed (product tip `0cc5bd6c6`). Research closure is present at `a0aab0d77`; the pause-documentation checkpoint is `1cbeb95bb`; the C7 checkpoint at `6a2af2d2c` remains **not accepted** because independent review returned `CHANGES_REQUIRED`. Development was paused during the retained five-file backup/export correction; its focused JDK 17 test was interrupted before a result. Prior full-suite diagnostics remain historical and do not validate the correction. Exact-SHA GitHub Actions status remains `BLOCKED` at the workstation API and requires GitHub UI verification; it is never reported as PASS from local results.
