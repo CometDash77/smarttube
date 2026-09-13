@@ -88,11 +88,11 @@ Planned files: `source/SubtitleNormalizer.java`, `segmentation/AsrTimingEstimato
 
 Planned files: `segmentation/RuleSentenceBreaker.java`, `segmentation/StatisticalSentenceBreaker.java`, `segmentation/TranslationChunker.java`, matching tests.
 
-- [ ] Rule breaker: punctuation priority, pause, maximum duration, length/word-count limits, abbreviations/decimals, missing punctuation, single oversize input.
-- [ ] Statistical breaker: robust gap statistics (median/percentile/MAD-style), outlier resistance, event/capitalization boundaries, deterministic ties.
-- [ ] Chunker: target/max size, preferred sentence/pause boundaries, single oversize unit kept explicit, contiguous full reconstruction - no drop, duplicate, or reorder.
-- [ ] Version segmentation behavior for cache identity.
-- [ ] Commit: `feat(segmentation): break sentences and build translation chunks`
+- [x] Rule breaker: punctuation priority, pause, maximum duration, length/word-count limits, abbreviations/decimals, missing punctuation, single oversize input.
+- [x] Statistical breaker: robust gap statistics (median/percentile/MAD-style), outlier resistance, event/capitalization boundaries, deterministic ties.
+- [x] Chunker: target/max size, preferred sentence/pause boundaries, single oversize unit kept explicit, contiguous full reconstruction - no drop, duplicate, or reorder.
+- [x] Version segmentation behavior for cache identity.
+- [x] Commit: `feat(segmentation): break sentences and build translation chunks`
 
 ## Gate 6 - M06: boundary validation, recovery, fallback
 
