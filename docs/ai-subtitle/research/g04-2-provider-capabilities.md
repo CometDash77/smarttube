@@ -1,42 +1,54 @@
-# G04-2 — Provider Capability Failure and Model-Discovery UX
+# G04-2 — Provider Protocol Facts, Capability Failure, and Model-Discovery UX
 
-Status: **PAUSED (Worker, 2026-09-12) — M04-C7 source re-verification pending**. The policy remains implemented, but temporally unstable provider protocol facts are not source-complete for checkpoint acceptance.
-
-Evidence scope: Phase 0 official-documentation research recorded in `architecture.md` §6 and §12, plus repository facts. Live re-verification was unavailable from this workstation (see Limitations).
+Status: **VERIFIED (2026-09-13)**. Current official documentation was retrieved for all five Provider Types. No provider source is BLOCKED.
 
 ## Question
 
-Per gate G04-2: define how provider capability failure and model discovery behave at runtime and in the UI, before M04 protocol adapters exist.
+Per gate G04-2: verify the current official endpoint paths and authentication/version headers, then keep provider capability failure and model discovery behavior evidence-bounded.
 
-## Protocol baseline (Phase 0; official documentation cited in `architecture.md` §12)
+## Verified current protocol facts
 
-| Provider Type | Protocol | Chat/completion path | Model discovery | Authentication |
+All links below are first-party provider documentation retrieved on 2026-09-13. Paths are shown as full default-service URLs so that base/path composition is unambiguous.
+
+| Provider Type | Normal-response endpoint | Model discovery endpoint | Authentication and request-version headers | Official evidence |
 |---|---|---|---|---|
-| OpenAI-Compatible | OpenAI | `POST {base}/v1/chat/completions` | `GET {base}/v1/models` | Bearer |
-| Anthropic-Compatible | Anthropic | `POST {base}/v1/messages` (top-level `system`, explicit `max_tokens`, `anthropic-version`) | `GET {base}/v1/models` | Bearer or `x-api-key` |
-| OpenRouter | OpenAI | `POST https://openrouter.ai/api/v1/chat/completions` | `GET /api/v1/models` | Bearer (optional attribution headers) |
-| DeepSeek | OpenAI | base `https://api.deepseek.com`, `/chat/completions` | `GET /models` | Bearer |
-| MiMo | OpenAI or Anthropic | bases `https://api.xiaomimimo.com/v1` and `/anthropic` | `GET /v1/models` | `api-key` or Bearer |
+| OpenAI-Compatible default (OpenAI) | `POST https://api.openai.com/v1/chat/completions` | `GET https://api.openai.com/v1/models` | `Authorization: Bearer <credential>`. The current reference uses the `v1` URL and does not document a caller-supplied API-version request header for these endpoints. | [Create chat completion](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create), [List models](https://developers.openai.com/api/reference/resources/models/methods/list), [API authentication](https://developers.openai.com/api/reference/overview#authentication) |
+| Anthropic-Compatible default (Anthropic) | `POST https://api.anthropic.com/v1/messages` | `GET https://api.anthropic.com/v1/models` | `Authorization: Bearer <credential>` is current; legacy `x-api-key: <credential>` remains supported. `anthropic-version` is required (official examples use `2023-06-01`); JSON POSTs also require `content-type: application/json`. | [API overview and required headers](https://platform.claude.com/docs/en/api/overview#authentication), [Create a Message](https://platform.claude.com/docs/en/api/http/messages/create), [List Models](https://platform.claude.com/docs/en/api/models/list) |
+| OpenRouter | `POST https://openrouter.ai/api/v1/chat/completions` | `GET https://openrouter.ai/api/v1/models` | `Authorization: Bearer <credential>`. No provider-version request header is documented for these endpoints. `HTTP-Referer` and `X-OpenRouter-Title` are attribution headers, not authentication/version requirements. | [Create a chat completion](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request), [List all models](https://openrouter.ai/docs/api/api-reference/models/get-models), [App attribution](https://openrouter.ai/docs/app-attribution) |
+| DeepSeek | `POST https://api.deepseek.com/chat/completions` | `GET https://api.deepseek.com/models` | HTTP Bearer authentication (`Authorization: Bearer <credential>`). No provider-version request header is documented for these endpoints. | [First API call](https://api-docs.deepseek.com/guides/function_calling), [Chat Completions API](https://api-docs.deepseek.com/api/create-chat-completion/), [Lists Models](https://api-docs.deepseek.com/api/list-models), [API authentication scheme](https://api-docs.deepseek.com/api/deepseek-api/) |
+| MiMo (OpenAI format) | `POST https://api.xiaomimimo.com/v1/chat/completions` | `GET https://api.xiaomimimo.com/v1/models` | Either `api-key: <credential>` or `Authorization: Bearer <credential>` is documented. The direct HTTP pages do not list a provider-version request header. | [First API Call](https://mimo.mi.com/docs/en-US/quick-start/summary/first-api-call), [OpenAI Chat Completions compatibility](https://mimo.mi.com/docs/en-US/api/chat/openai-api), [List Models](https://mimo.mi.com/docs/en-US/api/model/list-models), [API integration FAQ](https://mimo.mi.com/docs/en-US/quick-start/faq/api-integration) |
+| MiMo (Anthropic format, optional profile protocol) | `POST https://api.xiaomimimo.com/anthropic/v1/messages` | MiMo's documented discovery endpoint remains `GET https://api.xiaomimimo.com/v1/models` | Either `api-key: <credential>` or `Authorization: Bearer <credential>` is documented. MiMo's direct Anthropic-format curl example lists `api-key` and `Content-Type` but does not list `anthropic-version`; this note therefore does not claim that header is required or forbidden by MiMo. | [First API Call](https://mimo.mi.com/docs/en-US/quick-start/summary/first-api-call), [Anthropic Messages compatibility](https://mimo.mi.com/docs/en-US/api/chat/anthropic-api), [List Models](https://mimo.mi.com/docs/en-US/api/model/list-models), [API integration FAQ](https://mimo.mi.com/docs/en-US/quick-start/faq/api-integration) |
 
-The full Phase 0 findings and source list live in `architecture.md` §6 and §12; they were verified against official OpenAI, Anthropic, OpenRouter, DeepSeek, and MiMo documentation during Phase 0.
+## Evidence-bounded observations
 
-## Policy (accepted)
+- OpenAI, OpenRouter, DeepSeek, and MiMo's OpenAI-format service all expose the normal Chat Completions response shape through their cited endpoints; this supports one OpenAI-format normal-response adapter, but does not imply identical optional parameters.
+- Anthropic's current documentation makes Bearer the primary authentication form while retaining `x-api-key` as a legacy fallback. The existing Anthropic-compatible default remains valid, but documentation should not describe `x-api-key` as the sole current method.
+- MiMo officially documents both OpenAI and Anthropic compatibility. The current MiMo preset's OpenAI-format Bearer request is one documented combination. The Anthropic path is an editable optional profile choice, not a claim that MiMo requires an `anthropic-version` header.
+- DeepSeek's current official default base remains `https://api.deepseek.com`; its documented Chat Completions and model-list paths are `/chat/completions` and `/models` relative to that base.
 
-1. **Runtime capability checks only.** A Provider Type selects a preset, not a capability claim. Adapters verify actual response shapes at runtime; provider-specific optional fields are capability-gated per profile, never inferred from a display name.
-2. **Manual Model ID is first-class.** A user-entered model id can always be saved, selected, and used, whether or not discovery works for the endpoint.
-3. **Discovery failure never invalidates a saved profile.** A failed or unsupported discovery keeps the profile and its currently selected model; the UI reports the failure and offers retry or manual entry.
-4. **Normalized outcomes.** Discovery normalizes to success (list), unsupported (endpoint/feature absent), or failure (auth/network/timeout/protocol). Only success replaces a cached model list; every other outcome preserves saved state.
-5. **Connection test is normalized.** The connectivity test distinguishes auth, rate limit, timeout, network, server, protocol, and invalid response, and never exposes secrets — reusing the `TranslationFailureCategory` vocabulary already established in M03.
-6. **Presets are defaults, not facts.** Base URL, optional headers, and parameter policies are editable; deployments with different base URLs (for example token-plan endpoints) stay usable.
+## Project recommendations and accepted behavior
 
-## Limitations
+These are project choices, separated from the provider facts above:
 
-Provider documentation could not be re-fetched from this workstation during M04-C0. The table is the Phase 0-verified baseline, and every adapter test remains offline against a fake HTTP executor.
+1. Continue treating a Provider Type as an editable preset, not a capability guarantee.
+2. Continue using exactly two normal-response adapters (`OpenAiChatCompletionsAdapter` and `AnthropicMessagesAdapter`) for the five user-facing types.
+3. Keep manual Model ID first-class. Discovery failure or an unsupported discovery endpoint must preserve the saved profile and selected model.
+4. Normalize discovery to success, unsupported, or failure; only success may replace the displayed model list.
+5. Keep authentication scheme, base URL, paths, and optional headers profile-editable. Runtime response validation remains authoritative.
+6. Do not infer streaming, retries, or optional parameter support from compatibility branding; those remain outside M04.
 
-## Paused follow-up (owned)
+No new provider design is introduced, and no production code is changed by this research correction.
 
-- Owner: the next M04-C7 resumption agent.
-- Trigger: user resumes/continues this goal.
-- Required closure: verify temporally unstable endpoint paths and required authentication/version headers against current official provider documentation for OpenAI, Anthropic, OpenRouter, DeepSeek, and MiMo; record exact source URLs and outcomes here.
-- If a provider source is unavailable, record an explicit `BLOCKED` entry with the unavailable source and resolution trigger rather than leaving an unowned re-confirmation request.
-- Gate: M04-C7 acceptance and M05-C0 remain blocked until this obligation is closed.
+## Source access record
+
+| Provider | URL(s) | Access result on 2026-09-13 |
+|---|---|---|
+| OpenAI | <https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create>, <https://developers.openai.com/api/reference/resources/models/methods/list>, <https://developers.openai.com/api/reference/overview#authentication> | PASS — official endpoint examples and Bearer authentication retrieved. |
+| Anthropic | <https://platform.claude.com/docs/en/api/overview>, <https://platform.claude.com/docs/en/api/http/messages/create>, <https://platform.claude.com/docs/en/api/models/list> | PASS — official endpoint list and required authentication/version headers retrieved. |
+| OpenRouter | <https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request>, <https://openrouter.ai/docs/api/api-reference/models/get-models>, <https://openrouter.ai/docs/app-attribution> | PASS — official endpoint, Bearer authentication, and attribution-header scope retrieved. |
+| DeepSeek | <https://api-docs.deepseek.com/guides/function_calling>, <https://api-docs.deepseek.com/api/create-chat-completion/>, <https://api-docs.deepseek.com/api/list-models>, <https://api-docs.deepseek.com/api/deepseek-api/> | PASS — official base URL, endpoint paths, and Bearer scheme retrieved. |
+| MiMo | <https://mimo.mi.com/docs/en-US/quick-start/summary/first-api-call>, <https://mimo.mi.com/docs/en-US/api/chat/openai-api>, <https://mimo.mi.com/docs/en-US/api/chat/anthropic-api>, <https://mimo.mi.com/docs/en-US/api/model/list-models>, <https://mimo.mi.com/docs/en-US/quick-start/faq/api-integration> | PASS — official OpenAI/Anthropic paths, model-list path, and both authentication forms retrieved. |
+
+## Blocked sources
+
+None.

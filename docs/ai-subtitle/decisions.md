@@ -178,22 +178,22 @@ Upstream impact: none; delivery and review process only.
 
 ## ADR-012 — Protect provider credentials with a separated, Keystore-backed secret store
 
-Status: Provisionally accepted by the Worker under the G04-1 plan gate; M04-C7 source re-verification is paused and the decision is not checkpoint-accepted until that evidence gate closes
+Status: Reopened by M04-C7 primary-source review; API-level and Keystore facts are verified, but backup/export exclusion is unresolved and this ADR is not checkpoint-accepted
 
 Date: 2026-09-12
 
-Decision: Provider credentials never live inside serializable profile data. A dedicated `SecretStore` owns them. On API 23+ the secret is encrypted with a non-exportable AES-256-GCM key generated in AndroidKeyStore (fixed, versioned alias) and only ciphertext is persisted in a feature-owned private store; on API 17–22, where `KeyGenParameterSpec` does not exist (verified against the local SDK API database), the store falls back to the app-private preferences area as a documented compatibility exception. No host-manifest change is made: the M04 upstream budget authorizes only the settings-entry hook, and none is needed because Keystore key material does not travel with a backup. Any read or decryption failure normalizes to a configuration/auth failure and Source-Only Fallback.
+Decision: Provider credentials never live inside serializable profile data, and a dedicated `SecretStore` owns them. The implemented API 23+ path encrypts the secret with an AES-256-GCM key generated in AndroidKeyStore; API 17–22 uses the documented app-private plaintext compatibility exception. Any read or decryption failure normalizes to a configuration/auth failure and Source-Only Fallback. The former conclusion that no backup exclusion is needed is withdrawn: this ADR does not select a replacement mechanism, and no production or manifest change is authorized by the research-only correction.
 
-Reason: The app floor is API 17 (`SharedModules/constants.gradle`) while Keystore-backed AES-GCM requires API 23 (`KeyGenParameterSpec`, `KeyProperties` — verified locally in the SDK API database); `android:allowBackup="true"` with no exclusion rules means plaintext secrets would otherwise be captured by Auto Backup on API 23+.
+Reason: The app floor is API 17 (`SharedModules/constants.gradle`) while [`KeyGenParameterSpec` was added in API 23](https://developer.android.com/reference/android/security/keystore/KeyGenParameterSpec), and [AOSP records symmetric AES/HMAC support as an Android 6.0 addition](https://source.android.com/docs/security/features/keystore#android_60). Android documents Keystore keys as [non-exportable](https://developer.android.com/privacy-and-security/keystore#security-features), but Auto Backup [includes `SharedPreferences` by default](https://developer.android.com/identity/data/autobackup#Files). The official AndroidX encrypted-preferences reference specifically [warns against backing up encrypted preferences because the restore key is likely absent](https://developer.android.com/reference/androidx/security/crypto/EncryptedSharedPreferences) and directs apps to exclude them. The current secret store uses `SharedPreferences`, while the host has `android:allowBackup="true"` and no exclusion rules.
 
 Alternatives: manifest `fullBackupContent` exclusion (outside the authorized upstream budget); memory-only secrets (unusable UX); plaintext storage on every API band (unacceptable); a third-party crypto dependency (rejected — no new dependencies).
 
-Consequences: Legacy-band devices get weaker protection by explicit, documented policy; decryption failure on a restored device is a first-class, expected path (re-enter the key) rather than an error state; the store is exercised with fakes on the JVM lane and with Robolectric where practical. Full evidence: `docs/ai-subtitle/research/g04-1-android-secret-storage.md`.
+Consequences: Legacy-band devices retain the explicitly documented weaker protection, and restore/key-loss failure remains a recoverable re-entry path. M04 acceptance is blocked until the M04 Commander/design owner authorizes a backup/export-exclusion mechanism and the M04 correction Worker implements and tests it. Exact evidence, owner, trigger, and reason are recorded in `docs/ai-subtitle/research/g04-1-android-secret-storage.md`.
 
 Upstream impact: none (feature-owned files only).
 
 ## Open rulings
 
 - M02 evidence will decide whether ADR-005 can remain hook-free.
-- Provisionally resolved by ADR-012 at M04-C0: implementation policy is fixed, but the G04-1 backup/Keystore source-verification obligation remains open at the M04-C7 pause and has an owner/trigger in the research note.
+- ADR-012 is reopened by the 2026-09-13 M04-C7 primary-source review: source retrieval is complete, but backup/export exclusion requires an authorized production decision and correction before M04 acceptance; owner and trigger are in the G04-1 research note.
 - A `SubtitlePainter` fork is prohibited unless ADR-004 is explicitly superseded.
