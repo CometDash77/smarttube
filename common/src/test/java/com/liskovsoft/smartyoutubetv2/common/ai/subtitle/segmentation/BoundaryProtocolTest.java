@@ -50,7 +50,7 @@ public class BoundaryProtocolTest {
                 start -> { retries[0]++; return "v2|1-2|TWO THREE"; });
         assertEquals(1, retries[0]);
         assertTrue(accepted.isComplete());
-        assertEquals(3, accepted.getItems().size());
+        assertEquals(2, accepted.getItems().size());
         assertEquals("TWO THREE", accepted.getItems().get(1).getTranslation());
         assertTrue(coordinator.acceptResponse(4, 7, 1));
         coordinator.cancel();

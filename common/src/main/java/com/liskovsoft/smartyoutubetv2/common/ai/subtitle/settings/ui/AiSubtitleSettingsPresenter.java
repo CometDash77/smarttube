@@ -355,7 +355,13 @@ public class AiSubtitleSettingsPresenter extends BasePresenter<Void> {
             List<OptionItem> actions = new ArrayList<>();
             actions.add(UiOptionItem.from(getContext().getString(
                     profile.isBuiltIn() ? R.string.ai_subtitle_copy_prompt : R.string.ai_subtitle_edit_prompt),
-                    option -> profile.isBuiltIn() ? showCopyPrompt(profile) : showEditPrompt(profile)));
+                    option -> {
+                        if (profile.isBuiltIn()) {
+                            showCopyPrompt(profile);
+                        } else {
+                            showEditPrompt(profile);
+                        }
+                    }));
             if (!profile.isBuiltIn()) {
                 actions.add(UiOptionItem.from(getContext().getString(R.string.ai_subtitle_delete_prompt), option -> {
                     if (prompts.delete(profile.getId())) {
