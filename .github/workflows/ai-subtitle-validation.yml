@@ -167,7 +167,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
-          COMMIT_SHA: ${{ github.sha }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
@@ -178,7 +177,7 @@ jobs:
           else
             gh release create "$TAG_NAME" release-assets/*.apk release-assets/SHA256SUMS.txt \
               --repo "$REPOSITORY" \
-              --target "$COMMIT_SHA" \
+              --verify-tag \
               --title "SmartTube AI bilingual subtitles — $TAG_NAME" \
               --notes "Test pre-release built by AI Subtitle Validation run #$RUN_NUMBER. Install only for manual testing." \
               --prerelease --draft

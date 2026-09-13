@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Repository = "CometDash77/smarttube",
-    [string]$Tag = "ai-subtitle-test-2026.09.13-r4"
+    [string]$Tag = "ai-subtitle-test-2026.09.13-r5"
 )
 
 if ($Repository -notmatch "^([^/]+)/([^/]+)$") {
