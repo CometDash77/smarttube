@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Repository = "CometDash77/smarttube",
-    [string]$Tag = "ai-subtitle-test-2026.09.13-r2"
+    [string]$Tag = "ai-subtitle-test-2026.09.13-r4"
 )
 
 if ($Repository -notmatch "^([^/]+)/([^/]+)$") {
@@ -34,6 +34,7 @@ query ($owner: String!, $name: String!, $tag: String!) {
       name
       tagName
       isPrerelease
+      isDraft
       url
       releaseAssets(first: 20) {
         nodes { name size downloadUrl }
@@ -88,7 +89,15 @@ $checks = @($commit.checkSuites.nodes | ForEach-Object {
     }
 } | ConvertTo-Json -Depth 6
 
-if (-not $release -or -not $release.isPrerelease -or
+if (-not $release -or $release.isDraft -or -not $release.isPrerelease -or $checks.Count -eq 0 -or
         ($checks | Where-Object { $_.status -ne "COMPLETED" -or $_.conclusion -ne "SUCCESS" })) {
     exit 1
+}
+
+foreach ($arch in @('universal', 'armeabi-v7a', 'arm64-v8a', 'x86')) {
+    $assets = @($release.releaseAssets.nodes | Where-Object { $_.name.EndsWith("_$arch.apk") -and $_.size -gt 0 })
+    if ($assets.Count -ne 1) {
+        Write-Error "Release must contain exactly one non-empty APK for $arch."
+        exit 1
+    }
 }
