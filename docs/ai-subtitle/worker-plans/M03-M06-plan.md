@@ -11,7 +11,7 @@ Status: **ACTIVE - 2026-09-13 verification update.** This file replaces the orig
 - M03: complete and self-accepted.
 - M04-C0..C7: implementation complete; product tip `0cc5bd6c6`, with later Gate 7 review-fix commits through `204fdfba4`. Historical verification (do not re-claim as new evidence): full ai-subtitle suite 281 total / 0 failed / 7 skipped on JDK 17; settings/secret lane 62/62 on JDK 11; lint green.
 - M05, M06: implementation complete. The prompt-rendering follow-up is committed and pushed; the working tree is now reserved for verification-ledger updates only.
-- Environment facts: the workspace path contains non-ASCII characters and blocked local Gradle execution before test execution; exact-SHA run `34735924554` failed, the missing source/type issues were fixed in `204fdfba4`, and the current run details are unavailable through intermittent Actions API 404 responses. No `adb` executable is installed for device smoke. Local results are diagnostic; CI is authoritative. If a local run is path-blocked, do not build tooling workarounds.
+- Environment facts: the workspace path contains non-ASCII characters and blocked local Gradle execution before test execution; exact-SHA run `34735924554` failed, the missing source/type issues were fixed in `204fdfba4`, and the current run details are unavailable through intermittent Actions API 404 responses. Android SDK `adb.exe` is present, but no TV/device is connected for smoke testing. Local results are diagnostic; CI is authoritative. If a local run is path-blocked, do not build tooling workarounds.
 
 ## 2. Read before starting
 
@@ -102,7 +102,7 @@ Planned files: `segmentation/BoundaryProtocol.java`, `segmentation/BoundaryProto
 
 1. **One full code review** of the complete feature diff (accepted M02 base...final tip), not per milestone. **Done:** review fixes are in `20d54878442ae8d9c3f9742a945c1f4c8de6846d`, `67b93feb391bf53a1725bce7ce01df62c3ffaa10`, `204fdfba4d07321c524d850d5aa1aaf0bedc63a8`, and `4f3c6946c`; the final follow-up diff was checked for scope and whitespace before push.
 2. **One final CI run** at the exact final SHA on `feature/ai-bilingual-subtitles`: **Attempted:** run `34735924554` failed; inspect its GitHub UI job log before claiming completion.
-3. **One device smoke test** (single TV device, one session): **Blocked:** no `adb` executable or connected TV device is available on this workstation.
+3. **One device smoke test** (single TV device, one session): **Blocked:** Android SDK `adb.exe` is available, but no TV/device is connected on this workstation.
 4. Update `progress.md`: **Updated:** pushed tip, local follow-up, supplementary verification, failed CI URL, unavailable device state, and next action; M07-ready status remains deferred until CI and smoke pass.
 
 ## Verification commands
