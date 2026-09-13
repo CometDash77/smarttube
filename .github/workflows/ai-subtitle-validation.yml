@@ -110,6 +110,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
+      actions: read
       contents: write
 
     steps:
@@ -127,9 +128,15 @@ jobs:
           COMMIT_SHA: ${{ github.sha }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
-          gh release create "$TAG_NAME" release-assets/*.apk \
-            --repo "$REPOSITORY" \
-            --target "$COMMIT_SHA" \
-            --title "SmartTube AI bilingual subtitles — $TAG_NAME" \
-            --notes "Test pre-release built by AI Subtitle Validation run #$RUN_NUMBER. Install only for manual testing." \
-            --prerelease
+          if gh release view "$TAG_NAME" --repo "$REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" release-assets/*.apk \
+              --repo "$REPOSITORY" \
+              --clobber
+          else
+            gh release create "$TAG_NAME" release-assets/*.apk \
+              --repo "$REPOSITORY" \
+              --target "$COMMIT_SHA" \
+              --title "SmartTube AI bilingual subtitles — $TAG_NAME" \
+              --notes "Test pre-release built by AI Subtitle Validation run #$RUN_NUMBER. Install only for manual testing." \
+              --prerelease
+          fi
