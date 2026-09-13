@@ -10,15 +10,16 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 
 ## Current state
 
-- Current milestone: M06 — Subtitle processing behavioral port (Gate 6 closed; Gate 7 final verification is next)
-- Current task: `Gate 7 — final review, exact-SHA CI, and device smoke test`
-- Task state: **Gates 1–6 implementation complete locally on 2026-09-13; all local Gradle verification attempts are blocked before test execution by the non-ASCII workspace path, so CI and device evidence remain required**; M03 is self-accepted; M02 remains accepted; M04 is closed by Gate 1
+- Current milestone: M06 — Subtitle processing behavioral port (Gate 7 verification blocked)
+- Current task: `Gate 7 — exact-SHA CI failure triage and device smoke test`
+- Task state: **Gates 1–6 implementation complete and final review fixes committed on 2026-09-13; local Gradle remains blocked before test execution by the non-ASCII workspace path; exact-SHA CI failed and device smoke is unavailable because ADB is not installed**; M03 is self-accepted; M02 remains accepted; M04 is closed by Gate 1
 - Production code changes: M02 renderer/lifecycle slice present; M03 domain/session/cache/contracts added; M04 provider persistence, secret storage, adapters, discovery, and settings UI present; M05 prompt persistence, strict rendering, content-aware profile identity, atomic runtime resolution, prompt CRUD UI, and target-language setting added; M06 source normalization, independent fixtures, ASR timing, sentence breaking, translation chunking, boundary validation, tail recovery, metrics, and deterministic fallback added
 - Actual upstream patch count: 3 existing SmartTube files, all inside the approved M02 budget
-- Remote sync: `feature/ai-bilingual-subtitles` tracks `origin`; the latest successfully pushed tip remains `6a2af2d2c` until credentials are available. Gate 1–6 commits are local and remain unpushed
+- Remote sync: `feature/ai-bilingual-subtitles` tracks `origin` at final review SHA `20d54878442ae8d9c3f9742a945c1f4c8de6846d`; the final review fix and Gate 1–6 commits are pushed
 - Local compile/test status: Gate 6's focused command was attempted with Android Studio JDK 21 but Gradle stopped before test execution because the workspace path contains non-ASCII characters; no local test pass is claimed. Full ai-subtitle and final CI evidence remain Gate 7 work
-- GitHub Actions status: M02 run `34660051184` green for `854460bb4`; M03 and M04 exact-SHA runs remain `BLOCKED` at the workstation Actions API and require GitHub UI verification
-- Forward plan: `worker-plans/M03-M06-plan.md` (Ponytail revision, 2026-09-13) is the single remaining program and supersedes the earlier C7 report-restoration and independent re-review requirement. Resume at Gate 1: preserve the retained five-file correction, run focused verification, commit it, and close M04; then continue through the seven gates with one final review, one final CI run, and one device smoke test.
+- GitHub Actions status: M02 run `34660051184` green for `854460bb4`; final SHA run `34735924554` failed at [GitHub Actions](https://github.com/CometDash77/smartube/actions/runs/34735924554), with job details unavailable through the current Actions API response
+- Device status: smoke test not run; no `adb` executable or connected TV device is available on this workstation
+- Forward plan: `worker-plans/M03-M06-plan.md` remains the single remaining program. Next action is to inspect the failed run in GitHub UI, fix only the reported Gate 7 issue, rerun the exact final SHA validation, then perform the one-device smoke test.
 
 ## Pause checkpoint (2026-09-12)
 
