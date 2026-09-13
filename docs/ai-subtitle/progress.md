@@ -11,15 +11,15 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 ## Current state
 
 - Current milestone: M06 — Subtitle processing behavioral port (Gate 7 verification blocked)
-- Current task: `Gate 7 — exact-SHA CI failure triage and device smoke test`
-- Task state: **Gates 1–6 implementation complete and final review fixes committed on 2026-09-13; local Gradle remains blocked before test execution by the non-ASCII workspace path; exact-SHA CI failed and device smoke is unavailable because ADB is not installed**; M03 is self-accepted; M02 remains accepted; M04 is closed by Gate 1
+- Current task: `Gate 7 — final verification follow-up`
+- Task state: **Gates 1–6 implementation complete; a local `PromptRenderer` follow-up is currently uncommitted; local Gradle remains blocked before test execution by the non-ASCII workspace path; exact-SHA CI failed and device smoke is unavailable because ADB is not installed**; M03 is self-accepted; M02 remains accepted; M04 is closed by Gate 1
 - Production code changes: M02 renderer/lifecycle slice present; M03 domain/session/cache/contracts added; M04 provider persistence, secret storage, adapters, discovery, and settings UI present; M05 prompt persistence, strict rendering, content-aware profile identity, atomic runtime resolution, prompt CRUD UI, and target-language setting added; M06 source normalization, independent fixtures, ASR timing, sentence breaking, translation chunking, boundary validation, tail recovery, metrics, and deterministic fallback added
 - Actual upstream patch count: 3 existing SmartTube files, all inside the approved M02 budget
-- Remote sync: `feature/ai-bilingual-subtitles` tracks `origin`; final code tip is `204fdfba4d07321c524d850d5aa1aaf0bedc63a8` and the verification-ledger commits are pushed
-- Local compile/test status: Gate 6's focused command was attempted with Android Studio JDK 21 but Gradle stopped before test execution because the workspace path contains non-ASCII characters; no local test pass is claimed. Full ai-subtitle and final CI evidence remain Gate 7 work
+- Remote sync: `feature/ai-bilingual-subtitles` tracks `origin` at `194e55871`; the working tree additionally contains an uncommitted `PromptRenderer.java` hardening follow-up
+- Local compile/test status: Gradle still stops before test execution because the workspace path contains non-ASCII characters. Supplementary JDK 21 diagnostics compiled the feature main sources (excluding Android UI), passed the pure subtitle harness 93/93, the prompt renderer/repository harness 6/6, and the provider/model harness 18/18. These diagnostics do not replace CI acceptance
 - GitHub Actions status: M02 run `34660051184` green for `854460bb4`; run `34735924554` failed at [GitHub Actions](https://github.com/CometDash77/smartube/actions/runs/34735924554). The failure was narrowed locally to a missing metrics source file and an invalid UI callback, both fixed in `204fdfba4`; the current tip run is not queryable because the Actions API intermittently returns 404
 - Device status: smoke test not run; no `adb` executable or connected TV device is available on this workstation
-- Forward plan: `worker-plans/M03-M06-plan.md` remains the single remaining program. Next action is to inspect the failed run in GitHub UI, fix only the reported Gate 7 issue, rerun the exact final SHA validation, then perform the one-device smoke test.
+- Forward plan: `worker-plans/M03-M06-plan.md` remains the single remaining program. Next action is to review the local prompt follow-up, rerun the corrected narrow diagnostics, commit and push it, attempt one authoritative exact-SHA CI validation, then perform the one-device smoke test if ADB/device access becomes available.
 
 ## Pause checkpoint (2026-09-12)
 

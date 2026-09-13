@@ -26,8 +26,13 @@ public final class PromptRenderer {
         List<String> diagnostics = new ArrayList<>();
         for (int i = 0; i < template.length();) {
             if (template.startsWith("\\{{", i)) {
-                output.append("{{");
-                i += 3;
+                int literalEnd = template.indexOf("}}", i + 3);
+                if (literalEnd < 0) {
+                    diagnostics.add("malformed escaped variable delimiter at offset " + i);
+                    break;
+                }
+                output.append("{{").append(template, i + 3, literalEnd).append("}}");
+                i = literalEnd + 2;
             } else if (template.startsWith("\\}}", i)) {
                 output.append("}}");
                 i += 3;
@@ -63,7 +68,9 @@ public final class PromptRenderer {
 
     private static Map<String, String> placeholderValues() {
         java.util.LinkedHashMap<String, String> values = new java.util.LinkedHashMap<>();
-        for (PromptVariable variable : PromptVariable.values()) values.put(variable.getName(), "value");
+        for (PromptVariable variable : PromptVariable.values()) {
+            values.put(variable.getName(), "<" + variable.getName() + ">");
+        }
         return values;
     }
 

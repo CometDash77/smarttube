@@ -1,22 +1,16 @@
 # M03-M06 Remaining Execution Plan (Ponytail Revision)
 
-Status: **ACTIVE - 2026-09-13 revision.** This file replaces the original 958-line consolidated program (preserved in git history at `e479c8bf6:docs/ai-subtitle/worker-plans/M03-M06-plan.md`) as the single authority for remaining work. The revision exists because the execution audit found process overhead dominating delivery: since M03, 12 of 23 commits were documentation-only, and the old plan still required 14 remaining task checkpoints, four milestone Commander reviews, repeated exact-SHA CI runs, and a 13-section report per milestone.
+Status: **ACTIVE - 2026-09-13 verification update.** This file replaces the original 958-line consolidated program (preserved in git history at `e479c8bf6:docs/ai-subtitle/worker-plans/M03-M06-plan.md`) as the single authority for remaining work. The revision exists because the execution audit found process overhead dominating delivery: since M03, 12 of 23 commits were documentation-only, and the old plan still required 14 remaining task checkpoints, four milestone Commander reviews, repeated exact-SHA CI runs, and a 13-section report per milestone.
 
 **Goal:** finish M04 (secret-storage correction), implement M05 and M06, and validate once. Seven gates, at most six implementation commits plus one review-fix commit, one final code review, one final CI run, one device smoke test.
 
 ## 1. Authoritative state
 
 - Branch: `feature/ai-bilingual-subtitles`; `origin` is the personal fork remote, `upstream` is read-only official SmartTube.
-- Latest pushed tip before this run: `6a2af2d2c`. Final implementation tip: `204fdfba4d07321c524d850d5aa1aaf0bedc63a8`.
+- Latest pushed tip before the current local follow-up: `194e55871`. The current local follow-up hardens `PromptRenderer` escaped-literal and diagnostic behavior; it is not committed yet.
 - M03: complete and self-accepted.
-- M04-C0..C6: implementation complete; product tip `0cc5bd6c6`. Historical verification (do not re-claim as new evidence): full ai-subtitle suite 281 total / 0 failed / 7 skipped on JDK 17; settings/secret lane 62/62 on JDK 11; lint green.
-- M04-C7: the correction is **uncommitted and must be preserved**. Retained five-file working-tree diff:
-  - `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/AndroidSecretStore.java`
-  - `common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/AndroidSecretStoreRobolectricTest.java`
-  - `common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/AndroidSecretStoreTest.java`
-  - `docs/ai-subtitle/decisions.md` (ADR-012 backup/export policy)
-  - `docs/ai-subtitle/research/g04-1-android-secret-storage.md`
-- M05, M06: not started.
+- M04-C0..C7: implementation complete; product tip `0cc5bd6c6`, with later Gate 7 review-fix commits through `204fdfba4`. Historical verification (do not re-claim as new evidence): full ai-subtitle suite 281 total / 0 failed / 7 skipped on JDK 17; settings/secret lane 62/62 on JDK 11; lint green.
+- M05, M06: implementation complete. The latest local follow-up is limited to `PromptRenderer.java` and remains uncommitted pending corrected narrow verification.
 - Environment facts: the workspace path contains non-ASCII characters and blocked local Gradle execution before test execution; exact-SHA run `34735924554` failed, the missing source/type issues were fixed in `204fdfba4`, and the current run details are unavailable through intermittent Actions API 404 responses. No `adb` executable is installed for device smoke. Local results are diagnostic; CI is authoritative. If a local run is path-blocked, do not build tooling workarounds.
 
 ## 2. Read before starting
@@ -106,10 +100,10 @@ Planned files: `segmentation/BoundaryProtocol.java`, `segmentation/BoundaryProto
 
 ## Gate 7 - Final verification (single pass, in order)
 
-1. **One full code review** of the complete feature diff (accepted M02 base...final tip), not per milestone. **Done:** review fixes are in `20d54878442ae8d9c3f9742a945c1f4c8de6846d`, `67b93feb391bf53a1725bce7ce01df62c3ffaa10`, and `204fdfba4d07321c524d850d5aa1aaf0bedc63a8`.
+1. **One full code review** of the complete feature diff (accepted M02 base...final tip), not per milestone. **Done for the pushed tip:** review fixes are in `20d54878442ae8d9c3f9742a945c1f4c8de6846d`, `67b93feb391bf53a1725bce7ce01df62c3ffaa10`, and `204fdfba4d07321c524d850d5aa1aaf0bedc63a8`. The local `PromptRenderer` follow-up requires a final diff review before the next CI attempt.
 2. **One final CI run** at the exact final SHA on `feature/ai-bilingual-subtitles`: **Attempted:** run `34735924554` failed; inspect its GitHub UI job log before claiming completion.
 3. **One device smoke test** (single TV device, one session): **Blocked:** no `adb` executable or connected TV device is available on this workstation.
-4. Update `progress.md`: **Recorded:** final SHA, failed CI URL, unavailable device state, and next action; M07-ready status remains deferred until CI and smoke pass.
+4. Update `progress.md`: **Updated:** pushed tip, local follow-up, supplementary verification, failed CI URL, unavailable device state, and next action; M07-ready status remains deferred until CI and smoke pass.
 
 ## Verification commands
 
