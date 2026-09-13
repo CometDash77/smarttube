@@ -79,10 +79,10 @@ Planned files: `settings/ui/PromptProfilesPresenter.java`, `settings/ui/PromptPr
 
 Planned files: `source/SubtitleNormalizer.java`, `segmentation/AsrTimingEstimator.java`, fixtures under `common/src/test/resources/ai-subtitle/fixtures/`, `common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/source/SubtitleFixture.java`, `docs/ai-subtitle/fixture-provenance.md`, matching tests.
 
-- [ ] Minimal independently authored fixtures (schema: stable event ID, start/end time, text, caption kind/language metadata, provenance ID) covering manual, ASR, word timing, no-space languages, noise, fast/slow speech, long segments, overlaps, gaps, duplicates; the provenance document stays one page.
-- [ ] Normalizer: dedupe repeats separated by time/content, clip overlaps, enforce monotonic ordering, preserve complete text coverage.
-- [ ] ASR timing: monotonic, non-negative, capped word estimates; no-space languages do not depend on ASCII whitespace token counts.
-- [ ] Commit: `feat(source): normalize cues and estimate ASR timing`
+- [x] Minimal independently authored fixtures (schema: stable event ID, start/end time, text, caption kind/language metadata, provenance ID) covering manual, ASR, word timing, no-space languages, noise, fast/slow speech, long segments, overlaps, gaps, duplicates; the provenance document stays one page.
+- [x] Normalizer: dedupe repeats separated by time/content, clip overlaps, enforce monotonic ordering, preserve complete text coverage.
+- [x] ASR timing: monotonic, non-negative, capped word estimates; no-space languages do not depend on ASCII whitespace token counts.
+- [x] Commit: `feat(source): normalize cues and estimate ASR timing`
 
 ## Gate 5 - M06: sentence breaking and translation chunking
 
