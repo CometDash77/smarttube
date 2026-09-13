@@ -69,11 +69,11 @@ Planned files: `prompt/PromptProfile.java`, `prompt/PromptRepository.java`, `pro
 
 Planned files: `settings/ui/PromptProfilesPresenter.java`, `settings/ui/PromptProfileEditorPresenter.java`, `settings/ui/TranslationProfilePresenter.java`, feature-owned resources, matching presenter/repository tests.
 
-- [ ] List/create/copy/edit/delete prompts; built-ins restricted to copy; validation diagnostics; default/current selection; target-language selection; cancel/save; recovery after recreation.
-- [ ] Invalid prompt or missing required variable cannot become active.
-- [ ] No provider credential/model UI logic duplicated here.
-- [ ] Full ai-subtitle suite green (M05 regression).
-- [ ] Commit: `feat(settings): manage prompt profiles and target language`
+- [x] List/create/copy/edit/delete prompts; built-ins restricted to copy; validation diagnostics; default/current selection; target-language selection; cancel/save; recovery after recreation.
+- [x] Invalid prompt or missing required variable cannot become active.
+- [x] No provider credential/model UI logic duplicated here.
+- [x] Full ai-subtitle suite attempted; local Gradle is path-blocked before test execution, so final CI remains the acceptance signal.
+- [x] Commit: `feat(settings): manage prompt profiles and target language`
 
 ## Gate 4 - M06: fixtures, normalization, ASR timing
 

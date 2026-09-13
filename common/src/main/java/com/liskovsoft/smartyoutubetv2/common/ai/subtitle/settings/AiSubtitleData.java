@@ -19,6 +19,8 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.prompt.PromptRepository
 public class AiSubtitleData extends SharedPreferencesBase
         implements ProviderProfileRepository.Store {
     private static final String ENABLED = "enabled";
+    private static final String TARGET_LANGUAGE = "target_language";
+    public static final String DEFAULT_TARGET_LANGUAGE = "zh";
     private static AiSubtitleData sInstance;
     private static Context sContext;
 
@@ -77,6 +79,17 @@ public class AiSubtitleData extends SharedPreferencesBase
 
     public void setEnabled(boolean enabled) {
         putBoolean(ENABLED, enabled);
+    }
+
+    public String getTargetLanguage() {
+        return getString(TARGET_LANGUAGE, DEFAULT_TARGET_LANGUAGE);
+    }
+
+    public void setTargetLanguage(String language) {
+        if (language == null || language.trim().isEmpty()) {
+            throw new IllegalArgumentException("language must not be blank");
+        }
+        putString(TARGET_LANGUAGE, language.trim());
     }
 
     @VisibleForTesting

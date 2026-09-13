@@ -16,7 +16,6 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSess
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionId;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionSnapshot;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.AiSubtitleData;
-import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.ProviderProfileRuntime;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCall;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCallback;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailure;
@@ -124,7 +123,7 @@ public class AiSubtitleCueBridge {
         Context appContext = context.getApplicationContext();
 
         if (sInstance == null || sContext != appContext) {
-            ProviderProfileRuntime.ResolvedProvider resolved =
+            com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationProfileResolver.Resolution resolved =
                     AiSubtitleRuntime.resolve(appContext);
             sInstance = new AiSubtitleCueBridge(appContext,
                     resolved.getProvider(), resolved.getProfile());

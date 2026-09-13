@@ -18,4 +18,12 @@
     <string name="ai_subtitle_profile_base_url">Base URL</string>
     <string name="ai_subtitle_profile_model">Model ID</string>
     <string name="ai_subtitle_profile_secret">API key or secret</string>
+    <string name="ai_subtitle_prompt_profiles">Prompt profiles</string>
+    <string name="ai_subtitle_target_language">Translation language</string>
+    <string name="ai_subtitle_add_prompt">Add prompt</string>
+    <string name="ai_subtitle_copy_prompt">Copy prompt</string>
+    <string name="ai_subtitle_edit_prompt">Edit prompt</string>
+    <string name="ai_subtitle_delete_prompt">Delete prompt</string>
+    <string name="ai_subtitle_prompt_name">Prompt name</string>
+    <string name="ai_subtitle_prompt_content">Prompt content</string>
 </resources>

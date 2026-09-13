@@ -5,8 +5,8 @@ import android.content.Context;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.ProviderProfileResolver;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.http.OkHttpRequestExecutor;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.AiSubtitleData;
-import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.ProviderProfileRuntime;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.SecretStore;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationProfileResolver;
 
 /**
  * Android-facing binding between the stored Provider Profiles and the cue bridge.
@@ -19,16 +19,17 @@ public final class AiSubtitleRuntime {
     private AiSubtitleRuntime() {
     }
 
-    public static ProviderProfileRuntime.ResolvedProvider resolve(Context context) {
+    public static TranslationProfileResolver.Resolution resolve(Context context) {
         AiSubtitleData data = AiSubtitleData.instance(context);
         SecretStore secrets = data.secrets();
         ProviderProfileResolver resolver =
                 new ProviderProfileResolver(new OkHttpRequestExecutor(), secrets);
-        return new ProviderProfileRuntime(data.providerProfiles(), resolver, secrets).resolve();
+        return new TranslationProfileResolver(data.providerProfiles(), resolver,
+                data.prompts(), secrets).resolve(data.getTargetLanguage());
     }
 
     public static void applyToBridge(Context context) {
-        ProviderProfileRuntime.ResolvedProvider resolved = resolve(context);
+        TranslationProfileResolver.Resolution resolved = resolve(context);
         AiSubtitleCueBridge.instance(context).onProviderChanged(
                 resolved.getProvider(), resolved.getProfile());
     }

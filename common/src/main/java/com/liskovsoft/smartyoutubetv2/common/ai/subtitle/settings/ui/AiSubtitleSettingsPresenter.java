@@ -14,6 +14,7 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.ProviderProfil
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.ProviderProtocol;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.ProviderType;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.http.OkHttpRequestExecutor;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.prompt.PromptProfile;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.AiSubtitleData;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.SecretStore;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.OptionItem;
@@ -57,6 +58,14 @@ public class AiSubtitleSettingsPresenter extends BasePresenter<Void> {
         settingsPresenter.appendSingleButton(UiOptionItem.from(
                 getContext().getString(R.string.ai_subtitle_provider_profiles),
                 option -> showProviderProfiles()));
+
+        settingsPresenter.appendSingleButton(UiOptionItem.from(
+                getContext().getString(R.string.ai_subtitle_prompt_profiles),
+                option -> showPromptProfiles()));
+
+        settingsPresenter.appendSingleButton(UiOptionItem.from(
+                getContext().getString(R.string.ai_subtitle_target_language),
+                option -> showTargetLanguage()));
     }
 
     private void showProviderProfiles() {
@@ -304,5 +313,95 @@ public class AiSubtitleSettingsPresenter extends BasePresenter<Void> {
                 new ProviderProfileResolver(new OkHttpRequestExecutor(), secrets);
         return new ProviderProfilesPresenter(data.providerProfiles(), secrets, resolver,
                 new ModelCatalog(new OkHttpRequestExecutor()));
+    }
+
+    private void showTargetLanguage() {
+        AppDialogPresenter presenter = AppDialogPresenter.instance(getContext());
+        presenter.closeDialog();
+        final TranslationProfilePresenter languages = new TranslationProfilePresenter(
+                AiSubtitleData.instance(getContext()));
+        List<OptionItem> options = new ArrayList<>();
+        for (final String language : languages.getTargetLanguages()) {
+            options.add(UiOptionItem.from(language, option -> {
+                if (languages.setTargetLanguage(language)) {
+                    AiSubtitleRuntime.applyToBridge(getContext());
+                    showTargetLanguage();
+                }
+            }, language.equals(languages.getTargetLanguage())));
+        }
+        presenter.appendRadioCategory(getContext().getString(R.string.ai_subtitle_target_language), options);
+        presenter.showDialog(getContext().getString(R.string.ai_subtitle_target_language));
+    }
+
+    private void showPromptProfiles() {
+        AppDialogPresenter presenter = AppDialogPresenter.instance(getContext());
+        presenter.closeDialog();
+        final PromptProfilesPresenter prompts = new PromptProfilesPresenter(
+                AiSubtitleData.instance(getContext()).prompts());
+        List<PromptProfile> list = prompts.getProfiles();
+        List<OptionItem> selection = new ArrayList<>();
+        for (final PromptProfile profile : list) {
+            selection.add(UiOptionItem.from(profile.getName(), option -> {
+                if (prompts.select(profile.getId())) {
+                    AiSubtitleRuntime.applyToBridge(getContext());
+                    showPromptProfiles();
+                }
+            }, profile.getId().equals(prompts.getSelectedProfileId())));
+        }
+        presenter.appendRadioCategory(getContext().getString(R.string.ai_subtitle_prompt_profiles), selection);
+        presenter.appendSingleButton(UiOptionItem.from(
+                getContext().getString(R.string.ai_subtitle_add_prompt), option -> showCreatePrompt()));
+        for (final PromptProfile profile : list) {
+            List<OptionItem> actions = new ArrayList<>();
+            actions.add(UiOptionItem.from(getContext().getString(
+                    profile.isBuiltIn() ? R.string.ai_subtitle_copy_prompt : R.string.ai_subtitle_edit_prompt),
+                    option -> profile.isBuiltIn() ? showCopyPrompt(profile) : showEditPrompt(profile)));
+            if (!profile.isBuiltIn()) {
+                actions.add(UiOptionItem.from(getContext().getString(R.string.ai_subtitle_delete_prompt), option -> {
+                    if (prompts.delete(profile.getId())) {
+                        AiSubtitleRuntime.applyToBridge(getContext());
+                        showPromptProfiles();
+                    }
+                }));
+            }
+            presenter.appendStringsCategory(profile.getName(), actions);
+        }
+        presenter.showDialog(getContext().getString(R.string.ai_subtitle_prompt_profiles));
+    }
+
+    private void showCreatePrompt() {
+        final PromptProfileEditorPresenter editor = PromptProfileEditorPresenter.create();
+        SimpleEditDialog.show(getContext(), getContext().getString(R.string.ai_subtitle_prompt_name), "",
+                value -> { editor.setName(value); showPromptContent(editor, false); return true; });
+    }
+
+    private void showCopyPrompt(final PromptProfile profile) {
+        SimpleEditDialog.show(getContext(), getContext().getString(R.string.ai_subtitle_prompt_name),
+                profile.getName() + " copy", value -> {
+                    PromptProfilesPresenter.SaveResult result = new PromptProfilesPresenter(
+                            AiSubtitleData.instance(getContext()).prompts()).copy(profile.getId(), value);
+                    if (result.isSuccess()) { AiSubtitleRuntime.applyToBridge(getContext()); showPromptProfiles(); }
+                    return result.isSuccess();
+                });
+    }
+
+    private void showEditPrompt(final PromptProfile profile) {
+        final PromptProfileEditorPresenter editor = PromptProfileEditorPresenter.edit(profile);
+        SimpleEditDialog.show(getContext(), getContext().getString(R.string.ai_subtitle_prompt_name),
+                editor.getName(), value -> { editor.setName(value); showPromptContent(editor, true); return true; });
+    }
+
+    private void showPromptContent(final PromptProfileEditorPresenter editor, final boolean update) {
+        SimpleEditDialog.show(getContext(), getContext().getString(R.string.ai_subtitle_prompt_content),
+                editor.getContent(), value -> {
+                    editor.setContent(value);
+                    PromptProfilesPresenter prompts = new PromptProfilesPresenter(
+                            AiSubtitleData.instance(getContext()).prompts());
+                    PromptProfilesPresenter.SaveResult result = update
+                            ? prompts.update(editor.getId(), editor.getName(), editor.getContent())
+                            : prompts.create(editor.getName(), editor.getContent());
+                    if (result.isSuccess()) { AiSubtitleRuntime.applyToBridge(getContext()); showPromptProfiles(); }
+                    return result.isSuccess();
+                });
     }
 }
