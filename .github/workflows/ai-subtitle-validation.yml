@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - feature/ai-bilingual-subtitles
+    tags:
+      - ai-subtitle-test-*
   pull_request:
   workflow_dispatch:
 
@@ -98,3 +100,36 @@ jobs:
             **/build/test-results/**/*.xml
             **/build/reports/tests/**
           if-no-files-found: warn
+
+  publish-prerelease:
+    name: Publish AI subtitle test pre-release
+    if: startsWith(github.ref, 'refs/tags/ai-subtitle-test-')
+    needs:
+      - validate
+      - preference-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download beta APK
+        uses: actions/download-artifact@v7
+        with:
+          name: ai-subtitle-beta-apks-${{ github.run_number }}
+          path: release-assets
+
+      - name: Publish GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          gh release create "$TAG_NAME" release-assets/*.apk \
+            --repo "$REPOSITORY" \
+            --target "$COMMIT_SHA" \
+            --title "SmartTube AI bilingual subtitles — $TAG_NAME" \
+            --notes "Test pre-release built by AI Subtitle Validation run #$RUN_NUMBER. Install only for manual testing." \
+            --prerelease

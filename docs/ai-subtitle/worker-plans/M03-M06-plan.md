@@ -2,16 +2,16 @@
 
 Status: **ACTIVE - 2026-09-13 verification update.** This file replaces the original 958-line consolidated program (preserved in git history at `e479c8bf6:docs/ai-subtitle/worker-plans/M03-M06-plan.md`) as the single authority for remaining work. The revision exists because the execution audit found process overhead dominating delivery: since M03, 12 of 23 commits were documentation-only, and the old plan still required 14 remaining task checkpoints, four milestone Commander reviews, repeated exact-SHA CI runs, and a 13-section report per milestone.
 
-**Goal:** finish M04 (secret-storage correction), implement M05 and M06, and validate once. Seven gates, at most six implementation commits plus one review-fix commit, one final code review, one final CI run, one device smoke test.
+**Goal:** finish M04 (secret-storage correction), implement M05 and M06, validate once, and publish one explicitly tagged test pre-release. Seven gates, at most six implementation commits plus one review-fix commit, one final code review, one final CI run, one device smoke test.
 
 ## 1. Authoritative state
 
 - Branch: `feature/ai-bilingual-subtitles`; `origin` is the personal fork remote, `upstream` is read-only official SmartTube.
-- The feature branch is synchronized with `origin`; the latest implementation tip is `4f3c6946c` (`fix(ai-subtitle): harden prompt rendering`). Verification-ledger commits follow it.
+- The feature branch is synchronized with `origin`; the latest implementation tip is `4f3c6946c` (`fix(ai-subtitle): harden prompt rendering`). Verification-ledger commits follow it. The validation workflow now publishes a pre-release only for an `ai-subtitle-test-*` tag after all required jobs pass.
 - M03: complete and self-accepted.
 - M04-C0..C7: implementation complete; product tip `0cc5bd6c6`, with later Gate 7 review-fix commits through `204fdfba4`. Historical verification (do not re-claim as new evidence): full ai-subtitle suite 281 total / 0 failed / 7 skipped on JDK 17; settings/secret lane 62/62 on JDK 11; lint green.
 - M05, M06: implementation complete. The prompt-rendering follow-up is committed and pushed; the working tree is now reserved for verification-ledger updates only.
-- Environment facts: the workspace path contains non-ASCII characters and blocked local Gradle execution before test execution; exact-SHA run `34735924554` failed, the missing source/type issues were fixed in `204fdfba4`, and the current run details are unavailable through intermittent Actions API 404 responses. Android SDK `adb.exe` is present, but no TV/device is connected for smoke testing. Local results are diagnostic; CI is authoritative. If a local run is path-blocked, do not build tooling workarounds.
+- Environment facts: the workspace path contains non-ASCII characters and blocks local Gradle execution before test execution. GitHub Actions run #36 for commit `0e4564d` is green in the user-provided Actions view; its successful beta build publishes artifact `ai-subtitle-beta-apks-36`. Android SDK `adb.exe` is present, but no TV/device is connected for smoke testing. Local results are diagnostic; CI is authoritative. If a local run is path-blocked, do not build tooling workarounds.
 
 ## 2. Read before starting
 
@@ -101,9 +101,10 @@ Planned files: `segmentation/BoundaryProtocol.java`, `segmentation/BoundaryProto
 ## Gate 7 - Final verification (single pass, in order)
 
 1. **One full code review** of the complete feature diff (accepted M02 base...final tip), not per milestone. **Done:** review fixes are in `20d54878442ae8d9c3f9742a945c1f4c8de6846d`, `67b93feb391bf53a1725bce7ce01df62c3ffaa10`, `204fdfba4d07321c524d850d5aa1aaf0bedc63a8`, and `4f3c6946c`; the final follow-up diff was checked for scope and whitespace before push.
-2. **One final CI run** at the exact final SHA on `feature/ai-bilingual-subtitles`: **Attempted:** run `34735924554` failed; inspect its GitHub UI job log before claiming completion.
+2. **One final CI run** at the exact final SHA on `feature/ai-bilingual-subtitles`: **Passed:** Actions run #36 for commit `0e4564d` is green in the user-provided GitHub Actions view; the beta APK artifact is `ai-subtitle-beta-apks-36`.
 3. **One device smoke test** (single TV device, one session): **Blocked:** Android SDK `adb.exe` is available, but no TV/device is connected on this workstation.
-4. Update `progress.md`: **Updated:** pushed tip, local follow-up, supplementary verification, failed CI URL, unavailable device state, and next action; M07-ready status remains deferred until CI and smoke pass.
+4. **One tagged test pre-release:** **Configured:** pushing an `ai-subtitle-test-*` tag runs the full validation and publishes the successful beta APK as a GitHub Pre-release using the workflow token.
+5. Update `progress.md`: **Updated:** pushed tip, local follow-up, supplementary verification, CI result, release workflow, unavailable device state, and next action; M07-ready status remains deferred until smoke passes.
 
 ## Verification commands
 
