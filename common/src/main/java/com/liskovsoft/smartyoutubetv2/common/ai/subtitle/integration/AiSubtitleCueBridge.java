@@ -56,9 +56,11 @@ public class AiSubtitleCueBridge {
     /** M03 has no context builder yet (arrives with M08); identity stays explicit and empty. */
     private static final String CONTEXT_FINGERPRINT_NONE = "";
 
-    /** Placeholder versions until the segmentation/boundary implementations exist (M06). */
-    private static final int SEGMENTATION_VERSION_PENDING = 1;
-    private static final int BOUNDARY_VERSION_PENDING = 1;
+    /** Cache identity versions for the shipped M06 segmentation and boundary contracts. */
+    private static final int SEGMENTATION_VERSION =
+            com.liskovsoft.smartyoutubetv2.common.ai.subtitle.segmentation.RuleSentenceBreaker.VERSION;
+    private static final int BOUNDARY_VERSION =
+            com.liskovsoft.smartyoutubetv2.common.ai.subtitle.segmentation.BoundaryProtocol.VERSION;
 
     /**
      * M03 placeholder resolution. The real Provider/Prompt resolution arrives with M04/M05;
@@ -364,8 +366,8 @@ public class AiSubtitleCueBridge {
                 session.getSessionId(),
                 unit,
                 CONTEXT_FINGERPRINT_NONE,
-                SEGMENTATION_VERSION_PENDING,
-                BOUNDARY_VERSION_PENDING);
+                SEGMENTATION_VERSION,
+                BOUNDARY_VERSION);
     }
 
     /**
