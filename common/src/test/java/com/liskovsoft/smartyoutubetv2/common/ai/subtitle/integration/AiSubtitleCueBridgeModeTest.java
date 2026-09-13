@@ -97,7 +97,7 @@ public class AiSubtitleCueBridgeModeTest {
     public void failureKeepsReasonWithoutCredentials() {
         TranslationProvider failingProvider = (request, callback) -> {
             callback.onFailure(new TranslationFailure(
-                    TranslationFailureCategory.NETWORK, "network unreachable"));
+                    TranslationFailureCategory.AUTH, "auth required"));
             return new TranslationCall() {
                 @Override public void cancel() {}
                 @Override public boolean isCancelled() { return false; }
@@ -108,7 +108,7 @@ public class AiSubtitleCueBridgeModeTest {
         bridge.process(cues("Hello"));
 
         assertEquals(AiSubtitleCueBridge.RuntimeStatus.FAILED, bridge.getRuntimeStatus());
-        assertEquals("network unreachable", bridge.getLastError());
+        assertEquals("auth required", bridge.getLastError());
     }
 
     private static List<Cue> cues(String... texts) {

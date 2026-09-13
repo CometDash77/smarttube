@@ -13,6 +13,8 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.FakeTransla
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCall;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationProvider;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationRequest;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailure;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailureCategory;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationResult;
 
 import org.junit.Before;
@@ -27,6 +29,7 @@ import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class TranslationSchedulerTest {
@@ -172,6 +175,125 @@ public class TranslationSchedulerTest {
         assertFalse(mProvider.unitTexts().contains("80-100"));
     }
 
+    @Test
+    public void timeoutUsesThreeNetworkAttemptsWithBackoff() {
+        mScheduler.setTimeline(singleUnitTimeline());
+        mScheduler.onPositionUpdate(10_000, NOW);
+        assertEquals(1, mProvider.getCallCount());
+
+        mProvider.failLast(TranslationFailureCategory.TIMEOUT);
+        long firstDue = mScheduler.getRetryDueAtMsForTesting(unit(0, 0, "0-20"));
+        assertTrue(firstDue > 0);
+
+        mScheduler.onPositionUpdate(10_000, firstDue - 1);
+        assertEquals(1, mProvider.getCallCount());
+
+        mScheduler.onPositionUpdate(10_000, firstDue);
+        assertEquals(2, mProvider.getCallCount());
+
+        mProvider.failLast(TranslationFailureCategory.TIMEOUT);
+        long secondDue = mScheduler.getRetryDueAtMsForTesting(unit(0, 0, "0-20"));
+        mScheduler.onPositionUpdate(10_000, secondDue);
+        assertEquals(3, mProvider.getCallCount());
+
+        mProvider.failLast(TranslationFailureCategory.TIMEOUT);
+        assertTrue(mScheduler.hasFailed(unit(0, 0, "0-20")));
+
+        long thirdDue = mScheduler.getRetryDueAtMsForTesting(unit(0, 0, "0-20"));
+        mScheduler.onPositionUpdate(10_000, Math.max(firstDue, Math.max(secondDue, thirdDue)) + 10_000);
+        assertEquals(3, mProvider.getCallCount());
+    }
+
+    @Test
+    public void rateLimitAndServerUseTheSameRetryBudget() {
+        for (TranslationFailureCategory category : Arrays.asList(
+                TranslationFailureCategory.RATE_LIMITED, TranslationFailureCategory.SERVER)) {
+            TranslationSession session = new TranslationSession(sessionId(), 2);
+            session.markReady();
+            session.markActive();
+            CategoryFailingProvider provider = new CategoryFailingProvider(category);
+            TranslationScheduler scheduler = new TranslationScheduler(session, provider,
+                    new InMemoryTranslationCache(), null);
+            scheduler.setThrottleMs(0);
+            scheduler.setTimeline(singleUnitTimeline());
+
+            scheduler.onPositionUpdate(10_000, NOW);
+            provider.failLast(category);
+            long due = scheduler.getRetryDueAtMsForTesting(unit(0, 0, "0-20"));
+
+            scheduler.onPositionUpdate(10_000, due);
+            assertEquals(2, provider.getCallCount());
+        }
+    }
+
+    @Test
+    public void terminalCategoriesDoNotRetry() {
+        for (TranslationFailureCategory category : Arrays.asList(
+                TranslationFailureCategory.AUTH,
+                TranslationFailureCategory.PROTOCOL,
+                TranslationFailureCategory.INVALID_OUTPUT,
+                TranslationFailureCategory.CANCELLED)) {
+            TranslationSession session = new TranslationSession(sessionId(), 3);
+            session.markReady();
+            session.markActive();
+            CategoryFailingProvider provider = new CategoryFailingProvider(category);
+            TranslationScheduler scheduler = new TranslationScheduler(session, provider,
+                    new InMemoryTranslationCache(), null);
+            scheduler.setThrottleMs(0);
+            scheduler.setTimeline(singleUnitTimeline());
+
+            scheduler.onPositionUpdate(10_000, NOW);
+            scheduler.onPositionUpdate(10_000, NOW + 60_000);
+            provider.failLast(category);
+
+            assertEquals(1, provider.getCallCount());
+            assertTrue(scheduler.hasFailed(unit(0, 0, "0-20")));
+        }
+    }
+
+    @Test
+    public void partialDraftsAndWrongCoverageAreTerminalWithoutCache() {
+        TranslationUnit unit = unit(0, 0, "0-20");
+        TranslationUnit wrongCoverage = unit(1, 1, "wrong");
+
+        mScheduler.onPositionUpdate(10_000, NOW);
+        mProvider.deliverLast(TranslationResult.partialResult(
+                mProvider.lastRequest.getSessionId(), mProvider.lastRequest.getRequestId(),
+                mProvider.lastRequest.getUnit(), "draft"));
+
+        assertTrue(mScheduler.hasFailed(unit));
+        assertNull(mScheduler.getCachedTranslation(unit));
+
+        TranslationSession session = new TranslationSession(sessionId(), 4);
+        session.markReady();
+        session.markActive();
+        RecordingProvider provider = new RecordingProvider();
+        TranslationScheduler scheduler = new TranslationScheduler(session, provider,
+                new InMemoryTranslationCache(), null);
+        scheduler.setThrottleMs(0);
+        scheduler.setTimeline(singleUnitTimeline());
+        scheduler.onPositionUpdate(10_000, NOW);
+        provider.deliverLast(TranslationResult.finalResult(
+                provider.lastRequest.getSessionId(), provider.lastRequest.getRequestId(),
+                wrongCoverage, "wrong"));
+
+        assertTrue(scheduler.hasFailed(unit));
+        assertNull(scheduler.getCachedTranslation(unit));
+    }
+
+    @Test
+    public void retryOnlyTheFailedUnitAfterNeighborsSucceed() {
+        mScheduler.setLookaheadMs(30_000);
+        mScheduler.onPositionUpdate(10_000, NOW);
+
+        mProvider.completeLast();
+        mProvider.failLast(TranslationFailureCategory.SERVER);
+        long due = mScheduler.getRetryDueAtMsForTesting(unit(1, 1, "20-40"));
+
+        mScheduler.onPositionUpdate(10_000, due);
+
+        assertEquals(Arrays.asList("0-20", "20-40", "20-40"), mProvider.unitTexts());
+    }
     private static SourceTimeline singleUnitTimeline() {
         return SourceTimeline.from(
                 Collections.singletonList(segment(0, 0, 20_000, "0-20")),
@@ -235,6 +357,13 @@ public class TranslationSchedulerTest {
             return mCallCount;
         }
 
+        void failLast(TranslationFailureCategory category) {
+            lastCallback.onFailure(new TranslationFailure(category, "synthetic " + category));
+        }
+
+        void deliverLast(TranslationResult result) {
+            lastCallback.onSuccess(result);
+        }
         void completeLast() {
             lastCallback.onSuccess(TranslationResult.finalResult(
                     lastRequest.getSessionId(), lastRequest.getRequestId(), lastRequest.getUnit(),
@@ -242,6 +371,33 @@ public class TranslationSchedulerTest {
         }
     }
 
+    private static final class CategoryFailingProvider implements TranslationProvider {
+        private final TranslationFailureCategory mCategory;
+        private TranslationRequest mLastRequest;
+        private com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCallback mLastCallback;
+        private int mCallCount;
+
+        CategoryFailingProvider(TranslationFailureCategory category) {
+            mCategory = category;
+        }
+
+        @Override
+        public TranslationCall translate(TranslationRequest request,
+                                         com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCallback callback) {
+            mCallCount++;
+            mLastRequest = request;
+            mLastCallback = callback;
+            return new TrackingCall();
+        }
+
+        void failLast(TranslationFailureCategory category) {
+            mLastCallback.onFailure(new TranslationFailure(category, "synthetic " + category));
+        }
+
+        int getCallCount() {
+            return mCallCount;
+        }
+    }
     private static final class TrackingCall implements TranslationCall {
         private boolean mCancelled;
 

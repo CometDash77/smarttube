@@ -60,7 +60,7 @@ public final class TranslationScheduler {
     private long mThrottleMs = 30_000;
     private long mLastWindowDispatchMs = Long.MIN_VALUE;
     private long mRequestIdSeed;
-    private int mMaxAttempts = 1;
+    private int mMaxAttempts = 3;
     private int mJitterRangeMs = 250;
     private boolean mClosed;
     private boolean mPaused;
@@ -457,7 +457,14 @@ public final class TranslationScheduler {
         public void onSuccess(final TranslationResult result) {
             synchronized (TranslationScheduler.this) {
                 long nowMs = monotonicNowMs();
-                if (ownsResponse(result)) finishSuccessLocked(mWork, result, nowMs);
+
+                if (ownsRequest() && validResponse(result)) {
+                    finishSuccessLocked(mWork, result, nowMs);
+                } else if (ownsRequest()) {
+                    finishFailureLocked(mWork, new TranslationFailure(
+                            TranslationFailureCategory.INVALID_OUTPUT,
+                            "Provider response did not match the request."), nowMs);
+                }
             }
 
             drainEvents();
@@ -473,12 +480,15 @@ public final class TranslationScheduler {
             drainEvents();
         }
 
-        private boolean ownsResponse(TranslationResult result) {
+        private boolean ownsRequest() {
+            return mWork.mState == WorkState.IN_FLIGHT
+                    && mSession.owns(mWork.mGeneration, mWork.mEpoch)
+                    && mWork.mRequestId == mRequest.getRequestId();
+        }
+
+        private boolean validResponse(TranslationResult result) {
             return result != null
                     && result.isFinal()
-                    && mWork.mState == WorkState.IN_FLIGHT
-                    && mSession.owns(mWork.mGeneration, mWork.mEpoch)
-                    && mWork.mRequestId == mRequest.getRequestId()
                     && mWork.mRequestId == result.getRequestId()
                     && mSession.getSessionId().equals(result.getSessionId())
                     && mWork.mUnit.getSegmentIds().equals(result.getSegmentIds());
