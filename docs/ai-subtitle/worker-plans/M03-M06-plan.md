@@ -7,7 +7,7 @@ Status: **ACTIVE - 2026-09-13 verification update.** This file replaces the orig
 ## 1. Authoritative state
 
 - Branch: `feature/ai-bilingual-subtitles`; `origin` is the personal fork remote, `upstream` is read-only official SmartTube.
-- The feature branch is synchronized with `origin`; the latest implementation tip is `4f3c6946c` (`fix(ai-subtitle): harden prompt rendering`). Verification-ledger commits follow it. The validation workflow now publishes a pre-release only for an `ai-subtitle-test-*` tag after all required jobs pass. Tag `ai-subtitle-test-2026.09.13` has been pushed to trigger the first test release; release visibility remains a GitHub UI check.
+- The feature branch is synchronized with `origin`; the latest implementation tip is `4f3c6946c` (`fix(ai-subtitle): harden prompt rendering`). Verification-ledger commits follow it. The validation workflow publishes a pre-release only for an `ai-subtitle-test-*` tag after all required jobs pass. Retry tag `ai-subtitle-test-2026.09.13-r2` completed successfully and its pre-release contains all beta APK variants; the local GraphQL checker is `tools/check-ai-subtitle-release.ps1`.
 - M03: complete and self-accepted.
 - M04-C0..C7: implementation complete; product tip `0cc5bd6c6`, with later Gate 7 review-fix commits through `204fdfba4`. Historical verification (do not re-claim as new evidence): full ai-subtitle suite 281 total / 0 failed / 7 skipped on JDK 17; settings/secret lane 62/62 on JDK 11; lint green.
 - M05, M06: implementation complete. The prompt-rendering follow-up is committed and pushed; the working tree is now reserved for verification-ledger updates only.
@@ -101,9 +101,9 @@ Planned files: `segmentation/BoundaryProtocol.java`, `segmentation/BoundaryProto
 ## Gate 7 - Final verification (single pass, in order)
 
 1. **One full code review** of the complete feature diff (accepted M02 base...final tip), not per milestone. **Done:** review fixes are in `20d54878442ae8d9c3f9742a945c1f4c8de6846d`, `67b93feb391bf53a1725bce7ce01df62c3ffaa10`, `204fdfba4d07321c524d850d5aa1aaf0bedc63a8`, and `4f3c6946c`; the final follow-up diff was checked for scope and whitespace before push.
-2. **One final CI run** at the exact final SHA on `feature/ai-bilingual-subtitles`: **Passed:** Actions run #36 for commit `0e4564d` is green in the user-provided GitHub Actions view; the beta APK artifact is `ai-subtitle-beta-apks-36`.
+2. **One final CI run** at the exact final SHA on `feature/ai-bilingual-subtitles`: **Passed:** the two AI Subtitle Validation check suites for retry tag commit `c267abd` are `COMPLETED/SUCCESS`; GraphQL run IDs are `34741010798` and `34741022391`.
 3. **One device smoke test** (single TV device, one session): **Blocked:** Android SDK `adb.exe` is available, but no TV/device is connected on this workstation.
-4. **One tagged test pre-release:** **Configured:** pushing an `ai-subtitle-test-*` tag runs the full validation and publishes the successful beta APK as a GitHub Pre-release using the workflow token.
+4. **One tagged test pre-release:** **Passed:** [ai-subtitle-test-2026.09.13-r2](https://github.com/CometDash77/smarttube/releases/tag/ai-subtitle-test-2026.09.13-r2) is a GitHub Pre-release with universal, arm64-v8a, armeabi-v7a, and x86 APK assets.
 5. Update `progress.md`: **Updated:** pushed tip, local follow-up, supplementary verification, CI result, release workflow, unavailable device state, and next action; M07-ready status remains deferred until smoke passes.
 
 ## Verification commands

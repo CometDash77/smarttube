@@ -202,7 +202,7 @@ Decision: The validation workflow publishes a GitHub Pre-release only when a tag
 
 Reason: The repository and Actions UI are available, but the local process contained an invalid `GITHUB_TOKEN` that overrode the valid keyring login, and the Actions/Release REST endpoints continued to return intermittent 404 responses. Removing the user-level override fixes local GitHub CLI authentication; runner-owned publication avoids making a test release depend on that local state.
 
-Consequences: Ordinary feature-branch pushes never publish a release. The first test tag is `ai-subtitle-test-2026.09.13`; its generated release and APK asset must be confirmed in the GitHub UI. Future test releases use the pinned artifact-download action and a new `ai-subtitle-test-*` tag.
+Consequences: Ordinary feature-branch pushes never publish a release. The first tag failed and remains as evidence; retry tag `ai-subtitle-test-2026.09.13-r2` completed successfully and created the pre-release. The Actions/Release REST endpoints may return 404 from this workstation even with a valid login, so `tools/check-ai-subtitle-release.ps1` uses the working GraphQL Checks/Release surfaces for local verification. Future test releases use the pinned artifact-download action and a new `ai-subtitle-test-*` tag.
 
 Upstream impact: none; feature-owned workflow and release metadata only.
 
