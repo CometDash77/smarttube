@@ -7,7 +7,7 @@ Status: **ACTIVE - 2026-09-13 verification update.** This file replaces the orig
 ## 1. Authoritative state
 
 - Branch: `feature/ai-bilingual-subtitles`; `origin` is the personal fork remote, `upstream` is read-only official SmartTube.
-- Latest pushed tip: `4f3c6946c` (`fix(ai-subtitle): harden prompt rendering`). This includes the escaped-literal/diagnostic fix and the corresponding verification-ledger update.
+- Latest pushed tip: `8de054dd0` (`docs(ai-subtitle): clarify device verification blocker`); the latest implementation tip is `4f3c6946c` (`fix(ai-subtitle): harden prompt rendering`).
 - M03: complete and self-accepted.
 - M04-C0..C7: implementation complete; product tip `0cc5bd6c6`, with later Gate 7 review-fix commits through `204fdfba4`. Historical verification (do not re-claim as new evidence): full ai-subtitle suite 281 total / 0 failed / 7 skipped on JDK 17; settings/secret lane 62/62 on JDK 11; lint green.
 - M05, M06: implementation complete. The prompt-rendering follow-up is committed and pushed; the working tree is now reserved for verification-ledger updates only.
