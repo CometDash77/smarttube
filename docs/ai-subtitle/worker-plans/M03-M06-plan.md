@@ -7,7 +7,7 @@ Status: **ACTIVE - 2026-09-13 revision.** This file replaces the original 958-li
 ## 1. Authoritative state
 
 - Branch: `feature/ai-bilingual-subtitles`; `origin` is the personal fork remote, `upstream` is read-only official SmartTube.
-- Latest pushed tip before this run: `6a2af2d2c`. Final implementation tip: `20d54878442ae8d9c3f9742a945c1f4c8de6846d`.
+- Latest pushed tip before this run: `6a2af2d2c`. Final implementation tip: `67b93feb391bf53a1725bce7ce01df62c3ffaa10`.
 - M03: complete and self-accepted.
 - M04-C0..C6: implementation complete; product tip `0cc5bd6c6`. Historical verification (do not re-claim as new evidence): full ai-subtitle suite 281 total / 0 failed / 7 skipped on JDK 17; settings/secret lane 62/62 on JDK 11; lint green.
 - M04-C7: the correction is **uncommitted and must be preserved**. Retained five-file working-tree diff:
@@ -17,7 +17,7 @@ Status: **ACTIVE - 2026-09-13 revision.** This file replaces the original 958-li
   - `docs/ai-subtitle/decisions.md` (ADR-012 backup/export policy)
   - `docs/ai-subtitle/research/g04-1-android-secret-storage.md`
 - M05, M06: not started.
-- Environment facts: the workspace path contains non-ASCII characters and blocked local Gradle execution before test execution; the final push succeeded, but exact-SHA CI run `34735924554` failed and its job details are currently unavailable through the Actions API. No `adb` executable is installed for device smoke. Local results are diagnostic; CI is authoritative. If a local run is path-blocked, do not build tooling workarounds.
+- Environment facts: the workspace path contains non-ASCII characters and blocked local Gradle execution before test execution; the final code pushes succeeded, exact-SHA CI run `34735924554` failed, and later run details are currently unavailable through intermittent Actions API 404 responses. No `adb` executable is installed for device smoke. Local results are diagnostic; CI is authoritative. If a local run is path-blocked, do not build tooling workarounds.
 
 ## 2. Read before starting
 
@@ -106,7 +106,7 @@ Planned files: `segmentation/BoundaryProtocol.java`, `segmentation/BoundaryProto
 
 ## Gate 7 - Final verification (single pass, in order)
 
-1. **One full code review** of the complete feature diff (accepted M02 base...final tip), not per milestone. **Done:** review fixes are in `20d54878442ae8d9c3f9742a945c1f4c8de6846d`.
+1. **One full code review** of the complete feature diff (accepted M02 base...final tip), not per milestone. **Done:** review fixes are in `20d54878442ae8d9c3f9742a945c1f4c8de6846d` and `67b93feb391bf53a1725bce7ce01df62c3ffaa10`.
 2. **One final CI run** at the exact final SHA on `feature/ai-bilingual-subtitles`: **Attempted:** run `34735924554` failed; inspect its GitHub UI job log before claiming completion.
 3. **One device smoke test** (single TV device, one session): **Blocked:** no `adb` executable or connected TV device is available on this workstation.
 4. Update `progress.md`: **Recorded:** final SHA, failed CI URL, unavailable device state, and next action; M07-ready status remains deferred until CI and smoke pass.
