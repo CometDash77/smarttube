@@ -14,13 +14,13 @@
 - 已增强手机输入服务：Host / Origin 校验、请求大小限制、5 分钟会话过期、60 秒无轮询失效；关闭后旧链接失效。
 - 已修复手机输入 POST body 读取错误、HTML 缺少 `promptName` 输入框的缺陷。
 - 已把 `android.overridePathCheck=true` 从仓库工作区还原；后续本地构建按需用 Gradle `-P` 注入，避免把环境专用配置提交。
-- 进入 GitHub Release 阶段：不使用本地 APK，推送修复提交后创建 r6 tag，由 GitHub Actions 完成 lint、组装、签名、验签和 Release 发布。
+- 已发布 `ai-subtitle-test-2026.09.13-r6`：不使用本地 APK，GitHub Actions 完成 lint、组装、签名、验签、发布和四架构资产校验。等待真机安装验收。
 
 ## 8 项问题进度
 
 | # | 问题 | 当前状态 | 证据 / 说明 |
 |---|---|---|---|
-| 1 | 架构 APK 安装失败 / package info unknown | 待验证 | 尚未取得设备 ABI / 真实安装错误；待用 GitHub CI 检查架构 APK 包内容、签名与哈希。 |
+| 1 | 架构 APK 安装失败 / package info unknown | CI 验证通过；真机安装待确认 | run `34746986404` 已签名、验签并发布四架构 APK 与 `SHA256SUMS.txt`；仍需用户提供设备 ABI / 安装实测结果。 |
 | 2 | 原文 / 双语 / 仅译文模式 | 代码完成 | `AiSubtitleDisplayMode`、持久化迁移与 Bridge 渲染分支已加入；待真机验证。 |
 | 3 | 简繁中文覆盖 | 代码完成 | 已新增/扩展 `values`、`values-zh`、`values-zh-rTW` 的 AI 字符串；待 UI 巡检。 |
 | 4 | 电视手机输入 | 代码完成 | 本地 HTTP 服务、本地二维码、草稿同步、草稿显示、保存路径、会话失效已加入；编译通过，真机/局域网验证待做。 |
@@ -31,11 +31,9 @@
 
 ## 下一批动作
 
-1. 提交并推送修补结果。
-2. 创建并推送 `ai-subtitle-test-2026.09.13-r6`，让 CI 完成 lint、组装、签名、验签和 Release 发布。
-3. 用 CI run 和 Release 校验结果更新台账，并提供下载链接与哈希。
-4. 用户提供设备 ABI / 真实安装错误后完成安装诊断。
-5. 真机验收：播放状态、三种模式、手机输入、连接测试、中文界面和旧配置迁移。
+1. 用户按设备架构下载 `ai-subtitle-test-2026.09.13-r6` 并安装。
+2. 真机验收：播放状态、三种显示模式、手机输入、连接测试、中文界面和旧配置迁移。
+3. 如安装或功能失败，提供设备 ABI、错误截图/日志，进入下一轮修补。
 
 ## 验证台账
 
@@ -47,7 +45,8 @@
 - 2026-09-13 CI 分支验证：run 34746701488 全部通过（common 单测、release lint、release assemble、JDK 11 设置测试、GitHub 签名/验签、APK 上传）；可创建 r6 tag。
 - 2026-09-13 修复回归：`ProviderPresetTest` 旧契约误要求 `CUSTOM` 默认 URL 非空；已按“Custom 必须用户输入 URL”的契约更新并通过。
 - 真机验收：待用户设备信息与实测。
-- Release：计划 `ai-subtitle-test-2026.09.13-r6`，由 GitHub Actions 签名/验签并发布；完成后补记 run ID 与资产哈希，不覆盖旧 tag。
+- Release：`ai-subtitle-test-2026.09.13-r6` 已发布于 https://github.com/CometDash77/smarttube/releases/tag/ai-subtitle-test-2026.09.13-r6 ；发布 run `34746986404` 成功，目标提交 `cc1e1838ab4e34fcdab48d5fc40e95c723da7c40`。
+- Release SHA256：arm64-v8a `627fc2cb5d7d2f2a326f52a4e07049d7830ae5e97320cb1a15c037f175f51dbc`；armeabi-v7a `1fb25f1a7d3c43f9f18139ef3f5c88cec2eb8a7d4548a20a1b5131cacf68e57d`；universal `98ee44bfd8a0f183f2d6ebbad517395ed6fb50f2353d176257067b57c9502cad`；x86 `695ee273ddba683ea95f3c0bc8611f8fb72027b6a1d013f55b74aaf31351f8e9`。
 
 ## 注意事项
 
