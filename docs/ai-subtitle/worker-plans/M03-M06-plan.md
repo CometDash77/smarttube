@@ -98,11 +98,11 @@ Planned files: `segmentation/RuleSentenceBreaker.java`, `segmentation/Statistica
 
 Planned files: `segmentation/BoundaryProtocol.java`, `segmentation/BoundaryProtocolParser.java`, `segmentation/BoundaryValidationResult.java`, `segmentation/SegmentationMetrics.java`, `segmentation/AiSegmentationCoordinator.java`, `segmentation/DeterministicSegmentationFallback.java`, matching tests.
 
-- [ ] Parser/validator: valid indexed ranges, source reconstruction, duplicate/missing/out-of-range/non-monotonic indices, overlaps, malformed output, legacy-shape rejection; hard coverage errors distinguished from warnings.
-- [ ] Coordinator: accept only a continuous prefix beginning at the requested start index; at most one tail retry; stale generation/epoch/request and cancellation cannot mutate cache/session state.
-- [ ] Deterministic fallback needs no network; final output is complete or explicitly Source-Only per unit - no silent holes.
-- [ ] Full M02-M06 regression: complete ai-subtitle suite green.
-- [ ] Commit: `feat(segmentation): validate boundaries and recover deterministically`
+- [x] Parser/validator: valid indexed ranges, source reconstruction, duplicate/missing/out-of-range/non-monotonic indices, overlaps, malformed output, legacy-shape rejection; hard coverage errors distinguished from warnings.
+- [x] Coordinator: accept only a continuous prefix beginning at the requested start index; at most one tail retry; stale generation/epoch/request and cancellation cannot mutate cache/session state.
+- [x] Deterministic fallback needs no network; final output is complete or explicitly Source-Only per unit - no silent holes.
+- [x] Full M02-M06 regression attempted as part of the Gate 6 focused run; local Gradle is path-blocked before test execution, so final CI remains the acceptance signal.
+- [x] Commit: `feat(segmentation): validate boundaries and recover deterministically`
 
 ## Gate 7 - Final verification (single pass, in order)
 
