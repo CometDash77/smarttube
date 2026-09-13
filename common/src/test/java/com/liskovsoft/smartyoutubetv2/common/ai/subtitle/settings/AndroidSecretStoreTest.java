@@ -55,6 +55,35 @@ public class AndroidSecretStoreTest {
     }
 
     @Test
+    public void readingLegacyValueMigratesThatReferenceAndRemovesLegacyRecord() {
+        MemoryStorage currentStorage = new MemoryStorage();
+        MemoryStorage legacyStorage = new MemoryStorage();
+        FakeCodec codec = new FakeCodec();
+        String key = AndroidSecretStore.storageKey("profile-a");
+        legacyStorage.values.put(key, codec.encode("profile-a", "credential-one"));
+        AndroidSecretStore store = new AndroidSecretStore(currentStorage, legacyStorage, codec);
+
+        assertEquals("credential-one", store.get("profile-a"));
+        assertEquals(codec.encode("profile-a", "credential-one"), currentStorage.values.get(key));
+        assertFalse(legacyStorage.values.containsKey(key));
+    }
+
+    @Test
+    public void deleteRemovesCurrentAndLegacyRecordsForReference() {
+        MemoryStorage currentStorage = new MemoryStorage();
+        MemoryStorage legacyStorage = new MemoryStorage();
+        String key = AndroidSecretStore.storageKey("profile-a");
+        currentStorage.values.put(key, "encoded-current");
+        legacyStorage.values.put(key, "encoded-legacy");
+        AndroidSecretStore store = new AndroidSecretStore(currentStorage, legacyStorage, new FakeCodec());
+
+        store.delete("profile-a");
+
+        assertFalse(currentStorage.values.containsKey(key));
+        assertFalse(legacyStorage.values.containsKey(key));
+    }
+
+    @Test
     public void decodeFailureNormalizesToInvalidatedAuthFailure() {
         MemoryStorage storage = new MemoryStorage();
         FakeCodec codec = new FakeCodec();

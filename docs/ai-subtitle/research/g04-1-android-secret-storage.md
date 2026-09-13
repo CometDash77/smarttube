@@ -1,6 +1,6 @@
 # G04-1 — Android Secret Storage, Backup/Export Exclusion, and API 17 Fallback
 
-Status: **RESEARCH COMPLETE; ADR-012 REOPENED (2026-09-13)**. Current Android primary sources were reachable. They verify the API-level floor and non-exportability claims, but they do not support the previous conclusion that backing up Keystore-encrypted ciphertext needs no exclusion rule.
+Status: **IMPLEMENTED (2026-09-13)**. Current Android primary sources verify the API-level floor and non-exportability claims. The feature-owned secret file is now excluded from Auto Backup on API 21+ by using the no-backup directory; API 17–20 deliberately use cache storage and require credential re-entry after cache cleanup.
 
 ## Question
 
@@ -12,7 +12,7 @@ Per the M03–M06 plan gate G04-1: establish the Android platform facts needed t
 |---|---|---|
 | SDK levels | minimum 17; target 27; compile 34 | `SharedModules/constants.gradle` |
 | Host backup configuration | `android:allowBackup="true"`; no `android:fullBackupContent` or `android:dataExtractionRules` rule is present | `smarttubetv/src/main/AndroidManifest.xml` |
-| Current secret persistence | `AndroidSecretStore.PreferencesStorage` writes both API 23+ ciphertext and the API 17–22 plaintext fallback to a named `SharedPreferences` file | `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/AndroidSecretStore.java` |
+| Current secret persistence | `AndroidSecretStore.FileStorage` writes one feature-owned file per secret reference: API 21+ in `getNoBackupFilesDir()` and API 17–20 in `getCacheDir()` | `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/AndroidSecretStore.java` |
 
 ## Verified Android platform facts
 
@@ -39,17 +39,17 @@ The following are project recommendations or already implemented behavior, not A
 
 1. Keep Provider Profile serialization credential-free and keep masking/redaction, delete/reset cleanup, normalized auth/configuration failure, and Source-Only Fallback behavior.
 2. Keep the API 23 guard around the current `KeyGenParameterSpec` AES-GCM path and continue describing API 17–22 as an app-sandbox-only plaintext compatibility exception.
-3. Do **not** accept the previous “no backup exclusion is required” recommendation. Before ADR-012 can return to Accepted, an authorized design must exclude both the API 23+ ciphertext and API 17–22 plaintext secret records from backup/export. Android documents backup-rule exclusion and no-backup storage as platform mechanisms, but choosing or implementing one is outside this research-only correction.
+3. API 21+ stores the feature-owned secret files in `getNoBackupFilesDir()`, Android's documented backup-excluded location. API 17–20 stores them in `getCacheDir()` as an intentional availability tradeoff: cache cleanup removes the plaintext compatibility credential and the user must re-enter it. This avoids retaining the fallback in the legacy preferences file, but does not make a universal export-exclusion claim for legacy devices.
 4. Preserve fail-safe handling for missing or invalidated key material after restore; the user must be able to re-enter the credential without affecting playback.
 
-No new storage design is approved by this note, and no production code or manifest is changed.
+For each reference, the implementation reads the new file first and migrates a legacy `SharedPreferences` value only when needed. It copies the encoded record without decrypting it, then removes the old record only after the file write succeeds. Put and delete also remove any legacy record for that reference.
 
 ## Remaining decision blocker
 
-- Status: **BLOCKED (design/implementation, not source retrieval)**
-- Owner: M04 Commander/design owner to authorize the exclusion mechanism, followed by the M04 correction Worker for implementation and tests.
-- Trigger: before ADR-012 is marked Accepted again, before M04-C7 is re-reviewed as complete, and before M05-C0 starts.
-- Exact reason: the current named `SharedPreferences` secret store is in Auto Backup's default include set, while Android's official encrypted-preferences guidance says such encrypted preferences should be excluded; the API 17–22 plaintext fallback also has no demonstrated backup/export exclusion. This research-only task is explicitly unauthorized to change production code or the host manifest.
+- Status: **RESIDUAL RISK RECORDED**
+- Owner: feature maintainer.
+- Trigger: any change to the minimum SDK, backup policy, or secret-storage implementation.
+- Exact reason: API 17–20 lacks `getNoBackupFilesDir()`, so its plaintext compatibility fallback is stored in cache and is intentionally lost during cache cleanup. This is safer than persistent legacy preferences, but cache storage alone is not a universal statement about every device-specific legacy export mechanism.
 
 ## Source access record
 

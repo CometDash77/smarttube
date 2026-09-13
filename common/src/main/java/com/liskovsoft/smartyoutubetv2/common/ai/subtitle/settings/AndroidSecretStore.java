@@ -9,6 +9,10 @@ import android.util.Base64;
 
 import androidx.annotation.RequiresApi;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.security.GeneralSecurityException;
@@ -30,23 +34,34 @@ public final class AndroidSecretStore implements SecretStore {
     static final String PREFERENCES_NAME = AndroidSecretStore.class.getName();
     private static final String KEYSTORE_ALIAS = "ai_subtitle_provider_secret_v1";
     private static final String KEY_PREFIX = "secret:";
+    private static final String STORAGE_DIRECTORY_NAME = "ai-subtitle-secrets";
     private static final Charset UTF_8 = Charset.forName("UTF-8");
 
     private final Storage mStorage;
+    private final Storage mLegacyStorage;
     private final Codec mCodec;
 
     public AndroidSecretStore(Context context) {
-        this(new PreferencesStorage(context), createCodec(Build.VERSION.SDK_INT));
+        this(new FileStorage(context, Build.VERSION.SDK_INT), new PreferencesStorage(context),
+                createCodec(Build.VERSION.SDK_INT));
     }
 
     AndroidSecretStore(Storage storage, Codec codec) {
+        this(storage, new EmptyStorage(), codec);
+    }
+
+    AndroidSecretStore(Storage storage, Storage legacyStorage, Codec codec) {
         if (storage == null) {
             throw new IllegalArgumentException("storage must not be null");
+        }
+        if (legacyStorage == null) {
+            throw new IllegalArgumentException("legacyStorage must not be null");
         }
         if (codec == null) {
             throw new IllegalArgumentException("codec must not be null");
         }
         mStorage = storage;
+        mLegacyStorage = legacyStorage;
         mCodec = codec;
     }
 
@@ -60,7 +75,20 @@ public final class AndroidSecretStore implements SecretStore {
             throw new Failure(FailureReason.IO);
         }
         if (encoded == null) {
-            return null;
+            try {
+                encoded = mLegacyStorage.read(key);
+            } catch (RuntimeException e) {
+                throw new Failure(FailureReason.IO);
+            }
+            if (encoded == null) {
+                return null;
+            }
+            try {
+                mStorage.write(key, encoded);
+                mLegacyStorage.remove(key);
+            } catch (RuntimeException e) {
+                throw new Failure(FailureReason.IO);
+            }
         }
 
         try {
@@ -90,6 +118,7 @@ public final class AndroidSecretStore implements SecretStore {
 
         try {
             mStorage.write(key, encoded);
+            mLegacyStorage.remove(key);
         } catch (RuntimeException e) {
             throw new Failure(FailureReason.IO);
         }
@@ -99,6 +128,7 @@ public final class AndroidSecretStore implements SecretStore {
     public void delete(String reference) {
         try {
             mStorage.remove(storageKey(reference));
+            mLegacyStorage.remove(storageKey(reference));
         } catch (RuntimeException e) {
             throw new Failure(FailureReason.IO);
         }
@@ -124,6 +154,23 @@ public final class AndroidSecretStore implements SecretStore {
         return sdkVersion >= Build.VERSION_CODES.M
                 ? ProtectionLevel.KEYSTORE_AES_256_GCM
                 : ProtectionLevel.APP_PRIVATE_PLAINTEXT;
+    }
+
+    /**
+     * API 21+ uses Android's backup-excluded directory. API 17–20 deliberately use cache:
+     * clearing cache discards credentials and requires re-entry, rather than retaining an
+     * exportable plaintext fallback.
+     */
+    @SuppressWarnings("NewApi")
+    static File storageDirectoryForSdk(Context context, int sdkVersion) {
+        if (sdkVersion >= 21) {
+            return context.getNoBackupFilesDir();
+        }
+        return context.getCacheDir();
+    }
+
+    static String fileNameForKey(String key) {
+        return Base64.encodeToString(key.getBytes(UTF_8), Base64.URL_SAFE | Base64.NO_WRAP);
     }
 
     @SuppressWarnings("NewApi")
@@ -171,6 +218,85 @@ public final class AndroidSecretStore implements SecretStore {
         @Override
         public void remove(String key) {
             mPreferences.edit().remove(key).apply();
+        }
+    }
+
+    private static final class FileStorage implements Storage {
+        private final File mDirectory;
+
+        FileStorage(Context context, int sdkVersion) {
+            mDirectory = new File(storageDirectoryForSdk(context, sdkVersion),
+                    STORAGE_DIRECTORY_NAME);
+        }
+
+        @Override
+        public String read(String key) {
+            File file = fileForKey(key);
+            if (!file.exists()) {
+                return null;
+            }
+            try {
+                FileInputStream input = new FileInputStream(file);
+                try {
+                    ByteArrayOutputStream output = new ByteArrayOutputStream();
+                    byte[] buffer = new byte[256];
+                    int count;
+                    while ((count = input.read(buffer)) != -1) {
+                        output.write(buffer, 0, count);
+                    }
+                    return new String(output.toByteArray(), UTF_8);
+                } finally {
+                    input.close();
+                }
+            } catch (IOException e) {
+                throw new IllegalStateException("secret storage read failed", e);
+            }
+        }
+
+        @Override
+        public void write(String key, String value) {
+            if (!mDirectory.exists() && !mDirectory.mkdirs()) {
+                throw new IllegalStateException("secret storage directory unavailable");
+            }
+            try {
+                FileOutputStream output = new FileOutputStream(fileForKey(key));
+                try {
+                    output.write(value.getBytes(UTF_8));
+                } finally {
+                    output.close();
+                }
+            } catch (IOException e) {
+                throw new IllegalStateException("secret storage write failed", e);
+            }
+        }
+
+        @Override
+        public void remove(String key) {
+            File file = fileForKey(key);
+            if (file.exists() && !file.delete()) {
+                throw new IllegalStateException("secret storage delete failed");
+            }
+        }
+
+        private File fileForKey(String key) {
+            return new File(mDirectory, fileNameForKey(key));
+        }
+    }
+
+    private static final class EmptyStorage implements Storage {
+        @Override
+        public String read(String key) {
+            return null;
+        }
+
+        @Override
+        public void write(String key, String value) {
+            // No legacy records exist in the pure-JVM constructor.
+        }
+
+        @Override
+        public void remove(String key) {
+            // No legacy records exist in the pure-JVM constructor.
         }
     }
 

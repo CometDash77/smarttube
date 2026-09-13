@@ -10,15 +10,15 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 
 ## Current state
 
-- Current milestone: M04 — Provider, model, persistence, and connection management (M04-C7 checkpoint review returned `CHANGES_REQUIRED`; M05 has not started)
-- Current task: `M04-C7 correction — restore checkpoint evidence and finish the reopened G04-1 backup/export policy`
-- Task state: **PAUSED by user on 2026-09-13 during the M04-C7 backup/export correction**; M03 is self-accepted; M02 remains accepted; M04-C0..C6 are implementation-complete and task-reviewed; M04-C7 is not accepted
+- Current milestone: M05 — Prompt profiles, rendering, and atomic translation resolution (Gate 1 closed M04; M05 implementation is next)
+- Current task: `Gate 2 — prompt persistence, strict rendering, and atomic translation resolution`
+- Task state: **Gate 1 implementation complete locally on 2026-09-13; CI verification is deferred to Gate 7 because the local Gradle run is blocked by the non-ASCII workspace path**; M03 is self-accepted; M02 remains accepted; M04-C0..C6 are implementation-complete and task-reviewed; M04-C7 correction is now included in the Gate 1 commit
 - Production code changes: M02 renderer/lifecycle slice present; M03 domain/session/cache/contracts added; M04-C1 adds Provider Profile persistence; M04-C2 adds separated Android secret storage; M04-C3 adds OpenAI-compatible responses; M04-C4 adds Anthropic-compatible responses; M04-C5 adds presets, capabilities, model discovery, and normalized connection results; M04-C6 adds feature-owned provider settings UI and the single host settings hook
 - Actual upstream patch count: 3 existing SmartTube files, all inside the approved M02 budget
-- Remote sync: `feature/ai-bilingual-subtitles` tracks `origin`; the latest successfully pushed tip is `6a2af2d2c`. Local `1cbeb95bb` contains the research closure plus the pause-documentation checkpoint and is ahead of origin; the current backup/export correction remains uncommitted and unpushed
-- Local compile/test status: prior M04-C7 diagnostics remain historical (full ai-subtitle suite 281 total / 0 failed / 7 skipped on JDK 17; settings/secret suite 62/62 on JDK 11; lint green). The new focused JDK 17 correction test was interrupted by the user before a result was produced; it must not be called PASS
+- Remote sync: `feature/ai-bilingual-subtitles` tracks `origin`; the latest successfully pushed tip remains `6a2af2d2c` until credentials are available. The Gate 1 correction is committed locally and remains unpushed
+- Local compile/test status: the Gate 1 focused command was attempted with Android Studio JDK 21 but Gradle stopped before test execution because the workspace path contains non-ASCII characters; no local test pass is claimed. Full ai-subtitle and final CI evidence remain Gate 7 work
 - GitHub Actions status: M02 run `34660051184` green for `854460bb4`; M03 and M04 exact-SHA runs remain `BLOCKED` at the workstation Actions API and require GitHub UI verification
-- Forward plan: `worker-plans/M03-M06-plan.md` is the single M03–M06 Worker program. Execution is paused at M04-C7 correction; resume by reviewing the retained diff, completing focused verification, repairing the C7 report, and obtaining an independent clean review. Only then may `M05-C0 — settle prompt contract and resolution policy` start.
+- Forward plan: `worker-plans/M03-M06-plan.md` (Ponytail revision, 2026-09-13) is the single remaining program and supersedes the earlier C7 report-restoration and independent re-review requirement. Resume at Gate 1: preserve the retained five-file correction, run focused verification, commit it, and close M04; then continue through the seven gates with one final review, one final CI run, and one device smoke test.
 
 ## Pause checkpoint (2026-09-12)
 
