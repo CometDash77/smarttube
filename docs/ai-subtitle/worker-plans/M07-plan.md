@@ -109,15 +109,15 @@
 
 **所有权：** 沿用 TranslationSession，Bridge 负责渲染/配置桥接；调度负责请求安排。现有 mInFlight/PendingRequest 请求 bookkeeping 只保留一个权威所有者。provider 回调、生命周期事件、队列修改必须串行化或置于同一现有同步边界；不在持锁时调用 UI listener。
 
-- [ ] C1 先写窗口测试：位置 10 秒，前瞻 30 秒，应包含覆盖当前位置的单元及 10–40 秒内开始的未来单元，不含已结束单元和 40 秒后单元；边界采用当前覆盖 end > position、未来 start <= windowEnd。零前瞻仍允许翻译当前句。
-- [ ] C2 用已排序 unit 列表或 stdlib PriorityQueue 实现“当前句优先、未来按时间顺序”。长视频不全量排翻译任务；窗口有界且队列去重。时间以 long 毫秒计算并做溢出/未知位置处理。
-- [ ] C3 默认并发 1，先沿用 architecture.md 的保守策略。单个在途句柄加按 TranslationCacheKey 去重已足够，不增加 AdmissionController。缓存命中跳过请求；pending、retry 等待和 terminal 单元不会因重绘反复提交。
-- [ ] C4 用现有播放器事件驱动进度；检查 onTickle 真实频率，若不足以兑现设置，才在功能 Controller 中增加一个可取消 Handler 回调。nowMs 从 Android 单调时钟取，传给纯逻辑；测试直接传数值，无需新 SchedulerClock 接口。
-- [ ] C5 暂停停止新请求，包括重试；允许未过期在途请求完成入缓存。resume 立刻按实际播放位置补窗口。没有当前文字但时间线有未来内容时仍可预取；状态不能因仅开启开关就变“翻译中”。
-- [ ] C6 Seek 用 TranslationSession.advanceEpoch()，取消旧队列/在途工作并根据最新位置重排；onSeekEnd 读取真实位置。拖动中只保存最新位置并取消旧工作，完成后优先当前句，避免每个拖动事件都发请求。seek 前已验证缓存可以保留，seek 后旧回调不能新写缓存/UI。
-- [ ] C7 视频、轨道、Provider、模型、Prompt 内容/版本、目标语言变化沿用现有 generation/identity 失效。字幕关闭或 release 同时清理队列、回调和句柄；不能由后续轮询复活会话。
-- [ ] C8 成功/失败/取消/同步抛错/无效回调都必须有释放或终止路径。保留现有“先登记再调用 provider”的顺序，以容纳同步 fake 回调；迟到失败也验证 ownership，不能污染新视频状态。
-- [ ] C9 用 fake provider 一次可控推进验证：100 次相同 tick 只发一次；暂停无新请求；resume 立即调度；连续 seek 只为最终位置派发；所有身份字段分别变化后，旧成功、旧失败和重复回调均不修改当前状态。
+- [x] C1 先写窗口测试：位置 10 秒，前瞻 30 秒，应包含覆盖当前位置的单元及 10–40 秒内开始的未来单元，不含已结束单元和 40 秒后单元；边界采用当前覆盖 end > position、未来 start <= windowEnd。零前瞻仍允许翻译当前句。
+- [x] C2 用已排序 unit 列表或 stdlib PriorityQueue 实现“当前句优先、未来按时间顺序”。长视频不全量排翻译任务；窗口有界且队列去重。时间以 long 毫秒计算并做溢出/未知位置处理。
+- [x] C3 默认并发 1，先沿用 architecture.md 的保守策略。单个在途句柄加按 TranslationCacheKey 去重已足够，不增加 AdmissionController。缓存命中跳过请求；pending、retry 等待和 terminal 单元不会因重绘反复提交。
+- [x] C4 用现有播放器事件驱动进度；检查 onTickle 真实频率，若不足以兑现设置，才在功能 Controller 中增加一个可取消 Handler 回调。nowMs 从 Android 单调时钟取，传给纯逻辑；测试直接传数值，无需新 SchedulerClock 接口。
+- [x] C5 暂停停止新请求，包括重试；允许未过期在途请求完成入缓存。resume 立刻按实际播放位置补窗口。没有当前文字但时间线有未来内容时仍可预取；状态不能因仅开启开关就变“翻译中”。
+- [x] C6 Seek 用 TranslationSession.advanceEpoch()，取消旧队列/在途工作并根据最新位置重排；onSeekEnd 读取真实位置。拖动中只保存最新位置并取消旧工作，完成后优先当前句，避免每个拖动事件都发请求。seek 前已验证缓存可以保留，seek 后旧回调不能新写缓存/UI。
+- [x] C7 视频、轨道、Provider、模型、Prompt 内容/版本、目标语言变化沿用现有 generation/identity 失效。字幕关闭或 release 同时清理队列、回调和句柄；不能由后续轮询复活会话。
+- [x] C8 成功/失败/取消/同步抛错/无效回调都必须有释放或终止路径。保留现有“先登记再调用 provider”的顺序，以容纳同步 fake 回调；迟到失败也验证 ownership，不能污染新视频状态。
+- [x] C9 用 fake provider 一次可控推进验证：100 次相同 tick 只发一次；暂停无新请求；resume 立即调度；连续 seek 只为最终位置派发；所有身份字段分别变化后，旧成功、旧失败和重复回调均不修改当前状态。
 
 ## 7. Task D：有限重试、部分结果与原文回退
 
@@ -192,5 +192,3 @@ git diff --stat
 - [ ] 自动检查和精确代码 SHA 的 CI 通过；未做的设备检查如实记录。
 - [ ] 统一真机在 M07 实现完成后执行；每个提前验证例外均有明确串行依赖证据。
 - [ ] 已保留全部旧八项用户路径，修复过程中没有遗失设置/密钥，原播放器及原文字幕不受影响。
-
-

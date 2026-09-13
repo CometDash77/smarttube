@@ -1,27 +1,56 @@
 package com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration;
 
+import android.os.Handler;
+import android.os.Looper;
+
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.source.SmartTubeSubtitleSourceAdapter;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.BasePlayerController;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
+import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
+
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.Charset;
+
+import io.reactivex.disposables.Disposable;
+import io.reactivex.schedulers.Schedulers;
 
 /**
- * Owns the AI subtitle lifecycle inside SmartTube's ordered controller list.
- *
- * <p>Registered in {@code PlaybackPresenter} immediately after {@code VideoLoaderController}.
- * Every invalidating player event (video change, subtitle track change, subtitles off,
- * engine release, finish) drops prior translation state and invalidates outstanding
- * requests through the bridge; non-subtitle track events are ignored.</p>
+ * Owns the AI subtitle lifecycle inside SmartTube's ordered controller list. It forwards
+ * lifecycle and position events only; source fetching is delegated to the feature-owned
+ * subtitle adapter and request scheduling is delegated to the cue bridge's scheduler.
  */
 public class AiSubtitleController extends BasePlayerController {
     static final String IDENTITY_NONE = "subtitle:none";
 
     private static final long SEEK_POSITION_UNKNOWN = -1;
+    private static final int DOWNLOAD_TIMEOUT_MS = 10_000;
+    private static final int MAX_DOWNLOAD_CHARS = 8 * 1024 * 1024;
+    private static final long SCHEDULER_TICK_MS = 1_000;
 
     private String mCurrentTrackIdentity;
+    private long mSeekPositionMs = SEEK_POSITION_UNKNOWN;
+    private SmartTubeSubtitleSourceAdapter mSourceAdapter;
+    private Disposable mSourceFetchAction;
+    private Handler mSchedulerHandler;
+    private final Runnable mSchedulerTick = new Runnable() {
+        @Override
+        public void run() {
+            updatePosition();
+            scheduleSchedulerTick();
+        }
+    };
 
     @Override
     public void onNewVideo(Video item) {
+        ensureSourceAdapter();
+        disposeSourceFetch();
         mCurrentTrackIdentity = null;
+        mSeekPositionMs = SEEK_POSITION_UNKNOWN;
         getBridge().onNewVideo(item != null ? item.videoId : null);
     }
 
@@ -36,16 +65,29 @@ public class AiSubtitleController extends BasePlayerController {
     }
 
     @Override
+    public void onEngineInitialized() {
+        ensureSourceAdapter();
+        scheduleSchedulerTick();
+    }
+
+    @Override
     public void onSeekEnd() {
-        // Seek completion invalidates obsolete in-flight work; the bridge only advances its
-        // scheduling epoch in M02, so the exact position is not required on this path.
-        getBridge().onSeek(SEEK_POSITION_UNKNOWN);
+        long positionMs = mSeekPositionMs;
+
+        if (positionMs == SEEK_POSITION_UNKNOWN) {
+            PlaybackView player = getPlayer();
+            positionMs = player != null ? player.getPositionMs() : SEEK_POSITION_UNKNOWN;
+        }
+
+        mSeekPositionMs = SEEK_POSITION_UNKNOWN;
+        getBridge().onSeek(positionMs);
     }
 
     @Override
     public void onSeekPositionChanged(long positionMs) {
-        // Drag seeks deliver intermediate positions; forwarding them cancels in-flight work early.
-        getBridge().onSeek(positionMs);
+        // Keep only the latest drag position; dispatching waits for seek completion.
+        mSeekPositionMs = positionMs;
+        getBridge().onSeekDrag(positionMs);
     }
 
     @Override
@@ -59,14 +101,25 @@ public class AiSubtitleController extends BasePlayerController {
     }
 
     @Override
+    public void onTickle() {
+        updatePosition();
+    }
+
+    @Override
     public void onEngineReleased() {
+        stopSchedulerTick();
+        disposeSourceFetch();
         mCurrentTrackIdentity = null;
+        mSeekPositionMs = SEEK_POSITION_UNKNOWN;
         getBridge().onRelease();
     }
 
     @Override
     public void onFinish() {
+        stopSchedulerTick();
+        disposeSourceFetch();
         mCurrentTrackIdentity = null;
+        mSeekPositionMs = SEEK_POSITION_UNKNOWN;
         getBridge().onRelease();
     }
 
@@ -89,24 +142,111 @@ public class AiSubtitleController extends BasePlayerController {
         getBridge().onSubtitleTrackChanged(identity);
     }
 
+    private void ensureSchedulerHandler() {
+        if (mSchedulerHandler == null) {
+            mSchedulerHandler = new Handler(Looper.getMainLooper());
+        }
+    }
+
+    private void updatePosition() {
+        PlaybackView player = getPlayer();
+
+        if (player != null) {
+            getBridge().onPositionUpdate(player.getPositionMs());
+        }
+    }
+
+    private void scheduleSchedulerTick() {
+        ensureSchedulerHandler();
+        mSchedulerHandler.removeCallbacks(mSchedulerTick);
+        mSchedulerHandler.postDelayed(mSchedulerTick, SCHEDULER_TICK_MS);
+    }
+
+    private void stopSchedulerTick() {
+        if (mSchedulerHandler == null) return;
+
+        mSchedulerHandler.removeCallbacks(mSchedulerTick);
+    }
+
+    private void ensureSourceAdapter() {
+        if (mSourceAdapter != null) return;
+
+        mSourceAdapter = new SmartTubeSubtitleSourceAdapter(
+                new SmartTubeSubtitleSourceAdapter.SubtitleFetcher() {
+                    @Override
+                    public void fetch(String videoId,
+                                      final SmartTubeSubtitleSourceAdapter.SubtitleListListener listener) {
+                        mSourceFetchAction = getMediaItemService().getFormatInfoObserve(videoId)
+                                .observeOn(Schedulers.io())
+                                .subscribe(
+                                        formatInfo -> listener.onSubtitles(formatInfo.getSubtitles()),
+                                        error -> listener.onError("subtitle format info failed"));
+                    }
+                },
+                new SmartTubeSubtitleSourceAdapter.SubtitleDownloader() {
+                    @Override
+                    public String download(String url) {
+                        return downloadVtt(url);
+                    }
+                });
+
+        getBridge().setSourceAdapter(mSourceAdapter);
+    }
+
+    private void disposeSourceFetch() {
+        if (mSourceFetchAction != null) {
+            mSourceFetchAction.dispose();
+            mSourceFetchAction = null;
+        }
+    }
+
+    private static String downloadVtt(String url) {
+        if (url == null || url.trim().isEmpty()) return null;
+
+        HttpURLConnection connection = null;
+
+        try {
+            connection = (HttpURLConnection) new URL(url).openConnection();
+            connection.setConnectTimeout(DOWNLOAD_TIMEOUT_MS);
+            connection.setReadTimeout(DOWNLOAD_TIMEOUT_MS);
+            connection.setRequestMethod("GET");
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode < 200 || responseCode >= 300) return null;
+
+            InputStream input = connection.getInputStream();
+            BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(input, Charset.forName("UTF-8")));
+            StringBuilder content = new StringBuilder();
+            char[] buffer = new char[8_192];
+            int length;
+
+            while ((length = reader.read(buffer)) >= 0) {
+                content.append(buffer, 0, length);
+                if (content.length() > MAX_DOWNLOAD_CHARS) return null;
+            }
+
+            return content.length() > 0 ? content.toString() : null;
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
+
     /**
      * Subtitle events are recognized through {@link FormatItem#TYPE_SUBTITLE}; identity uses
      * the format id (unique within one video session) rather than a language-name guess.
-     * "Subtitles off" appears only on the selection path as a format item without id/language.
      */
     private static String toTrackIdentity(FormatItem item) {
-        if (item == null || item.getType() != FormatItem.TYPE_SUBTITLE) {
-            return null;
-        }
+        if (item == null || item.getType() != FormatItem.TYPE_SUBTITLE) return null;
 
         String formatId = item.getFormatId();
         String language = item.getLanguage();
 
-        if (formatId == null && language == null) {
-            return IDENTITY_NONE;
-        }
+        if (formatId == null && language == null) return IDENTITY_NONE;
 
-        return "subtitle:" + (language != null ? language : "und") + ":" + (formatId != null ? formatId : "");
+        return "subtitle:" + (language != null ? language : "und") + ":"
+                + (formatId != null ? formatId : "");
     }
 }
-

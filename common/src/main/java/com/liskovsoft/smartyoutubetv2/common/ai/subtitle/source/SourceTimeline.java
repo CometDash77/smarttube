@@ -17,6 +17,11 @@ public final class SourceTimeline {
     private final List<SubtitleSegment> mSegments;
     private final List<TranslationUnit> mUnits;
 
+    /** Test and adapter factory for an already-built normalized timeline. */
+    public static SourceTimeline from(List<SubtitleSegment> segments, List<TranslationUnit> units) {
+        return new SourceTimeline(segments, units);
+    }
+
     SourceTimeline(List<SubtitleSegment> segments, List<TranslationUnit> units) {
         mSegments = Collections.unmodifiableList(new ArrayList<>(segments));
         mUnits = Collections.unmodifiableList(new ArrayList<>(units));

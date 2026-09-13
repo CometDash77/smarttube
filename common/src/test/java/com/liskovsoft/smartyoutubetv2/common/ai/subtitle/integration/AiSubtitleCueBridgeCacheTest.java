@@ -33,7 +33,7 @@ public class AiSubtitleCueBridgeCacheTest {
     }
 
     @Test
-    public void failedTranslationIsNotCachedAndIsRetried() {
+    public void terminalFailureIsNotCachedAndKeepsSourceOnly() {
         CountingFailureProvider provider = new CountingFailureProvider();
         AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider);
         bridge.onNewVideo("video-1");
@@ -44,8 +44,8 @@ public class AiSubtitleCueBridgeCacheTest {
 
         bridge.process(cues("Hello"));
 
-        assertEquals("a failed translation must not be cached; the next cue re-requests",
-                2, provider.getCallCount());
+        assertEquals("a terminal failed translation must not be cached or retried automatically",
+                1, provider.getCallCount());
     }
 
     @Test

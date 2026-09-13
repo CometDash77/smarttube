@@ -9,44 +9,30 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.cache.InMemoryTranslati
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.cache.TranslationCache;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.cache.TranslationCacheKey;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SourceTrackId;
-import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.source.SourceTimeline;
-import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.source.SmartTubeSubtitleSourceAdapter;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SubtitleSegmentId;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationProfile;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationUnit;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.scheduler.TranslationScheduler;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSession;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionId;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionSnapshot;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.AiSubtitleData;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.AiSubtitleDisplayMode;
-import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCall;
-import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCallback;
-import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailure;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.source.SourceTimeline;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.source.SmartTubeSubtitleSourceAdapter;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationProvider;
-import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationRequest;
-import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationResult;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Renderer-facing bridge between SmartTube's decoded cue list and the AI subtitle feature.
  *
  * <p>{@code SubtitleManager} knows only {@link #process}; lifecycle methods are driven by
  * {@code AiSubtitleController}. The bridge owns no Activity, View, SubtitleView, Video, or
- * PlaybackPresenter reference.</p>
- *
- * <p>M03 scope: lifecycle ownership (session identity, generation, scheduling epoch, pause
- * state) lives in a {@link TranslationSession}; results are stored in a session-scoped
- * {@link TranslationCache} keyed by the complete output identity of
- * {@link TranslationCacheKey}; requests and results carry session/request/unit identity and
- * only a final result may enter the cache. The translated unit currently maps one displayed
- * cue to one single-segment unit on the session's Source Track; the real normalized timeline
- * (segment indexes from the source pipeline) arrives with the source/segmentation
- * milestones.</p>
+ * PlaybackPresenter reference. Request scheduling, retries, and request deduplication belong
+ * to {@link TranslationScheduler}; the bridge only maps cues, lifecycle, and configuration.
  */
 public class AiSubtitleCueBridge {
     private static AiSubtitleCueBridge sInstance;
@@ -66,27 +52,25 @@ public class AiSubtitleCueBridge {
             com.liskovsoft.smartyoutubetv2.common.ai.subtitle.segmentation.BoundaryProtocol.VERSION;
 
     /**
-     * M03 placeholder resolution. The real Provider/Prompt resolution arrives with M04/M05;
-     * until then the bridge runs against one deterministic default profile so session and
-     * cache identity stay well-defined for the current vertical slice.
+     * Placeholder resolution before a valid profile is selected; identity remains well-defined
+     * and no request can pass through a null provider.
      */
     private static final TranslationProfile DEFAULT_PROFILE =
             new TranslationProfile("pending-profile", "pending-protocol", "pending-endpoint",
                     "pending-model", "pending-prompt", 1, "zh");
 
     private final EnableState mEnabledState;
+    private final TranslationCache mCache = new InMemoryTranslationCache();
     private AiSubtitleDisplayMode mDisplayMode = AiSubtitleDisplayMode.BILINGUAL;
     private RefreshListener mRefreshListener;
     private TranslationProvider mProvider;
-    private final TranslationCache mCache = new InMemoryTranslationCache();
-    private final Map<TranslationCacheKey, PendingRequest> mInFlight = new HashMap<>();
-
     private TranslationProfile mProfile = DEFAULT_PROFILE;
+
     private String mVideoId;
     private SourceTrackId mSourceTrackId;
     private TranslationSession mSession;
+    private TranslationScheduler mScheduler;
     private long mGenerationSeed;
-    private long mRequestIdSeed;
     private boolean mWasEnabled;
 
     /** Full normalized timeline for the active track; null until the source adapter completes. */
@@ -117,10 +101,6 @@ public class AiSubtitleCueBridge {
         boolean isEnabled();
     }
 
-    /**
-     * Production constructor: reads the persisted opt-in switch through the dedicated
-     * settings store.
-     */
     AiSubtitleCueBridge(Context context, TranslationProvider provider) {
         this(context, provider, DEFAULT_PROFILE);
     }
@@ -130,17 +110,14 @@ public class AiSubtitleCueBridge {
         this(() -> AiSubtitleData.instance(context).isEnabled(), provider, profile);
     }
 
-    /**
-     * Android-free constructor used by unit tests; the exact visibility is reduced where
-     * tests and integration permit.
-     */
     @VisibleForTesting
     AiSubtitleCueBridge(EnableState enabledState, TranslationProvider provider) {
         this(enabledState, provider, DEFAULT_PROFILE);
     }
 
     @VisibleForTesting
-    AiSubtitleCueBridge(EnableState enabledState, TranslationProvider provider, TranslationProfile profile) {
+    AiSubtitleCueBridge(EnableState enabledState, TranslationProvider provider,
+                        TranslationProfile profile) {
         mEnabledState = enabledState;
         mProvider = provider;
         mProfile = profile != null ? profile : DEFAULT_PROFILE;
@@ -169,10 +146,8 @@ public class AiSubtitleCueBridge {
     }
 
     /**
-     * Decorates the already-normalized cue list on its way to the subtitle view.
-     * Returns the input unchanged while no valid translation exists, and never throws
-     * into the renderer. When the configured provider completes synchronously, the
-     * decorated cue is returned on this same call.
+     * Decorates the already-normalized cue list on its way to the subtitle view. Returns the
+     * input unchanged while no valid translation exists and never throws into the renderer.
      */
     public synchronized List<Cue> process(List<Cue> processedSourceCues) {
         try {
@@ -188,7 +163,6 @@ public class AiSubtitleCueBridge {
 
                 mStatus = RuntimeStatus.WAITING;
                 mLastError = "";
-
                 return processedSourceCues;
             }
 
@@ -202,17 +176,13 @@ public class AiSubtitleCueBridge {
                 Cue result = decorate(cue);
 
                 if (result != cue) {
-                    if (decorated == null) {
-                        decorated = new ArrayList<>(processedSourceCues);
-                    }
-
+                    if (decorated == null) decorated = new ArrayList<>(processedSourceCues);
                     decorated.set(i, result);
                 }
             }
 
             return decorated != null ? decorated : processedSourceCues;
         } catch (Exception e) {
-            // Feature exceptions must never break or alter the source-only caption path.
             return processedSourceCues;
         }
     }
@@ -228,30 +198,18 @@ public class AiSubtitleCueBridge {
         synchronized (this) {
             mSourceTrackId = toSourceTrackId(mVideoId, trackIdentity);
             rebindSessionIfIdentityChanged();
+            triggerTimelineLoad();
         }
     }
 
-    /**
-     * Notifies the bridge that the resolved Translation Profile changed. M03 has no settings
-     * integration yet (arrives with M04/M05); the seam exists so identity changes and stale
-     * rejection are testable today.
-     */
     void onProfileChanged(TranslationProfile profile) {
         synchronized (this) {
-            if (profile == null) {
-                return;
-            }
-
+            if (profile == null) return;
             mProfile = profile;
             rebindSessionIfIdentityChanged();
         }
     }
 
-    /**
-     * Applies the resolved provider and its Translation Profile after settings change. A
-     * null profile means resolution failed or no valid profile is selected: the bridge keeps
-     * Source-Only Fallback and drops any previous provider/session state.
-     */
     void onProviderChanged(TranslationProvider provider, TranslationProfile profile) {
         synchronized (this) {
             if (profile == null) {
@@ -267,13 +225,20 @@ public class AiSubtitleCueBridge {
         }
     }
 
+    void onSeekDrag(long positionMs) {
+        synchronized (this) {
+            ensureActiveSession();
+            if (positionMs >= 0) mPositionMs = positionMs;
+            if (mScheduler != null) mScheduler.onSeekDrag(positionMs);
+        }
+    }
+
     void onSeek(long positionMs) {
         synchronized (this) {
-            cancelInFlight();
-
-            if (mSession != null) {
-                mSession.advanceEpoch();
-            }
+            ensureActiveSession();
+            if (mSession != null) mSession.advanceEpoch();
+            if (positionMs >= 0) mPositionMs = positionMs;
+            if (mScheduler != null) mScheduler.onPositionChanged(positionMs, monotonicNowMs());
         }
     }
 
@@ -281,6 +246,7 @@ public class AiSubtitleCueBridge {
         synchronized (this) {
             ensureActiveSession();
             mSession.pause();
+            if (mScheduler != null) mScheduler.pause();
         }
     }
 
@@ -288,6 +254,7 @@ public class AiSubtitleCueBridge {
         synchronized (this) {
             ensureActiveSession();
             mSession.resume();
+            if (mScheduler != null) mScheduler.resume(mPositionMs, monotonicNowMs());
         }
     }
 
@@ -297,12 +264,6 @@ public class AiSubtitleCueBridge {
         }
     }
 
-    /**
-     * Explicit enable-state notification for the settings entry point. Disabling behaves like
-     * an invalidating event: in-flight calls are cancelled and prior results are dropped
-     * immediately, before the settings callback returns, without waiting for another cue.
-     * Enabling requires no action here because {@link #process} admits new work on demand.
-     */
     public synchronized void onEnabledChanged(boolean enabled) {
         if (!enabled) {
             dropSession();
@@ -310,22 +271,74 @@ public class AiSubtitleCueBridge {
         }
     }
 
-    /** Snapshot of the active session, or null while no session is active. */
     @VisibleForTesting
     synchronized TranslationSessionSnapshot snapshotSession() {
         return mSession != null ? mSession.snapshot() : null;
     }
 
-    private Cue decorate(Cue cue) {
-        if (cue == null) {
-            return null;
+    public synchronized void setSourceAdapter(SmartTubeSubtitleSourceAdapter adapter) {
+        mSourceAdapter = adapter;
+        mTimeline = null;
+        triggerTimelineLoad();
+    }
+
+    void onTimelineReady(SourceTrackId trackId, SourceTimeline timeline) {
+        synchronized (this) {
+            if (trackId == null || timeline == null || mSourceTrackId == null
+                    || !trackId.equals(mSourceTrackId)) {
+                return;
+            }
+
+            mTimeline = timeline;
+            if (mScheduler != null) {
+                mScheduler.setTimeline(timeline);
+                mScheduler.onPositionUpdate(mPositionMs, monotonicNowMs());
+            }
         }
+
+        notifyTranslationArrived();
+    }
+
+    void onTimelineFailed(SourceTrackId trackId, String reason) {
+        // Timeline stays null; the bridge continues with displayed-cue fallback.
+    }
+
+    void onPositionUpdate(long positionMs) {
+        synchronized (this) {
+            if (positionMs < 0) return;
+            mPositionMs = positionMs;
+            if (mScheduler != null) mScheduler.onPositionUpdate(positionMs, monotonicNowMs());
+        }
+    }
+
+    /**
+     * Changes how completed translations are presented. The listener refreshes the current
+     * cue list immediately so mode switches are visible without waiting for the next cue.
+     */
+    public synchronized void setDisplayMode(AiSubtitleDisplayMode mode) {
+        AiSubtitleDisplayMode previous = mDisplayMode;
+        mDisplayMode = mode != null ? mode : AiSubtitleDisplayMode.BILINGUAL;
+
+        if (previous != mDisplayMode) notifyTranslationArrived();
+    }
+
+    public synchronized void setRefreshListener(RefreshListener listener) {
+        mRefreshListener = listener;
+    }
+
+    public synchronized RuntimeStatus getRuntimeStatus() {
+        return mStatus;
+    }
+
+    public synchronized String getLastError() {
+        return mLastError;
+    }
+
+    private Cue decorate(Cue cue) {
+        if (cue == null) return cue;
 
         CharSequence text = cue.text;
-
-        if (text == null || text.toString().trim().isEmpty()) {
-            return cue;
-        }
+        if (text == null || text.toString().trim().isEmpty()) return cue;
 
         if (mDisplayMode == AiSubtitleDisplayMode.SOURCE) {
             mStatus = RuntimeStatus.WAITING;
@@ -336,55 +349,31 @@ public class AiSubtitleCueBridge {
         String translation = findOrRequest(source);
 
         if (translation == null) {
-            if (mStatus != RuntimeStatus.FAILED) {
-                mStatus = RuntimeStatus.TRANSLATING;
-            }
+            if (mStatus != RuntimeStatus.FAILED) mStatus = RuntimeStatus.TRANSLATING;
             return cue;
         }
 
         mStatus = RuntimeStatus.TRANSLATED;
         mLastError = "";
 
-        if (mDisplayMode == AiSubtitleDisplayMode.TRANSLATION_ONLY) {
-            return new Cue(translation);
-        }
-
+        if (mDisplayMode == AiSubtitleDisplayMode.TRANSLATION_ONLY) return new Cue(translation);
         return new Cue(source + "\n" + translation);
     }
 
-    /**
-     * Installs the full-timeline source adapter. When non-null and the session is active,
-     * the bridge triggers one timeline load per video/track pair instead of mapping each
-     * displayed cue to a synthetic single-segment unit.
-     */
-    public synchronized void setSourceAdapter(SmartTubeSubtitleSourceAdapter adapter) {
-        mSourceAdapter = adapter;
-        mTimeline = null;
-        triggerTimelineLoad();
-    }
+    private String findOrRequest(String source) {
+        TranslationSession session = mSession;
+        if (session == null || mProvider == null || mScheduler == null) return null;
 
-    /** Receives the adapter's async timeline result. */
-    void onTimelineReady(SourceTrackId trackId, SourceTimeline timeline) {
-        synchronized (this) {
-            if (trackId == null || timeline == null
-                    || mSourceTrackId == null || !trackId.equals(mSourceTrackId)) {
-                return; // stale arrival after identity change
-            }
-            mTimeline = timeline;
-        }
-        notifyTranslationArrived();
-    }
+        TranslationUnit unit = timelineUnitFor(session, source);
+        if (unit == null) return null;
 
-    /** Receives the adapter's failure; keeps source-only fallback without retry. */
-    void onTimelineFailed(SourceTrackId trackId, String reason) {
-        // Timeline stays null; the bridge continues with displayed-cue fallback.
-    }
+        String cached = mScheduler.getCachedTranslation(unit);
+        if (cached != null) return cached;
 
-    /** Called from the controller on tickle and seek with the current playback position. */
-    void onPositionUpdate(long positionMs) {
-        synchronized (this) {
-            mPositionMs = positionMs;
-        }
+        if (session.isPaused()) return null;
+
+        mScheduler.requestCurrentUnit(unit, monotonicNowMs());
+        return mScheduler.getCachedTranslation(unit);
     }
 
     private void triggerTimelineLoad() {
@@ -392,152 +381,25 @@ public class AiSubtitleCueBridge {
         SourceTrackId trackId = mSourceTrackId;
         String videoId = mVideoId;
 
-        if (adapter == null || trackId == null || isBlank(videoId)) {
-            return;
-        }
+        if (adapter == null || trackId == null || isBlank(videoId)) return;
 
         adapter.load(videoId, trackId, new SmartTubeSubtitleSourceAdapter.Callback() {
             @Override
             public void onTimelineReady(SourceTrackId tid, SourceTimeline timeline) {
-                onTimelineReady(tid, timeline);
+                AiSubtitleCueBridge.this.onTimelineReady(tid, timeline);
             }
 
             @Override
             public void onTimelineFailed(SourceTrackId tid, String reason) {
-                onTimelineFailed(tid, reason);
+                AiSubtitleCueBridge.this.onTimelineFailed(tid, reason);
             }
         });
-    }
-
-    /**
-     * Changes how completed translations are presented.' The listener refreshes the current
-     * cue list immediately so mode switches are visible without waiting for the next cue.
-     */
-    public synchronized void setDisplayMode(AiSubtitleDisplayMode mode) {
-        AiSubtitleDisplayMode previous = mDisplayMode;
-        mDisplayMode = mode != null ? mode : AiSubtitleDisplayMode.BILINGUAL;
-
-        if (previous != mDisplayMode) {
-            notifyTranslationArrived();
-        }
-    }
-
-    public synchronized void setRefreshListener(RefreshListener listener) {
-        mRefreshListener = listener;
-    }
-
-    private RefreshListener getRefreshListener() {
-        return mRefreshListener;
-    }
-
-    /** Best-effort runtime status for user-facing state screens. */
-    public synchronized RuntimeStatus getRuntimeStatus() {
-        return mStatus;
-    }
-
-    /** Short, non-sensitive reason for the last failed request, or an empty string. */
-    public synchronized String getLastError() {
-        return mLastError;
-    }
-
-    private String findOrRequest(String source) {
-        TranslationSession session = mSession;
-
-        if (session == null) {
-            return null;
-        }
-
-        if (mProvider == null) {
-            return null;
-        }
-
-        TranslationUnit unit = unitFor(session, source);
-        TranslationCacheKey key = keyFor(session, unit);
-        TranslationResult cached = mCache.get(key);
-
-        if (cached != null) {
-            return cached.getTranslatedText();
-        }
-
-        if (session.isPaused() || mInFlight.containsKey(key)) {
-            return null;
-        }
-
-        long requestId = ++mRequestIdSeed;
-        long generation = session.getGeneration();
-        long epoch = session.getEpoch();
-        PendingRequest pending = new PendingRequest(requestId, generation, epoch, null);
-
-        // Track before starting so a synchronous provider callback is still accepted.
-        mInFlight.put(key, pending);
-
-        TranslationRequest request = new TranslationRequest(session.getSessionId(), requestId, unit);
-
-        try {
-            pending.mCall = mProvider.translate(request,
-                    new BridgeCallback(key, unit, requestId, generation, epoch));
-        } catch (Exception e) {
-            mInFlight.remove(key);
-            return null;
-        }
-
-        // The configured provider may complete synchronously (the production Fake does): its
-        // callback has already passed every identity guard and populated the cache, so the
-        // result can be consumed in this same call. Deferred providers return null here and
-        // stay source-only until a later rendering opportunity.
-        TranslationResult completed = mCache.get(key);
-
-        return completed != null ? completed.getTranslatedText() : null;
-    }
-
-    /**
-     * Builds the cache identity for one translated unit under the given session: the session
-     * identity plus the unit's own coverage and text fingerprint.
-     */
-    private static TranslationCacheKey keyFor(TranslationSession session, TranslationUnit unit) {
-        return TranslationCacheKey.from(
-                session.getSessionId(),
-                unit,
-                CONTEXT_FINGERPRINT_NONE,
-                SEGMENTATION_VERSION,
-                BOUNDARY_VERSION);
-    }
-
-    /**
-     * Resolves the translation unit for the current cue. When the full timeline is loaded
-     * and the position is known, uses the real segment/unit covering that position. Falls
-     * back to the M03 synthetic single-segment unit when the timeline is unavailable.
-     */
-    private TranslationUnit timelineUnitFor(TranslationSession session, String source) {
-        SourceTimeline timeline = mTimeline;
-
-        if (timeline != null && mPositionMs >= 0) {
-            TranslationUnit unit = timeline.unitAt(mPositionMs);
-
-            if (unit != null) {
-                return unit;
-            }
-        }
-
-        return unitFor(session, source);
-    }
-
-    /**
-     * M03 placeholder timeline identity': one displayed cue maps to one single-segment unit on
-     * the session's Source Track. The track component already prevents identical text on two
-     * tracks from aliasing; segment indexes from the normalized timeline arrive with the
-     * source/segmentation milestones.
-     */
-    private static TranslationUnit unitFor(TranslationSession session, String source) {
-        SubtitleSegmentId segmentId = new SubtitleSegmentId(
-                session.getSessionId().getSourceTrackId(), 0);
-
-        return new TranslationUnit(Collections.singletonList(segmentId), source);
     }
 
     private void ensureActiveSession() {
         if (mSession == null || mSession.isClosed()) {
             mSession = newSession(buildSessionId());
+            recreateScheduler();
         }
     }
 
@@ -548,31 +410,71 @@ public class AiSubtitleCueBridge {
         return session;
     }
 
+    private void recreateScheduler() {
+        if (mScheduler != null) mScheduler.close();
+        mScheduler = new TranslationScheduler(mSession, mProvider, mCache,
+                new TranslationScheduler.Listener() {
+                    @Override
+                    public void onTranslationArrived() {
+                        onSchedulerArrived();
+                    }
+
+                    @Override
+                    public void onTranslationFailed(String reason) {
+                        onSchedulerFailed(reason);
+                    }
+                });
+        mScheduler.setTimeline(mTimeline);
+    }
+
+    private void onSchedulerArrived() {
+        synchronized (this) {
+            mStatus = RuntimeStatus.TRANSLATED;
+            mLastError = "";
+        }
+
+        notifyTranslationArrived();
+    }
+
+    private void onSchedulerFailed(String reason) {
+        synchronized (this) {
+            mStatus = RuntimeStatus.FAILED;
+            mLastError = reason != null ? reason : "";
+        }
+
+        notifyTranslationArrived();
+    }
+
     private void rebindSessionIfIdentityChanged() {
         TranslationSessionId nextId = buildSessionId();
         TranslationSession current = mSession;
 
         if (current != null && !current.isClosed() && current.getSessionId().equals(nextId)) {
-            // Idempotent: a repeated identical lifecycle event must not create a new generation.
             return;
         }
 
-        cancelInFlight();
+        cancelSessionState();
         mCache.clear();
         mSession = newSession(nextId);
+        recreateScheduler();
     }
 
     private void dropSession() {
         mStatus = RuntimeStatus.WAITING;
         mLastError = "";
 
-        if (mSession != null) {
-            mSession.close();
-            mSession = null;
-        }
-
-        cancelInFlight();
+        cancelSessionState();
         mCache.clear();
+        mSession = null;
+    }
+
+    private void cancelSessionState() {
+        if (mSession != null) mSession.close();
+
+        if (mScheduler != null) {
+            mScheduler.close();
+            mScheduler = null;
+        }
     }
 
     private TranslationSessionId buildSessionId() {
@@ -587,11 +489,6 @@ public class AiSubtitleCueBridge {
         return new SourceTrackId(videoId, UNKNOWN_TRACK_ID, UNKNOWN_LANGUAGE);
     }
 
-    /**
-     * Maps the controller's track-identity string onto a Source Track identity.
-     * {@code "subtitle:none"} means subtitles are off and leaves the bridge without a
-     * concrete track.
-     */
     private static SourceTrackId toSourceTrackId(String videoId, String trackIdentity) {
         if (trackIdentity == null || AiSubtitleController.IDENTITY_NONE.equals(trackIdentity)) {
             return null;
@@ -605,30 +502,14 @@ public class AiSubtitleCueBridge {
             int separator = rest.indexOf(':');
             String candidate = separator >= 0 ? rest.substring(0, separator) : rest;
 
-            if (!candidate.isEmpty()) {
-                language = candidate;
-            }
+            if (!candidate.isEmpty()) language = candidate;
         }
 
         return new SourceTrackId(effectiveVideoId, trackIdentity, language);
     }
 
-    private void cancelInFlight() {
-        for (PendingRequest pending : mInFlight.values()) {
-            if (pending.mCall != null) {
-                try {
-                    pending.mCall.cancel();
-                } catch (Exception ignored) {
-                    // Cancellation is best-effort; the identity guards above stay authoritative.
-                }
-            }
-        }
-
-        mInFlight.clear();
-    }
-
     private void notifyTranslationArrived() {
-        RefreshListener listener = getRefreshListener();
+        RefreshListener listener = mRefreshListener;
 
         if (listener != null) {
             try {
@@ -643,91 +524,32 @@ public class AiSubtitleCueBridge {
         return value == null || value.trim().isEmpty();
     }
 
-    private static final class PendingRequest {
-        private final long mRequestId;
-        private final long mGeneration;
-        private final long mEpoch;
-        private TranslationCall mCall;
-
-        private PendingRequest(long requestId, long generation, long epoch, TranslationCall call) {
-            mRequestId = requestId;
-            mGeneration = generation;
-            mEpoch = epoch;
-            mCall = call;
-        }
+    private static long monotonicNowMs() {
+        return System.nanoTime() / 1_000_000L;
     }
 
-    private final class BridgeCallback implements TranslationCallback {
-        private final TranslationCacheKey mKey;
-        private final TranslationUnit mUnit;
-        private final long mRequestId;
-        private final long mRequestGeneration;
-        private final long mRequestEpoch;
+    /**
+     * Uses the normalized full timeline when it is available. A displayed cue never selects a
+     * synthetic segment while the real time-based mapping is known.
+     */
+    private TranslationUnit timelineUnitFor(TranslationSession session, String source) {
+        SourceTimeline timeline = mTimeline;
 
-        private BridgeCallback(TranslationCacheKey key, TranslationUnit unit, long requestId,
-                               long requestGeneration, long requestEpoch) {
-            mKey = key;
-            mUnit = unit;
-            mRequestId = requestId;
-            mRequestGeneration = requestGeneration;
-            mRequestEpoch = requestEpoch;
+        if (timeline != null && mPositionMs >= 0) {
+            return timeline.unitAt(mPositionMs);
         }
 
-        @Override
-        public void onSuccess(TranslationResult result) {
-            if (result == null) {
-                return;
-            }
+        return unitFor(session, source);
+    }
 
-            synchronized (AiSubtitleCueBridge.this) {
-                PendingRequest pending = mInFlight.get(mKey);
-                TranslationSession session = mSession;
+    /**
+     * Android-free fallback before the source adapter completes: one displayed cue maps to
+     * one single-segment unit on the session's Source Track.
+     */
+    private static TranslationUnit unitFor(TranslationSession session, String source) {
+        SubtitleSegmentId segmentId = new SubtitleSegmentId(
+                session.getSessionId().getSourceTrackId(), 0);
 
-                // The callback applies only when the request still owns the active session
-                // generation and scheduling epoch, the result answers this exact request and
-                // unit coverage, and only a final result may enter the cache.
-                if (pending == null
-                        || pending.mRequestId != mRequestId
-                        || session == null
-                        || !session.owns(pending.mGeneration, pending.mEpoch)
-                        || !result.isFinal()
-                        || !session.getSessionId().equals(result.getSessionId())
-                        || result.getRequestId() != mRequestId
-                        || !mUnit.getSegmentIds().equals(result.getSegmentIds())) {
-                    return;
-                }
-
-                mInFlight.remove(mKey);
-                mCache.put(mKey, result);
-            }
-
-            mStatus = RuntimeStatus.TRANSLATED;
-            mLastError = "";
-
-            // Never repaint while holding the bridge lock; the listener may synchronously
-            // re-enter process() on the UI thread.
-            notifyTranslationArrived();
-        }
-
-        @Override
-        public void onFailure(TranslationFailure failure) {
-            synchronized (AiSubtitleCueBridge.this) {
-                PendingRequest pending = mInFlight.get(mKey);
-
-                if (pending != null && pending.mRequestId == mRequestId) {
-                    mInFlight.remove(mKey);
-                }
-
-                if (mInFlight.isEmpty()) {
-                    mStatus = RuntimeStatus.FAILED;
-                    mLastError = failure != null ? failure.getMessage() : "";
-                }
-            }
-        }
+        return new TranslationUnit(Collections.singletonList(segmentId), source);
     }
 }
-
-
-
-
-

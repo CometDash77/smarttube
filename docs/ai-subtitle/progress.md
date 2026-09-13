@@ -150,5 +150,6 @@ Development is paused by the user. On explicit resume, complete and verify the r
 11. Resolved by `a0aab0d77`: G04-2 provider endpoint/header details were closed against current official sources for all five provider types.
 12. Open at M04-C7 pause: the M04 report must be restored to the complete plan section 13 template before acceptance; owner is the next M04-C7 resumption, trigger is explicit resume.
 
+- 2026-09-13 M07 Task C implementation：新增 `AI/scheduler/TranslationScheduler.java` 作为请求窗口/去重/暂停/seek/取消的单一 owner；Bridge 现在在完整 timeline 可用时只按真实时间选择 unit，不再用当前 cue 造 segment 0；Controller 接入播放位置、拖动 seek 保存最新位置、seek end 读取实际位置，并通过可取消 Handler 补足 onTickle 频率。生产路径安装 SmartTubeSubtitleSourceAdapter，从 MediaItemService 获取字幕列表并下载 timed-text。
+- 2026-09-13 M07 Task C focused scheduler/integration：`:common:testStbetaDebugUnitTest --tests '...scheduler.*' --tests '...integration.*'` => BUILD SUCCESSFUL in 3s；解析 6 个 XML：tests=62, failures=0, errors=0, skipped=0。此结果只代表自动验证，不含 CI/真机验收。
 - 2026-09-13 M07 Task B focused source/segmentation/integration：`gradlew :common:testStbetaDebugUnitTest --tests 'com.liskovsoft.smartyoutubetv2.common.ai.subtitle.source.*' --tests 'com.liskovsoft.smartyoutubetv2.common.ai.subtitle.segmentation.*' --tests 'com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration.*'` => BUILD SUCCESSFUL in 26s；解析 11 个 XML：tests=79, failures=0, errors=0。新增 VttParserTest 和 SmartTubeSubtitleSourceAdapterTest；integration 套件全部通过，确认 timeline 回退路径不破坏 M03 行为。该结果针对未提交工作区，不含 CI/真机验收。
-

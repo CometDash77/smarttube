@@ -109,7 +109,7 @@ public class AiSubtitleControllerTest {
         mController.onSeekPositionChanged(1200);
         mController.onSeekEnd();
 
-        assertEquals(Arrays.asList("seek:1200", "seek:-1"), mBridge.mCalls);
+        assertEquals(Arrays.asList("drag:1200", "seek:1200"), mBridge.mCalls);
     }
 
     @Test
@@ -232,6 +232,11 @@ public class AiSubtitleControllerTest {
         @Override
         void onSubtitleTrackChanged(String trackIdentity) {
             mCalls.add("track:" + trackIdentity);
+        }
+
+        @Override
+        void onSeekDrag(long positionMs) {
+            mCalls.add("drag:" + positionMs);
         }
 
         @Override
