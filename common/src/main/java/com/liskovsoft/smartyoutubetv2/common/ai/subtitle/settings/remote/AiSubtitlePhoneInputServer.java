@@ -447,9 +447,11 @@ public final class AiSubtitlePhoneInputServer {
                     data.setTranslationFirst(mDraft.translationFirst);
                     data.setContextEnabled(mDraft.contextEnabled);
                     data.setStreamingEnabled(mDraft.streamingEnabled);
+                    // One entry point applies the resolved provider, the prompt and every stored
+                    // setting together; calling it once avoids dispatching against a half-applied
+                    // configuration on the way to the final one.
                     com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration.
-                            AiSubtitleRuntime.applySchedulingToBridge(mContext);
-                    com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration.AiSubtitleRuntime.applyToBridge(mContext);
+                            AiSubtitleRuntime.applyToBridge(mContext);
                 } else {
                     rollbackFailed = !rollbackPrompt(prompts, originalPrompt, promptResult);
                 }

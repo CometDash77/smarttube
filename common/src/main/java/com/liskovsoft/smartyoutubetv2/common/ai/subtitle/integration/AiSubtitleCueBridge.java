@@ -98,6 +98,12 @@ public class AiSubtitleCueBridge {
     private SourceTimeline mTimeline;
     /** Latest playback position in milliseconds; -1 until the first position event. */
     private long mPositionMs = -1;
+    /**
+     * Whether the player is paused. This is a fact about playback, not about the session that
+     * happens to be alive, so it survives the feature being switched off and every session
+     * rebuild; a session created while playback is paused must not dispatch work.
+     */
+    private boolean mPlaybackPaused;
     /** Optional source adapter; when null the bridge falls back to displayed-cue-only mapping. */
     private SmartTubeSubtitleSourceAdapter mSourceAdapter;
 
@@ -228,14 +234,37 @@ public class AiSubtitleCueBridge {
             mVideoId = videoId;
             mVideoTitle = title != null ? title : "";
             mVideoDescription = description != null ? description : "";
-            rebindSessionIfIdentityChanged();
+
+            // A new video replaces the source identity outright: the previous video's timeline,
+            // position and selected track describe something the player is no longer showing.
+            mTimeline = null;
+            mPositionMs = -1;
+            mSourceTrackId = null;
+
+            rebindSourceIdentity();
         }
     }
 
     void onSubtitleTrackChanged(String trackIdentity) {
         synchronized (this) {
-            mSourceTrackId = toSourceTrackId(mVideoId, trackIdentity);
-            rebindSessionIfIdentityChanged();
+            SourceTrackId nextTrackId = toSourceTrackId(mVideoId, trackIdentity);
+
+            if (nextTrackId == null) {
+                // Subtitles were switched off. The loaded timeline belongs to a track that is no
+                // longer selected, so it must not answer for whatever is selected next.
+                if (mSourceTrackId == null) return;
+
+                mSourceTrackId = null;
+                mTimeline = null;
+                rebindSourceIdentity();
+                return;
+            }
+
+            if (nextTrackId.equals(mSourceTrackId)) return;
+
+            mSourceTrackId = nextTrackId;
+            mTimeline = null;
+            rebindSourceIdentity();
             triggerTimelineLoad();
         }
     }
@@ -244,7 +273,7 @@ public class AiSubtitleCueBridge {
         synchronized (this) {
             if (profile == null) return;
             mProfile = profile;
-            rebindSessionIfIdentityChanged();
+            rebindTranslationIdentity();
         }
     }
 
@@ -262,13 +291,12 @@ public class AiSubtitleCueBridge {
             mProvider = provider;
             mProfile = profile;
             mPromptProfile = promptProfile;
-            rebindSessionIfIdentityChanged();
+            rebindTranslationIdentity();
         }
     }
 
     void onSeekDrag(long positionMs) {
         synchronized (this) {
-            ensureActiveSession();
             if (positionMs >= 0) mPositionMs = positionMs;
             if (mScheduler != null) mScheduler.onSeekDrag(positionMs);
         }
@@ -276,16 +304,19 @@ public class AiSubtitleCueBridge {
 
     void onSeek(long positionMs) {
         synchronized (this) {
-            ensureActiveSession();
-            if (mSession != null) mSession.advanceEpoch();
             if (positionMs >= 0) mPositionMs = positionMs;
+            if (mSession != null && !mSession.isClosed()) mSession.advanceEpoch();
             if (mScheduler != null) mScheduler.onPositionChanged(positionMs, monotonicNowMs());
         }
     }
 
     void onPause() {
         synchronized (this) {
-            ensureActiveSession();
+            mPlaybackPaused = true;
+
+            // Pausing never creates a session: a null session already means no work runs.
+            if (mSession == null || mSession.isClosed()) return;
+
             mSession.pause();
             if (mScheduler != null) mScheduler.pause();
         }
@@ -293,6 +324,11 @@ public class AiSubtitleCueBridge {
 
     void onPlay() {
         synchronized (this) {
+            mPlaybackPaused = false;
+
+            // Playing while the feature is off must not build a scheduler that issues requests.
+            if (!canStartWork()) return;
+
             ensureActiveSession();
             mSession.resume();
             if (mScheduler != null) mScheduler.resume(mPositionMs, monotonicNowMs());
@@ -301,6 +337,9 @@ public class AiSubtitleCueBridge {
 
     void onRelease() {
         synchronized (this) {
+            mTimeline = null;
+            mPositionMs = -1;
+            mSourceTrackId = null;
             dropSession();
         }
     }
@@ -313,19 +352,18 @@ public class AiSubtitleCueBridge {
     }
 
     /**
-     * Enables or disables the bounded context. Context changes the rendered instruction, so the
-     * identity changes: this drops the current session and its cache rather than reusing them
-     * under a key that no longer describes what was sent. The current cue is not re-requested
-     * here; the next render picks the new mode up.
+     * Enables or disables the bounded context. Context changes the rendered instruction without
+     * changing the session identity, so identity comparison cannot detect it: the live session
+     * is rebuilt so that no request frozen under the old instruction is still on its way.
      */
     public synchronized void onContextEnabledChanged(boolean enabled) {
         if (mContextEnabled == enabled) return;
 
         mContextEnabled = enabled;
 
-        if (mSession != null && !mSession.isClosed()) {
-            rebindSessionIfIdentityChanged();
-        }
+        if (mSession == null || mSession.isClosed()) return;
+
+        rebuildTranslationSession();
     }
 
     @VisibleForTesting
@@ -365,19 +403,24 @@ public class AiSubtitleCueBridge {
             return;
         }
 
-        boolean wasPaused = mSession != null && mSession.isPaused();
-
         mSegmentTargetChars = targetChars;
         mSegmentMaxChars = maxChars;
         mLongSentenceChars = longSentenceChars;
 
+        // The adapter already serving the current track keeps its own copy of these limits, so it
+        // has to be told before the reload it is about to be asked for. A load that is already in
+        // flight is unaffected: it carries the limits it started with.
+        if (mSourceAdapter != null) {
+            mSourceAdapter.configureSegmentation(targetChars, maxChars, longSentenceChars);
+        }
+
         dropSession();
 
-        // Only an enabled feature with a usable provider may start work again.
-        if (mProvider == null || !mEnabledState.isEnabled()) return;
+        // Only a runnable feature may start work again; the recorded playback pause state is
+        // restored by the new session itself.
+        if (!canStartWork()) return;
 
         ensureActiveSession();
-        if (wasPaused) mSession.pause();
         triggerTimelineLoad();
     }
 
@@ -452,14 +495,22 @@ public class AiSubtitleCueBridge {
     }
 
     void onTimelineFailed(long loadSequence, SourceTrackId trackId, String reason) {
-        // Timeline stays null; the bridge continues with displayed-cue fallback.
+        synchronized (this) {
+            if (loadSequence != mLoadSequence) return;
+
+            // The source this session was waiting for never arrived, so the previous timeline
+            // must not stand in for it: the bridge continues with displayed-cue fallback.
+            mTimeline = null;
+        }
     }
 
     void onPositionUpdate(long positionMs) {
         synchronized (this) {
             if (positionMs < 0) return;
             mPositionMs = positionMs;
-            if (mScheduler != null) mScheduler.onPositionUpdate(positionMs, monotonicNowMs());
+            if (mScheduler != null && canStartWork()) {
+                mScheduler.onPositionUpdate(positionMs, monotonicNowMs());
+            }
         }
     }
 
@@ -574,11 +625,90 @@ public class AiSubtitleCueBridge {
         }
     }
 
+    /**
+     * Rebuilds the session for a changed source identity: a new video, a new track, or subtitles
+     * switched off. The timeline of the previous source has already been discarded, so nothing
+     * can dispatch from it, and the in-flight source load for the old identity is invalidated
+     * before the next load starts.
+     */
+    private void rebindSourceIdentity() {
+        TranslationSessionId nextId = buildSessionId();
+        TranslationSession current = mSession;
+
+        if (current != null && !current.isClosed() && current.getSessionId().equals(nextId)) {
+            return;
+        }
+
+        cancelSessionState();
+        mCache.clear();
+        mLoadSequence++;
+
+        if (!canStartWork()) {
+            mSession = null;
+            return;
+        }
+
+        mSession = newSession(nextId);
+        recreateScheduler();
+    }
+
+    /**
+     * Rebuilds the session for a changed translation identity: the profile, the provider, the
+     * prompt, or the bounded context. The source is unchanged, so the timeline and any in-flight
+     * source load are kept; only translation work that was derived from the old identity is
+     * discarded.
+     */
+    private void rebindTranslationIdentity() {
+        TranslationSessionId nextId = buildSessionId();
+        TranslationSession current = mSession;
+
+        if (current != null && !current.isClosed() && current.getSessionId().equals(nextId)) {
+            return;
+        }
+
+        rebuildTranslationSession();
+    }
+
+    /**
+     * Rebuilds the live session even when its identity is unchanged.
+     *
+     * <p>The bounded context changes what a request carries without changing the session
+     * identity, so comparing identities is not enough to decide whether the current session
+     * still describes what will be sent. A new generation cancels the requests that were frozen
+     * under the old configuration; the cache is cleared with it, because every entry is keyed
+     * by the instruction that produced it. The source timeline is untouched and any in-flight
+     * source load stays valid.
+     */
+    private void rebuildTranslationSession() {
+        TranslationSessionId nextId = buildSessionId();
+
+        cancelSessionState();
+        mCache.clear();
+
+        if (!canStartWork()) {
+            mSession = null;
+            return;
+        }
+
+        mSession = newSession(nextId);
+        recreateScheduler();
+    }
+
     private TranslationSession newSession(TranslationSessionId sessionId) {
         TranslationSession session = new TranslationSession(sessionId, ++mGenerationSeed);
         session.markReady();
         session.markActive();
+
+        // Playback pause is a player fact that outlives any one session, so a session rebuilt
+        // while the user has playback paused starts paused instead of dispatching work.
+        if (mPlaybackPaused) session.pause();
+
         return session;
+    }
+
+    /** Whether the feature currently has everything it needs to start translation work. */
+    private boolean canStartWork() {
+        return mEnabledState.isEnabled() && mProvider != null && mPromptProfile != null;
     }
 
     private void recreateScheduler() {
@@ -657,21 +787,6 @@ public class AiSubtitleCueBridge {
         }
 
         notifyTranslationArrived();
-    }
-
-    private void rebindSessionIfIdentityChanged() {
-        TranslationSessionId nextId = buildSessionId();
-        TranslationSession current = mSession;
-
-        if (current != null && !current.isClosed() && current.getSessionId().equals(nextId)) {
-            return;
-        }
-
-        cancelSessionState();
-        mCache.clear();
-        mLoadSequence++;
-        mSession = newSession(nextId);
-        recreateScheduler();
     }
 
     private void dropSession() {

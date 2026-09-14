@@ -24,6 +24,13 @@ public class SmartTubeSubtitleSourceAdapterTest {
             + "00:00:04.000 --> 00:00:06.000\nsentence.\n\n"
             + "00:00:06.000 --> 00:00:08.000\n[music]";
 
+    /** Four cues long enough that the unit target, not the sentence breaker, decides grouping. */
+    private static final String LONG_VTT = "WEBVTT\n\n"
+            + "00:00:00.000 --> 00:00:02.000\nFirst sentence of the long sample\n\n"
+            + "00:00:02.000 --> 00:00:04.000\nSecond sentence of the long sample\n\n"
+            + "00:00:04.000 --> 00:00:06.000\nThird sentence of the long sample\n\n"
+            + "00:00:06.000 --> 00:00:08.000\nFourth sentence of the long sample";
+
     @Test
     public void buildTimelineProducesStableSegmentsAndUnits() {
         FakeSubtitle manual = subtitle("en", "English", "http://example.com/timedtext?v=video1&lang=en");
@@ -286,6 +293,52 @@ public class SmartTubeSubtitleSourceAdapterTest {
         });
 
         assertNotNull(failure[0]);
+    }
+
+    /**
+     * A load is owned by the limits it started under. Changing the segmentation while a load is
+     * still in flight must not retroactively re-chunk the answer that load delivers.
+     */
+    @Test
+    public void everyLoadUsesTheSegmentationItStartedWith() {
+        FakeSubtitle manual = subtitle("en", "English", "http://example.com/timedtext?v=video1");
+        List<MediaSubtitle> subtitles = Collections.singletonList(manual);
+        List<SmartTubeSubtitleSourceAdapter.SubtitleListListener> listeners = new ArrayList<>();
+        SmartTubeSubtitleSourceAdapter adapter = new SmartTubeSubtitleSourceAdapter(
+                (videoId, listener) -> listeners.add(listener), url -> LONG_VTT);
+
+        SourceTimeline[] narrow = new SourceTimeline[1];
+        SourceTimeline[] wide = new SourceTimeline[1];
+
+        adapter.configureSegmentation(20, 200, 80);
+        adapter.load("video1", TRACK, capturingCallback(narrow));
+
+        adapter.configureSegmentation(200, 320, 100);
+        adapter.load("video1", TRACK, capturingCallback(wide));
+
+        // The first load answers only after the second was configured and started.
+        listeners.get(1).onSubtitles(subtitles);
+        listeners.get(0).onSubtitles(subtitles);
+
+        assertNotNull(narrow[0]);
+        assertNotNull(wide[0]);
+        assertTrue("the first load must keep the limits it started with: narrow="
+                        + narrow[0].getUnits().size() + " wide=" + wide[0].getUnits().size(),
+                narrow[0].getUnits().size() > wide[0].getUnits().size());
+    }
+
+    private static SmartTubeSubtitleSourceAdapter.Callback capturingCallback(
+            final SourceTimeline[] slot) {
+        return new SmartTubeSubtitleSourceAdapter.Callback() {
+            @Override
+            public void onTimelineReady(SourceTrackId trackId, SourceTimeline timeline) {
+                slot[0] = timeline;
+            }
+
+            @Override
+            public void onTimelineFailed(SourceTrackId trackId, String reason) {
+            }
+        };
     }
 
     private SmartTubeSubtitleSourceAdapter adapter(List<MediaSubtitle> subtitles, String vtt) {

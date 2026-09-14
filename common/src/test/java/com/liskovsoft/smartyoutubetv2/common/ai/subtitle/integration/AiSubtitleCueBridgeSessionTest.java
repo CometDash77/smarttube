@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -46,6 +47,10 @@ public class AiSubtitleCueBridgeSessionTest {
     private static final PromptProfile PROMPT = new PromptProfile(
             "test.prompt", "Test prompt",
             "Translate {{source_text}} into {{target_language}}.", 1, false);
+    /** A profile that differs from {@link #PROMPT} in the session identity it produces. */
+    private static final TranslationProfile OTHER_PROFILE = new TranslationProfile(
+            "other-profile", "pending-protocol", "pending-endpoint", "pending-model",
+            "pending-prompt", 1, "zh");
     private AtomicBoolean mEnabled;
     private FakeTranslationProvider mFakeProvider;
     private AiSubtitleCueBridge mBridge;
@@ -533,6 +538,289 @@ public class AiSubtitleCueBridgeSessionTest {
                 bridge.process(cues("Hello")).get(0).text.toString());
     }
 
+    /**
+     * A track switch invalidates the timeline that belonged to the previous track. Until the new
+     * track's source arrives the bridge must stay source-only rather than answer from units that
+     * describe the old track.
+     */
+    @Test
+    public void aPendingSourceReplacementNeverDispatchesTheOldTrack() {
+        RecordingProvider provider = new RecordingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        ManualSource source = new ManualSource();
+
+        bridge.onNewVideo("video-1", null, null);
+        bridge.setSourceAdapter(source.adapter());
+        bridge.onSubtitleTrackChanged("subtitle:en:1");
+        source.deliver(0, "00:00:00.000 --> 00:00:02.000\nOLD-TRACK");
+        bridge.onPositionUpdate(1_000);
+        provider.flush();
+
+        int before = provider.unitTexts().size();
+
+        bridge.onSubtitleTrackChanged("subtitle:ja:2");
+        bridge.onPositionUpdate(1_000);
+
+        assertEquals("pending new source must not dispatch old track", before,
+                provider.unitTexts().size());
+    }
+
+    /**
+     * Turning the feature off must stop translation work, not merely hide it: playback events
+     * that arrive while the feature is off may not build a scheduler that issues requests.
+     */
+    @Test
+    public void playbackResumeWhileDisabledStartsNoWork() {
+        RecordingProvider provider = new RecordingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        ManualSource source = new ManualSource();
+
+        bridge.onNewVideo("video-1", null, null);
+        bridge.setSourceAdapter(source.adapter());
+        bridge.onSubtitleTrackChanged("subtitle:en:1");
+        source.deliver(0, "00:00:00.000 --> 00:00:02.000\nSOURCE");
+        bridge.onPositionUpdate(1_000);
+
+        int before = provider.unitTexts().size();
+
+        mEnabled.set(false);
+        bridge.onEnabledChanged(false);
+        bridge.onPlay();
+
+        assertEquals("AI off must not translate on play", before, provider.unitTexts().size());
+    }
+
+    /**
+     * Playback pause is a fact about the player, not about the session that happens to be alive.
+     * Rebuilding the session for a new configuration must not turn paused playback active.
+     */
+    @Test
+    public void aProfileChangeKeepsPausedPlaybackPaused() {
+        mBridge.onNewVideo("video-1", null, null);
+        mBridge.onPause();
+
+        mBridge.onProfileChanged(new TranslationProfile("other", "protocol", "endpoint",
+                "model", "prompt", 1, "zh"));
+
+        assertEquals("a configuration change must not resume playback work",
+                TranslationSession.State.PAUSED, mBridge.snapshotSession().getState());
+    }
+
+    /**
+     * A source load that answers after the player moved to another video belongs to a timeline
+     * the bridge no longer wants, even when the track identity happens to look the same.
+     */
+    @Test
+    public void aLateSourceLoadForThePreviousVideoIsDiscarded() {
+        RecordingProvider provider = new RecordingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        ManualSource source = new ManualSource();
+
+        bridge.onNewVideo("video-1", null, null);
+        bridge.setSourceAdapter(source.adapter());
+        bridge.onSubtitleTrackChanged("subtitle:en:1");
+
+        bridge.onNewVideo("video-2", null, null);
+        bridge.onSubtitleTrackChanged("subtitle:en:2");
+
+        source.deliver(0, "00:00:00.000 --> 00:00:02.000\nPREVIOUS-VIDEO");
+        bridge.onPositionUpdate(1_000);
+        bridge.process(cues("displayed"));
+
+        assertFalse("the previous video's timeline must never answer for the new one",
+                provider.unitTexts().contains("PREVIOUS-VIDEO"));
+    }
+
+    /**
+     * Selecting A, then B, then A again leaves the first load of A and the load of B both stale.
+     * Only the newest load may be applied, whatever order the responses arrive in.
+     */
+    @Test
+    public void aLateSourceLoadForAnAbandonedTrackIsDiscarded() {
+        RecordingProvider provider = new RecordingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        ManualSource source = new ManualSource();
+
+        bridge.onNewVideo("video-1", null, null);
+        bridge.setSourceAdapter(source.adapter());
+        bridge.onSubtitleTrackChanged("subtitle:en:1");
+        bridge.onSubtitleTrackChanged("subtitle:ja:2");
+        bridge.onSubtitleTrackChanged("subtitle:en:1");
+        bridge.onPositionUpdate(1_000);
+
+        source.deliver(1, "00:00:00.000 --> 00:00:02.000\nABANDONED-TRACK");
+        source.deliver(2, "00:00:00.000 --> 00:00:02.000\nSELECTED-TRACK");
+        bridge.process(cues("displayed"));
+
+        assertTrue("the newest load must win", provider.unitTexts().contains("SELECTED-TRACK"));
+        assertFalse("an abandoned track's load must never be applied",
+                provider.unitTexts().contains("ABANDONED-TRACK"));
+    }
+
+    /** With subtitles off there is no selected track, so a position tick has nothing to dispatch. */
+    @Test
+    public void aTickAfterSubtitlesAreDisabledStartsNoWork() {
+        RecordingProvider provider = new RecordingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        ManualSource source = new ManualSource();
+
+        bridge.onNewVideo("video-1", null, null);
+        bridge.setSourceAdapter(source.adapter());
+        bridge.onSubtitleTrackChanged("subtitle:en:1");
+        source.deliver(0, "00:00:00.000 --> 00:00:02.000\nSOURCE");
+        bridge.onPositionUpdate(1_000);
+        bridge.process(cues("displayed"));
+
+        int before = provider.unitTexts().size();
+
+        bridge.onSubtitleTrackChanged(AiSubtitleController.IDENTITY_NONE);
+        bridge.onPositionUpdate(2_000);
+
+        assertEquals("a tick after subtitles were switched off must not dispatch", before,
+                provider.unitTexts().size());
+    }
+
+    /** Playback events while the feature is off may not build a scheduler that issues requests. */
+    @Test
+    public void latePlaybackEventsWhileDisabledStartNoWork() {
+        RecordingProvider provider = new RecordingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        ManualSource source = new ManualSource();
+
+        bridge.onNewVideo("video-1", null, null);
+        bridge.setSourceAdapter(source.adapter());
+        bridge.onSubtitleTrackChanged("subtitle:en:1");
+        source.deliver(0, "00:00:00.000 --> 00:00:02.000\nSOURCE");
+        bridge.onPositionUpdate(1_000);
+        bridge.process(cues("displayed"));
+
+        int before = provider.unitTexts().size();
+
+        mEnabled.set(false);
+        bridge.onEnabledChanged(false);
+        bridge.onPause();
+        bridge.onPlay();
+        bridge.onPositionUpdate(2_000);
+
+        assertEquals("a disabled feature must stay silent through playback events", before,
+                provider.unitTexts().size());
+    }
+
+    /** A position tick after release has no session and no source left to translate. */
+    @Test
+    public void aTickAfterReleaseStartsNoWork() {
+        RecordingProvider provider = new RecordingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        ManualSource source = new ManualSource();
+
+        bridge.onNewVideo("video-1", null, null);
+        bridge.setSourceAdapter(source.adapter());
+        bridge.onSubtitleTrackChanged("subtitle:en:1");
+        source.deliver(0, "00:00:00.000 --> 00:00:02.000\nSOURCE");
+        bridge.onPositionUpdate(1_000);
+        bridge.process(cues("displayed"));
+
+        int before = provider.unitTexts().size();
+
+        bridge.onRelease();
+        bridge.onPositionUpdate(2_000);
+
+        assertEquals("a released player must not start translation work", before,
+                provider.unitTexts().size());
+    }
+
+    /** Changing the provider while playback is paused must not resume work for the new one. */
+    @Test
+    public void aProviderChangeWhilePausedKeepsPlaybackPausedAndStartsNoWork() {
+        RecordingProvider provider = new RecordingProvider();
+
+        mBridge.onNewVideo("video-1", null, null);
+        mBridge.process(cues("Hello"));
+        mBridge.onPause();
+
+        mBridge.onProviderChanged(provider, OTHER_PROFILE, PROMPT);
+
+        assertEquals("a provider change must not resume playback work",
+                TranslationSession.State.PAUSED, mBridge.snapshotSession().getState());
+        assertEquals("and must dispatch nothing while playback is paused", 0,
+                provider.unitTexts().size());
+    }
+
+    /**
+     * The bounded context changes the instruction that is actually sent, so toggling it has to
+     * replace the live session: the frozen prompt of a request already in flight cannot be
+     * un-sent, and a cached answer belongs to the instruction it answered.
+     */
+    @Test
+    public void contextToggleRecreatesTheLiveSessionAndChangesWhatIsSent() {
+        PromptProfile contextPrompt = new PromptProfile("test.context", "Context prompt",
+                "Translate {{source_text}} into {{target_language}}. Context:{{context}}", 1, false);
+        RecordingProvider provider = new RecordingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, contextPrompt);
+
+        bridge.onNewVideo("video-1", "TITLE", null);
+        bridge.process(cues("Hello"));
+
+        assertEquals(1, provider.renderedPrompts().size());
+        assertFalse("context off must not send the video title",
+                provider.renderedPrompts().get(0).contains("TITLE"));
+
+        long before = bridge.snapshotSession().getGeneration();
+        bridge.onContextEnabledChanged(true);
+
+        assertTrue("context toggle must replace the active scheduler",
+                bridge.snapshotSession().getGeneration() > before);
+
+        bridge.process(cues("Hello"));
+
+        assertEquals(2, provider.renderedPrompts().size());
+        assertTrue("context on must send the video title",
+                provider.renderedPrompts().get(1).contains("TITLE"));
+
+        bridge.onContextEnabledChanged(false);
+        bridge.process(cues("Hello"));
+
+        assertEquals(3, provider.renderedPrompts().size());
+        assertFalse("context off must drop the title again",
+                provider.renderedPrompts().get(2).contains("TITLE"));
+    }
+
+    /** The adapter already serving the current track must receive the new segmentation limits. */
+    @Test
+    public void segmentationChangeUpdatesTheExistingAdapter() {
+        SmartTubeSubtitleSourceAdapter adapter =
+                new SmartTubeSubtitleSourceAdapter((videoId, listener) -> { }, url -> null);
+        mBridge.setSourceAdapter(adapter);
+
+        mBridge.onSegmentationChanged(100, 320, 100);
+
+        assertArrayEquals(new int[] {100, 320, 100}, adapter.segmentationLimitsForTesting());
+    }
+
+    /** Re-segmenting cancels the old units; it may not dispatch work while playback is paused. */
+    @Test
+    public void reSegmentationWhilePausedDispatchesNothing() {
+        RecordingProvider provider = new RecordingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        ManualSource source = new ManualSource();
+
+        bridge.onNewVideo("video-1", null, null);
+        bridge.setSourceAdapter(source.adapter());
+        bridge.onSubtitleTrackChanged("subtitle:en:1");
+        source.deliver(0, "00:00:00.000 --> 00:00:02.000\nSOURCE");
+        bridge.onPositionUpdate(1_000);
+        bridge.process(cues("displayed"));
+
+        int before = provider.unitTexts().size();
+
+        bridge.onPause();
+        bridge.onSegmentationChanged(100, 320, 100);
+        bridge.onPositionUpdate(1_000);
+
+        assertEquals("re-segmentation must not resume work while playback is paused", before,
+                provider.unitTexts().size());
+    }
+
     private static List<Cue> cues(String... texts) {
         List<Cue> list = new ArrayList<>();
 
@@ -594,14 +882,16 @@ public class AiSubtitleCueBridgeSessionTest {
         }
     }
 
-    /** Records requested unit texts; deliveries are released explicitly by the test. */
+    /** Records the rendered instruction each request carried, not just its source text. */
     private static final class RecordingProvider implements TranslationProvider {
         private final List<String> mUnitTexts = new ArrayList<>();
+        private final List<String> mRenderedPrompts = new ArrayList<>();
         private final List<Runnable> mDeliveries = new ArrayList<>();
 
         @Override
         public TranslationCall translate(TranslationRequest request, TranslationCallback callback) {
             mUnitTexts.add(request.getSourceText());
+            mRenderedPrompts.add(request.getRenderedPrompt());
             mDeliveries.add(() -> callback.onSuccess(TranslationResult.finalResult(
                     request.getSessionId(), request.getRequestId(), request.getUnit(),
                     "[ZH] " + request.getSourceText())));
@@ -610,6 +900,10 @@ public class AiSubtitleCueBridgeSessionTest {
 
         List<String> unitTexts() {
             return new ArrayList<>(mUnitTexts);
+        }
+
+        List<String> renderedPrompts() {
+            return new ArrayList<>(mRenderedPrompts);
         }
 
         void flush() {

@@ -86,11 +86,24 @@ public final class SmartTubeSubtitleSourceAdapter {
             return;
         }
 
+        // One load is cut by one set of limits. They are read once, here, so a segmentation change
+        // that arrives while the download is in flight cannot re-chunk the answer this load
+        // already promised, and so the delivery never has to read mutable state.
+        final int targetChars;
+        final int maxChars;
+        final int longSentenceChars;
+        synchronized (this) {
+            targetChars = mTargetChars;
+            maxChars = mMaxChars;
+            longSentenceChars = mLongSentenceChars;
+        }
+
         try {
             mFetcher.fetch(videoId, new SubtitleListListener() {
                 @Override
                 public void onSubtitles(List<MediaSubtitle> subtitles) {
-                    deliverTimeline(subtitles, trackId, callback);
+                    deliverTimeline(subtitles, trackId, callback, targetChars, maxChars,
+                            longSentenceChars);
                 }
 
                 @Override
@@ -103,10 +116,12 @@ public final class SmartTubeSubtitleSourceAdapter {
         }
     }
 
-    private void deliverTimeline(List<MediaSubtitle> subtitles,
-                                 SourceTrackId trackId, Callback callback) {
+    private void deliverTimeline(List<MediaSubtitle> subtitles, SourceTrackId trackId,
+                                 Callback callback, int targetChars, int maxChars,
+                                 int longSentenceChars) {
         try {
-            SourceTimeline timeline = buildTimeline(subtitles, trackId, mDownloader);
+            SourceTimeline timeline = buildTimeline(subtitles, trackId, mDownloader, targetChars,
+                    maxChars, longSentenceChars);
             if (timeline == null) {
                 callback.onTimelineFailed(trackId, "no matching subtitle track");
             } else {
@@ -118,11 +133,31 @@ public final class SmartTubeSubtitleSourceAdapter {
     }
 
     /**
+     * Builds a timeline under a snapshot of the current limits. Prefer
+     * {@link #load} for anything asynchronous; this entry reads the limits once and forwards.
+     */
+    SourceTimeline buildTimeline(List<MediaSubtitle> subtitles, SourceTrackId trackId,
+                                 SubtitleDownloader downloader) {
+        int targetChars;
+        int maxChars;
+        int longSentenceChars;
+        synchronized (this) {
+            targetChars = mTargetChars;
+            maxChars = mMaxChars;
+            longSentenceChars = mLongSentenceChars;
+        }
+
+        return buildTimeline(subtitles, trackId, downloader, targetChars, maxChars,
+                longSentenceChars);
+    }
+
+    /**
      * Pure pipeline: match subtitle -> download -> parse -> normalize -> segment -> chunk.
      * Package-private for independent testing.
      */
     SourceTimeline buildTimeline(List<MediaSubtitle> subtitles, SourceTrackId trackId,
-                                 SubtitleDownloader downloader) {
+                                 SubtitleDownloader downloader, int targetChars, int maxChars,
+                                 int longSentenceChars) {
         MediaSubtitle matched = matchSubtitle(subtitles, trackId);
         if (matched == null || matched.getBaseUrl() == null) {
             return null;
@@ -152,8 +187,9 @@ public final class SmartTubeSubtitleSourceAdapter {
         }
 
         // breakSentences re-indexes the segments with a stable incrementing index.
-        List<SubtitleSegment> sentences = new RuleSentenceBreaker(mLongSentenceChars).breakSentences(segments);
-        List<TranslationUnit> units = new TranslationChunker().chunk(sentences, mTargetChars, mMaxChars);
+        List<SubtitleSegment> sentences =
+                new RuleSentenceBreaker(longSentenceChars).breakSentences(segments);
+        List<TranslationUnit> units = new TranslationChunker().chunk(sentences, targetChars, maxChars);
 
         return new SourceTimeline(sentences, units);
     }

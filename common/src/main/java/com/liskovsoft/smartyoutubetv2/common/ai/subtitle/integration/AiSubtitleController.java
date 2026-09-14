@@ -177,6 +177,10 @@ public class AiSubtitleController extends BasePlayerController {
                     @Override
                     public void fetch(String videoId,
                                       final SmartTubeSubtitleSourceAdapter.SubtitleListListener listener) {
+                        // A new fetch supersedes the one in flight; leaving the old subscription
+                        // alive would let a stale subtitle list answer for this request.
+                        disposeSourceFetch();
+
                         mSourceFetchAction = getMediaItemService().getFormatInfoObserve(videoId)
                                 .observeOn(Schedulers.io())
                                 .subscribe(

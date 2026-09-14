@@ -11,6 +11,7 @@ import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
@@ -128,6 +129,25 @@ public class AiSubtitleControllerTest {
         mController.onEngineReleased();
 
         assertEquals(Arrays.asList("release", "release", "release"), mBridge.mCalls);
+    }
+
+    /**
+     * A drag fires continuously, so only the end of the drag may dispatch a seek, and it has to
+     * carry the final position rather than any of the intermediate ones.
+     */
+    @Test
+    public void repeatedDragsDispatchOnlyOneSeekWithTheFinalPosition() {
+        for (int i = 0; i < 50; i++) {
+            mController.onSeekPositionChanged(i * 100);
+        }
+        mController.onSeekEnd();
+
+        List<String> seeks = new ArrayList<>();
+        for (String call : mBridge.mCalls) {
+            if (call.startsWith("seek:")) seeks.add(call);
+        }
+
+        assertEquals(Collections.singletonList("seek:4900"), seeks);
     }
 
     private static FormatItem subtitleItem(String language, String formatId) {

@@ -2,9 +2,12 @@ package com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.remote;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.io.BufferedReader;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -20,6 +23,8 @@ import org.junit.runner.RunWith;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration.AiSubtitleCueBridge;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration.AiSubtitleRuntime;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.ModelCatalog;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.ProviderProfile;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.ProviderProfileResolver;
@@ -35,6 +40,7 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.ProviderProfil
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.SecretStore;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.remote.AiSubtitlePhoneInputServer.Draft;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.support.JdkAwareRobolectricRunner;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationProfileResolver;
 
 @RunWith(JdkAwareRobolectricRunner.class)
 @Config(sdk = 17)
@@ -226,6 +232,53 @@ public class AiSubtitlePhoneInputServerTest {
                 reloaded.body.contains("id=\"lookaheadSeconds\" type=\"number\" value=\"30\""));
         assertTrue(reloaded.body.contains("value=\"translation\" selected"));
         assertTrue(reloaded.body.contains("value=\"on\" selected"));
+    }
+
+    /**
+     * The phone page and the running player share one configuration. A save that only reached
+     * storage, while the player kept using the previous one, is exactly the defect this covers:
+     * the bridge that is already live has to be the one the saved values apply to.
+     *
+     * <p>This lane proves the wiring: one live bridge instance, the saved profile being the one
+     * resolution reads, the credential surviving a keep save, and the saved configuration still
+     * resolving to a runnable provider. What the live bridge then sends is covered at the bridge
+     * level in the integration suite.</p>
+     */
+    @Test
+    public void aPhoneSaveAppliesToTheLiveBridgeThatIsAlreadyPlaying() throws Exception {
+        AiSubtitleData data = AiSubtitleData.instance(RuntimeEnvironment.getApplication());
+        data.setEnabled(true);
+        // The page edits the profile the player is already using; resolution reads the selected
+        // one, so the fixture has to select what it is about to edit.
+        data.providerProfiles().select(mProfile.getId());
+
+        AiSubtitleCueBridge bridge = AiSubtitleCueBridge.instance(
+                RuntimeEnvironment.getApplication());
+
+        HttpResponse response = request("POST", "/save",
+                saveForm("&lookaheadSeconds=30&scheduleThrottleSeconds=15"
+                        + "&segmentTargetChars=100&segmentMaxChars=320&longSentenceChars=100"
+                        + "&bilingualOrder=translation&contextEnabled=on&streamingEnabled=on"),
+                true, false);
+
+        assertEquals(200, response.code);
+        assertTrue(response.body.contains("\"saveSucceeded\":true"));
+
+        assertSame("the save must apply to the bridge that is already live, not build a second one",
+                bridge, AiSubtitleCueBridge.instance(RuntimeEnvironment.getApplication()));
+
+        assertEquals("the saved profile must be the one the live bridge resolves",
+                mProfile.getId(), data.providerProfiles().load().getSelectedProfileId());
+        assertNotNull("a keep save must not drop the credential",
+                data.secrets().get(mProfile.getSecretReference()));
+
+        TranslationProfileResolver.Resolution resolved =
+                AiSubtitleRuntime.resolve(RuntimeEnvironment.getApplication());
+        assertTrue("the saved configuration must still resolve to a runnable provider: "
+                        + (resolved.getFailure() == null ? "none"
+                        : resolved.getFailure().getCategory() + " / "
+                                + resolved.getFailure().getMessage()),
+                resolved.isResolved());
     }
 
     private static String saveForm(String extra) {
