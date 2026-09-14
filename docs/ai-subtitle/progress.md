@@ -31,13 +31,13 @@ Recorded before execution starts so a fresh session can resume from this file al
 | 3 | 4–5 | `fbeda06e8` + tasks 4–5 | Implemented, both lanes green, Standards/Spec review gates **complete** and every finding fixed or recorded with its reason |
 
 | 4 | 6 | `551b10a4c` + task 6 | Implemented, both lanes green, Standards/Spec review gates **complete** and every finding fixed or recorded with its reason |
-| 5 | 7–8 | `0fef49ade` + tasks 7–8 | Implemented, both lanes green, common lint run, Standards/Spec review gates **complete** and every finding fixed or recorded with its reason |
+| 5 | 7–8 | `31aa5a4d6` | Implemented, both lanes green, common lint run, Standards/Spec review gates **complete** and every finding fixed or recorded with its reason |
 
-- Correction-run commits so far: `28d8311e0` (execution contract), `fccf8d9ca` (phase 1: tasks 1–2), `96a437c59` (phase status + continuation state), `321fd90b7` (phase 1 review fixes), `fbeda06e8` (phase 2: task 3), `551b10a4c` (phase 3: tasks 4–5), `0fef49ade` (phase 4: task 6).
+- Correction-run commits so far: `28d8311e0` (execution contract), `fccf8d9ca` (phase 1: tasks 1–2), `96a437c59` (phase status + continuation state), `321fd90b7` (phase 1 review fixes), `fbeda06e8` (phase 2: task 3), `551b10a4c` (phase 3: tasks 4–5), `0fef49ade` (phase 4: task 6), `31aa5a4d6` (phase 5: tasks 7–8).
 
 ### Completion note (M07–M09 correction run, 2026-09-14)
 
-**Repair commits.** `fccf8d9ca` (tasks 1–2), `fbeda06e8` (task 3), `551b10a4c` (tasks 4–5), `0fef49ade` (task 6), and the phase 5 commit for tasks 7–8. Branch `feature/ai-bilingual-subtitles`; upstream base `6e2e00bb8c`. Not pushed, no tag, no release.
+**Repair commits.** `fccf8d9ca` (tasks 1–2), `fbeda06e8` (task 3), `551b10a4c` (tasks 4–5), `0fef49ade` (task 6), `31aa5a4d6` (tasks 7–8). Branch `feature/ai-bilingual-subtitles`; upstream base `6e2e00bb8c`. Not pushed, no tag, no release.
 
 **Changed files.** Thirteen production files modified and one added, all under
 `common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/`:

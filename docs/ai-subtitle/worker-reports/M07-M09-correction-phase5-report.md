@@ -197,8 +197,8 @@ Fixed:
 - *This report named the cache-identity test by its pre-review name.* Corrected to
   `theMigratedBuiltInPromptsChangeTheCacheIdentity`.
 - *The completion note lists this phase's commit without a SHA*, because it is written before the
-  commit exists. The plan asks the note to carry the repair SHAs, so the phase-5 commit's SHA is
-  recorded in the ledger by the follow-up commit that closes the run.
+  commit exists. The plan asks the note to carry the repair SHAs, so the phase-5 commit `31aa5a4d6`
+  is recorded in the ledger by the follow-up commit that closes the run.
 
 Recorded:
 
