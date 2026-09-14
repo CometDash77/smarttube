@@ -188,3 +188,57 @@ measured, and no exact-SHA CI run exists yet.
 | Partial-batch repair (M07 exit condition 7, second half) | `NOT IMPLEMENTED` | The three restart conditions in R5-2 |
 | `lintStbetaRelease` / `assembleStbetaRelease` locally | `NOT RUN` | Belongs to the candidate-SHA CI run; not repeated locally to avoid re-verifying inside M07 |
 | M06 and earlier device checks | `STILL PENDING` | Unchanged from the previous ledger |
+
+## Correction — M07–M09 correction run, task 8 (2026-09-14)
+
+This section is appended, not a rewrite: the SHAs and test numbers above are the historical
+record and stay as they were. It corrects three claims this report made that the correction run
+found to be wrong or incomplete.
+
+### 1. R1: the segmentation and pause behaviour was not correct
+
+The R1 row above records that `onSchedulingChanged`, `onSegmentationChanged` and
+`setSourceAdapter` were fixed, and the evidence it cites is the new adapter, the getter and the
+generation counter. That evidence does not prove what the row implies. Two of the audit's
+counterexamples failed against this code:
+
+- `reviewSegmentationUpdatesTheExistingAdapter` — a segmentation change never reached the
+  adapter already serving the current track (`expected:<100> but was:<60>`).
+- `reviewProfileChangeKeepsPlaybackPaused` — a configuration change rebuilt the session ACTIVE
+  and resumed playback work (`expected:<PAUSED> but was:<ACTIVE>`).
+
+Both were real and both are fixed, with the red run and the fix recorded in
+`M07-M09-correction-phase1-report.md` (C4 and C2). The lesson for this row is narrow: "a new
+adapter receives the stored limits" and "the existing adapter receives them" are different
+claims, and the row stated the second on evidence for the first.
+
+### 2. R5-2 evidence: which classes have a test, and which have none
+
+The R5-2 list says that `AiSegmentationCoordinator`, `StatisticalSentenceBreaker`,
+`SegmentationMetrics` and `AsrTimingEstimator` have no production caller and that **only**
+`segmentation/BoundaryProtocolTest.java` references them. The first half holds. The second half
+does not:
+
+- `StatisticalSentenceBreaker` is exercised by `segmentation/SentenceAndChunkerTest.java`, and
+  `AsrTimingEstimator` by `segmentation/AsrTimingEstimatorTest.java` — both real coverage.
+- Five classes are referenced by `segmentation/BoundaryProtocolTest.java` alone:
+  `AiSegmentationCoordinator`, `SegmentationMetrics`, `BoundaryProtocolParser`,
+  `BoundaryValidator` and `BoundaryProtocol`.
+- `DeterministicSegmentationFallback` is referenced by **no test at all**. That is a coverage
+  gap, and it is a different statement from "the batch path is unused".
+- `BoundaryProtocol.encodeItem` having no caller anywhere is correct and unchanged. On its own
+  it is not a test defect, and the correction run did not treat it as one.
+
+The `NOT IMPLEMENTED` scope revision for partial-batch repair is unaffected: none of these
+corrections gives the batch path a production caller, and `docs/ai-subtitle/worker-plans/M07-plan.md`
+now carries the D4–D6 batch halves as unchecked with the reason.
+
+### 3. R5-3: the indexed prompt limitation is now closed
+
+R5-3 recorded that the built-in indexed Prompt asks for the unit index back, that nothing
+consumes that shape, and that changing its content "belongs with the same decision as R5-2".
+The M07–M09 correction run's task 7 took that decision independently of the batch work: the
+prompt now treats `unit_index` as an input locator and asks for the translation alone, and its
+version moved from 1 to 2 so existing installations migrate. The limitation described here no
+longer exists, and the reason given for leaving it was that it was blocked on a decision the
+batch work never needed to make.

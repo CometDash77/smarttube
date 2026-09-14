@@ -31,8 +31,8 @@ proves it; every device row is marked `PENDING DEVICE` rather than being claimed
 | English manual and auto-generated in one list, order swapped | The selected track is chosen, not the first | `matchSubtitleSelectsTheSelectedSameLanguageTrackRegardlessOfListOrder` | PASS |
 | Only a language code is known and two tracks share it | Source-only, never a guess | `matchSubtitleFallsBackToSourceOnlyWhenOnlyTheLanguageCodeIsKnown` | PASS |
 | Timed-text URL without a query / with a non-VTT fmt / with escaped signature / with a fragment | `fmt=vtt` set without corrupting anything else | `toVttUrlAddsQueryWhenTheTimedTextUrlHasNone`, `toVttUrlReplacesANonVttFormatWithoutTouchingSignedParameters`, `toVttUrlKeepsFragmentsAfterTheQuery` | PASS |
-| Chinese, Japanese, English fixtures, manual and ASR | All present and asserted | `theFixtureCoversEveryRequiredLanguageAndCaptionKind` | PASS |
-| Word timing, no-space, noise, duplicate, fast, slow, overlap, gap, long | Each behaves as its category promises | `thePipelineKeepsContentAndDropsOnlyWhatItShould` | PASS |
+| Chinese, Japanese, English fixtures, manual and ASR | All present and asserted | `theFixtureCoversEveryRequiredLanguageAndCaptionKind` | PASS — **corrected by the M07–M09 correction run task 7**: the assertion checked the language set and the caption-kind set separately, which passes while a whole pair is missing; Japanese manual captions were missing. It now asserts the six explicit pairs, and `ja-manual-001` supplies the missing one. |
+| Word timing, no-space, noise, duplicate, fast, slow, overlap, gap, long | Each behaves as its category promises | `thePipelineKeepsContentAndDropsOnlyWhatItShould` | PASS — **corrected by the M07–M09 correction run task 7**: "word timing" was a provenance label with no per-word times anywhere, and the "long" event was 65 characters, under the splitter's 80-character threshold, so the splitting assertion (`texts.size() > 1` over the whole fixture) proved nothing. The label is now an honest short-cue category, the long line is 157 characters with a targeted assertion, and what the parser really does with inline word timings is stated in `VttParserTest`. |
 | A source gap | No unit to show; the previous caption is not held over | `aGapInTheSourceHasNoUnitToShow` | PASS |
 | Segment/unit time mapping | Contiguous coverage, ordered by time, every segment resolves | `everyUnitCoversContiguousSegmentsInTimelineOrder`, `everySegmentResolvesToAUnitAndEveryUnitToASegment` | PASS |
 | 2h+ synthetic timeline (7500 one-second cues), 256 seeks | Work records and cache stay bounded | `aTwoHourTimelineStaysBoundedUnderRepeatedSeeks` | PASS |
@@ -40,7 +40,7 @@ proves it; every device row is marked `PENDING DEVICE` rather than being claimed
 | Pause → resume, seek, drag, track/video/config change, off/on, reopen | No stale result changes the current state | `pauseStopsNewWorkAndResumeDispatchesImmediately`, `dragKeepsLatestPositionAndSeekEndDispatchesOnlyIt`, `newVideoStartsFreshSessionIdentity`, `trackChangeCreatesNewGenerationWithNewIdentity`, `releaseClosesTheActiveSession`, `seekingClearsTheDraftAndCancelsTheStream` | PASS |
 | 100 identical ticks | One logical request | `repeatedPositionTicksDoNotDuplicateRequests` | PASS |
 | A later unit finishing first | Never used as current history | `aLaterUnitThatFinishedFirstIsNeverHistory` | PASS |
-| AUTH / PROTOCOL / INVALID_OUTPUT / CANCELLED / NETWORK / TIMEOUT, 429, 5xx | Normalized, budgeted, terminal categories never retried | `everyProviderFailureCategoryKeepsSourceOnly`, `terminalCategoriesDoNotRetry`, `rateLimitAndServerUseTheSameRetryBudget`, `timeoutUsesThreeNetworkAttemptsWithBackoff` | PASS |
+| AUTH / PROTOCOL / INVALID_OUTPUT / CANCELLED / NETWORK / TIMEOUT, 429, 5xx | Normalized, budgeted, terminal categories never retried | `everyProviderFailureCategoryKeepsSourceOnly`, `terminalCategoriesDoNotRetry`, `rateLimitAndServerUseTheSameRetryBudget`, `timeoutUsesThreeNetworkAttemptsWithBackoff` | PASS — **corrected by the M07–M09 correction run tasks 4–5**: this row covers the scheduler's handling of a category once it is known, and that part held. Error *normalisation* did not. A call deadline before the response headers was reported as CANCELLED rather than TIMEOUT, and a streamed 429 or 5xx was reported as PROTOCOL rather than a retryable category, so the plain fallback never ran for the failures that most need it. Both were reproduced red and fixed; the evidence is in `M07-M09-correction-phase3-report.md`. |
 | Provider throws synchronously | Isolated to source output | `providerExceptionIsIsolatedToSourceOnlyOutput` | PASS |
 | Streaming off and on | Core chain passes in both modes | Full suite runs with both switches off; streaming cases run with it on | PASS |
 | 50 rapid drags (explicit count) | Only the final position dispatches | Not written as a 50-iteration case; the semantics are covered by the drag test | PARTIAL — closed by the M07–M09 correction run phase 1 (`AiSubtitleControllerTest`) |
@@ -114,7 +114,10 @@ changed. No device sampling was run and no request-count, latency, or memory fig
 `docs/ai-subtitle/upstream-patches.md` was rewritten against the actual diff, not the plan:
 
 - Local `master` is identical to `upstream/master` at `6e2e00bb8c`; `git diff master...HEAD` is
-  therefore the complete feature diff (180 files, +28073 / -1).
+  therefore the complete feature diff. **Corrected by the M07–M09 correction run task 8: at
+  `10d6a18cf` the diff is 184 files, +29 324 / -1, not 180 and +28 073 / -1.** Recomputing it is
+  the point — the number was carried over rather than measured. The correction candidate
+  `0fef49ade` is 190 files, +33 012 / -1.
 - The real host surface is **5 Java files** (`PlaybackPresenter`, `SubtitleManager`,
   `SubtitleSettingsPresenter`, `PlayerUIController`, `VideoPlayerGlue`), **1 resource file**
   (`ids.xml`) and **1 build file** (`common/build.gradle`, one added dependency for the pairing
@@ -140,9 +143,13 @@ reproduced in the matrix above; the operating steps are unchanged from M07 Task 
 
 ## F. Release candidate and completion gate
 
-- This report carries the M07→M09 commit list, the modified files per milestone (in the M07 and
-  M08 reports), the fixes found by running, the accepted and rejected M08 optional features, the
-  test method names and counts, the upstream diff conclusion and the known limitations.
+- This report carries the M07→M09 commit list, the per-file inventory for all three milestone
+  ranges (appendix at the end of this report), the fixes found by running, the accepted and
+  rejected M08 optional features, the test method names and counts, the upstream diff
+  conclusion and the known limitations. **Corrected by the M07–M09 correction run task 8:**
+  this bullet previously said the modified files per milestone were "in the M07 and M08
+  reports". They were not — those reports describe types and behaviour, not file lists — and
+  the appendix now carries what the milestone ranges actually contain.
 - Exact-SHA CI: **not run**. No candidate APK exists, so no package name, ABI, SHA-256 or signing
   fingerprint is reported.
 - Completion gate: M07 source/scheduler/settings correctness is covered automatically; M08 is
@@ -178,4 +185,174 @@ eleven methods in that class. The suite was re-run after the fix.
 | 50-drag explicit case, repeated-terminal-callback assertion | `CLOSED` | Both closed by the M07–M09 correction run (phase 1 and phase 3) |
 | Partial-batch repair | `NOT IMPLEMENTED` | The three restart conditions in `M07-report.md` §R5-2 |
 | Persistent cache and video summary | `NOT IMPLEMENTED` | The measurement conditions in `M08-report.md` §F |
-| Display mode × streaming combination matrix | `NOT COVERED` | M09 section A follow-up |
+| Display mode × streaming combination matrix | `COVERED` | Closed by the M07–M09 correction run task 6 (`AiSubtitleCueBridgeModeTest`) |
+
+## Correction — M07–M09 correction run, task 8 (2026-09-14)
+
+Appended, not a rewrite. The local numbers above (460/20 and 78/0) are the M09 record and stay
+as they are; the correction run's own numbers are in `progress.md`, and the two are not the same
+measurement of the same tree.
+
+### A. The fixture matrix proved less than it claimed
+
+Two rows are annotated above. In short: the language and caption-kind assertions were over two
+independent sets, which is satisfied while an entire pair is missing — Japanese manual captions
+were — and the "word timing" category was a provenance label with no per-word times behind it
+anywhere in the fixture or the parser, while the "long" event was 65 characters and so never
+crossed the splitter's 80-character threshold. Task 7 added the missing sample, asserted the six
+explicit pairs, replaced the long event with a genuinely long line and asserted splitting on that
+line alone, renamed the word-timing category to what it is, and added `VttParserTest` coverage
+that states what happens to inline word timings. Per-word timing is **not implemented**; that is
+now recorded rather than implied.
+
+### A2. Error normalisation was not correct
+
+The matrix row above claims the failure categories were "normalized, budgeted, terminal
+categories never retried" and marks it PASS. The scheduler's half of that held — once a category
+is known, the budget and the terminal rules work. Normalisation did not: a call deadline before
+the response headers surfaced as CANCELLED, and a streamed 429 or 5xx surfaced as PROTOCOL. The
+probes `reviewDeadlineBeforeHeadersMustBeTimeoutNotCancelled`, `reviewStreaming429KeepsRetryableCategory`
+and `reviewStreamingOverloadRemainsRetryable` reproduced all three against this tree, and tasks 4
+and 5 fixed them. Recorded in `M07-M09-correction-phase3-report.md`; the M08 report's correction
+section carries the same defect from the transport's side.
+
+### B. Section B: the work map's bound was not the cache's bound
+
+The section says keeping cache-resident records "ties the map's bound directly to the cache's
+bound". Two holes made that false, and both were reproduced red in task 3:
+
+- A `SUCCEEDED` record whose result had been evicted kept saying `SUCCEEDED`, so returning to that
+  cue never translated it again and the viewer kept the source line.
+- The displayed-cue path has no timeline: `dispatch` returns before pruning and `start < 0` was
+  skipped by the prune, so a thousand distinct cues left a thousand records.
+
+The full ceiling, now stated in the scheduler's own javadoc, is the cache's entry limit plus the
+units still inside the window plus whatever the throttle interval added since the last prune plus
+the one request in flight — deliberately not "512 records", and deliberately not "the whole work
+map". The no-timeline branch is bounded by its own rule, and an evicted result is re-requested.
+
+**2 MiB is the translation payload bound, not a memory statement about the app.** It caps stored
+UTF-8 translation text; nothing in this report measured JVM, Android or device memory, and the
+performance and memory sampling rows above remain `NOT RUN` / `PENDING DEVICE`.
+
+### C. The credential is not only in the encrypted store
+
+The claim is corrected: `AndroidSecretStore` uses AES-256-GCM with a non-exportable
+AndroidKeyStore key on **API 23+**, and an explicitly documented **app-private plaintext**
+compatibility path on **API 17–22**. The plaintext fallback is the policy ADR-012 already
+approved for those levels, so the description was wrong, not the storage strategy: the strategy
+was not redesigned, and no file moved.
+
+### D. The upstream numbers were carried over, not measured
+
+`upstream-patches.md` now carries the recomputed table: `10d6a18cf` is 184 files, +29 324 / -1
+(the report said 180 and +28 073 / -1), and the correction candidate `0fef49ade` is 190 files,
++33 012 / -1. The host-patch surface was re-verified file by file for this run — five Java files
+(+43/+2/+6/+35-1/+4), `ids.xml +1`, `common/build.gradle +1` — with no rename, no mode change,
+no whole-file reformatting, unchanged submodule pointers and no ExoPlayer file touched.
+
+### F. The file inventory
+
+The section claimed the per-milestone file lists were in the M07 and M08 reports. They were not.
+The appendix below carries the name-status list for each of the three milestone ranges, generated
+from the commits rather than described.
+
+## Appendix — per-milestone file inventory
+
+Generated with `git diff --name-status <from> <to>` for each milestone range, using the commit that ends each milestone as the next range's start. `A` = added, `M` = modified, `D` = deleted, `R` = renamed. The M07 range starts at the last commit before the M07 work, so it does not reach back into M05/M06.
+
+### M07 range, `76eb2511f..468d77839` — 35 files changed, 4394 insertions(+), 494 deletions(-)
+
+```
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/integration/AiSubtitleController.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/integration/AiSubtitleCueBridge.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/integration/AiSubtitleRuntime.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/prompt/PromptRenderer.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/AnthropicMessagesAdapter.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/OpenAiChatCompletionsAdapter.java
+A	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/scheduler/TranslationScheduler.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/segmentation/RuleSentenceBreaker.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/AiSubtitleData.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/remote/AiSubtitlePhoneInputServer.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/ui/AiSubtitleSettingsPresenter.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/ui/ProviderProfilesPresenter.java
+A	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/source/SmartTubeSubtitleSourceAdapter.java
+A	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/source/SourceTimeline.java
+A	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/source/VttParser.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/translation/TranslationRequest.java
+M	common/src/main/res/values-zh-rTW/ai_subtitle_strings.xml
+M	common/src/main/res/values-zh/ai_subtitle_strings.xml
+M	common/src/main/res/values/ai_subtitle_strings.xml
+M	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/integration/AiSubtitleControllerTest.java
+M	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/integration/AiSubtitleCueBridgeCacheTest.java
+M	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/integration/AiSubtitleCueBridgeModeTest.java
+M	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/integration/AiSubtitleCueBridgeSessionTest.java
+M	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/integration/AiSubtitleCueBridgeTest.java
+M	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/AnthropicMessagesAdapterTest.java
+M	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/OpenAiChatCompletionsAdapterTest.java
+A	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/scheduler/TranslationSchedulerTest.java
+A	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/remote/AiSubtitlePhoneInputServerTest.java
+A	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/source/SmartTubeSubtitleSourceAdapterTest.java
+A	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/source/VttParserTest.java
+M	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/translation/FakeTranslationProviderTest.java
+M	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/translation/TranslationRequestTest.java
+M	docs/ai-subtitle/progress.md
+M	docs/ai-subtitle/tv-usability-repair-progress.md
+A	docs/ai-subtitle/worker-plans/M07-plan.md
+```
+
+### M08 range, `468d77839..a6d6e6943` — 35 files changed, 3507 insertions(+), 117 deletions(-)
+
+```
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/integration/AiSubtitleController.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/integration/AiSubtitleCueBridge.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/prompt/BuiltInSubtitlePrompts.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/AnthropicMessagesAdapter.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/OpenAiChatCompletionsAdapter.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/http/HttpRequestExecutor.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/http/OkHttpRequestExecutor.java
+A	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/http/SseEventReader.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/scheduler/TranslationScheduler.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/AiSubtitleData.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/remote/AiSubtitlePhoneInputServer.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/ui/AiSubtitleSettingsPresenter.java
+A	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/translation/TranslationContextBuilder.java
+M	common/src/main/res/values-zh-rTW/ai_subtitle_strings.xml
+M	common/src/main/res/values-zh/ai_subtitle_strings.xml
+M	common/src/main/res/values/ai_subtitle_strings.xml
+M	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/integration/AiSubtitleControllerTest.java
+M	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/integration/AiSubtitleCueBridgeCacheTest.java
+M	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/integration/AiSubtitleCueBridgeSessionTest.java
+M	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/integration/AiSubtitleCueBridgeTest.java
+M	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/AnthropicMessagesAdapterTest.java
+M	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/OpenAiChatCompletionsAdapterTest.java
+A	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/http/OkHttpStreamingTest.java
+A	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/http/SseEventReaderTest.java
+M	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/scheduler/TranslationSchedulerTest.java
+M	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/settings/remote/AiSubtitlePhoneInputServerTest.java
+A	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/translation/TranslationContextBuilderTest.java
+M	docs/ai-subtitle/progress.md
+A	docs/ai-subtitle/research/2026-09-14-m08-reuse.md
+A	docs/ai-subtitle/worker-plans/M07-M09-continuation-plan.md
+M	docs/ai-subtitle/worker-plans/M07-plan.md
+A	docs/ai-subtitle/worker-plans/M08-plan.md
+A	docs/ai-subtitle/worker-plans/M09-plan.md
+A	docs/ai-subtitle/worker-reports/M07-report.md
+A	docs/ai-subtitle/worker-reports/M08-report.md
+```
+
+### M09 range, `a6d6e6943..2f98945e3` — 11 files changed, 980 insertions(+), 24 deletions(-)
+
+```
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/cache/InMemoryTranslationCache.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/cache/TranslationCache.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/integration/AiSubtitleController.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/scheduler/TranslationScheduler.java
+M	common/src/main/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/source/SmartTubeSubtitleSourceAdapter.java
+M	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/cache/InMemoryTranslationCacheTest.java
+A	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/provider/ProviderAuditTest.java
+A	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/scheduler/TranslationSchedulerCapacityTest.java
+M	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/source/SubtitleFixture.java
+A	common/src/test/java/com/liskovsoft/smartyoutubetv2/common/ai/subtitle/source/SubtitleFixturePipelineTest.java
+M	common/src/test/resources/ai-subtitle/fixtures/independent-cases.json
+```

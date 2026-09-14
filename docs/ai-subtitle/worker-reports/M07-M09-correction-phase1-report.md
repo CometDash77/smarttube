@@ -96,7 +96,54 @@ suggests a product defect: the bridge-level behaviour is covered by the integrat
 which do observe the requests. The open question is why the resolved provider never reaches the
 socket under Robolectric, and it is recorded here for a follow-up rather than guessed at.
 
-## Unchanged / not attempted
+## Review gates
+
+Two subagents reviewed the phase diff on the Standards and Spec axes; neither ran tests or built
+anything, and no review verdict is quoted as a test result. No finding was Blocking. (The ledger
+carried this summary from the start; this section is where the phase's own report should have had
+it, and the final review roll-up pointed that out.)
+
+Fixed, Standards axis:
+
+- The `rebindTranslationIdentity` javadoc claimed the bounded context flows through it; it does
+  not — `onContextEnabledChanged` goes straight to the rebuild. Corrected, and the sibling docs
+  now name the two paths explicitly.
+- `applySchedulingToBridge` had **zero callers** once the phone path moved to `applyToBridge`.
+  Deleted rather than left as dead public surface.
+- The segmentation-limits rule existed in three copies. Extracted to
+  `segmentation/SegmentationLimits.isValid(long, long, long)` and used by the settings store, the
+  bridge and the adapter.
+- The identity guard was copied verbatim into both rebind paths; extracted to
+  `isSessionIdentityCurrent()`, and `rebuildTranslationSession` renamed to `rebuildLiveSession` to
+  stop it colliding by one letter with `rebindTranslationIdentity`.
+- An unused `java.io.InputStream` import removed from the phone test.
+
+Fixed, Spec axis:
+
+- `canStartWork()` omitted the plan's "selected track" precondition. Added, implemented with a new
+  `mTrackStateKnown` flag so "subtitles off" is distinguishable from "no track event yet";
+  `recreateScheduler()` is gated by it while the session is always created, which keeps
+  `subtitlesOffAndOnRestartFromCleanState` green.
+- The C3 row in this report claimed the old phone path "applied only the scheduling limits". It
+  called two entries, so the provider and scheduling did apply; what never reached the running
+  bridge was the bilingual order, the context switch and the streaming switch. The row now says
+  that.
+- `aPhoneSaveAppliesToTheLiveBridgeThatIsAlreadyPlaying` overstated what it asserts; renamed to
+  `aPhoneSaveLeavesTheLiveBridgeConfiguredAndResolvable` with the javadoc and assertion message
+  reworded.
+
+Recorded rather than changed, with the reason:
+
+- **Data Clumps rejected.** Threading `(targetChars, maxChars, longSentenceChars)` through five
+  signatures was flagged and a value object suggested. The plan mandates the three explicit `int`
+  parameters, so the shape stays. The validation duplication the same finding raised *was* fixed.
+- **F5, apply order.** `applySettingsToBridge` applies segmentation first, where the plan lists it
+  last; the javadoc explains why (applying it last lets earlier settings dispatch requests the new
+  cut immediately invalidates).
+- **F6, assertion strength.** The "no work" behaviour-matrix tests assert request counts, not the
+  request source text the plan asked for. For tests whose subject is "nothing was dispatched", the
+  count is the honest assertion; the two tests where a request *is* expected do assert the text.
+
 
 No push, tag, release, artifact upload or paid API call. No changes to KissTranslator,
 SharedModules, MediaServiceCore, ExoPlayer or dependency versions. No upstream host files were

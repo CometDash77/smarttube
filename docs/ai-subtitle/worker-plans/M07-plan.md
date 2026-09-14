@@ -126,9 +126,12 @@
 - [x] D1 调度仅看 failure.isRetryable()，不再判断品牌或 HTTP 文本。默认每单元最多 3 次网络尝试（初次 + 2 次重试），退避基数 1 秒、2 秒，随机抖动 0–250ms。数字为本次实现默认值，无需先做配置 UI；测试固定 Random seed 或传入 jitter 数值。
 - [x] D2 用现有 tick/唯一 Handler 定时器检查到期，不 Thread.sleep，不为每个请求建线程。暂停、seek、关闭和换身份取消对应重试；重试到期时仍重新检查窗口、缓存、attempt 和 session ownership。立即重试不是本轮必需，统一走有限退避即可。
 - [x] D3 AUTH、PROTOCOL、INVALID_OUTPUT、CANCELLED 沿用现有 terminal 分类；当前 epoch 内不自动循环。手动重试有明确入口；失败总有原文，不因为重新渲染重置计数。
-- [x] D4 区分两种“部分”：TranslationResult.partialResult 是流式草稿，绝不能作为完成或部分批次成功。批次缺项必须由 segment 覆盖和已验证边界证明；有连续有效前缀则保留，只为未覆盖尾部安排一次修复，修复仍算入总预算。边界不可证明时保持原文，不伪造完整成功。
-- [x] D5 尽量直接调用 M06 的 accepted-prefix/tail recovery；不要另写 response parser 或第二套批次协议。单 unit 单请求失败则只重试该 unit，已经成功的邻近 unit 不重发。
-- [x] D6 同一测试文件加入超时、429、5xx、鉴权、取消、空/错误覆盖、草稿、前缀+尾部失败、预算耗尽场景。断言总请求次数、已接受覆盖、缓存内容和 source fallback，而不只是断言方法被调用。
+- [x] D4 区分两种“部分”：TranslationResult.partialResult 是流式草稿，绝不能作为完成或部分批次成功。边界不可证明时保持原文，不伪造完整成功。
+- [ ] D4（批次部分，**未实施**）批次缺项必须由 segment 覆盖和已验证边界证明；有连续有效前缀则保留，只为未覆盖尾部安排一次修复，修复仍算入总预算。**M07–M09 修正任务 8 更正**：原勾选不成立。`M07-report.md` §R5-2 记录当时没有可执行的批次生产路径——边界类无生产调用方、`BoundaryProtocol.encodeItem` 无调用方、两个 adapter 都返回整 unit 自由文本、内置 indexed Prompt 不产出该线格式、请求与校验的索引基准不同、也没有尾部子单元的拼装路径。勾选已按实际状态拆开：整 unit 的失败与重试行为已实现并有断言，批次前缀/尾部恢复未实施。
+- [x] D5（整 unit 部分）单 unit 单请求失败则只重试该 unit，已经成功的邻近 unit 不重发（`retryOnlyTheFailedUnitAfterNeighborsSucceed`）。
+- [ ] D5（批次部分，**未实施**）尽量直接调用 M06 的 accepted-prefix/tail recovery；不要另写 response parser 或第二套批次协议。同上，没有生产路径可调用。
+- [x] D6 同一测试文件加入超时、429、5xx、鉴权、取消、空/错误覆盖、草稿、预算耗尽场景。断言总请求次数、已接受覆盖、缓存内容和 source fallback，而不只是断言方法被调用。
+- [ ] D6（批次部分，**未实施**）前缀+尾部失败场景。它需要一个不存在的批次生产模式，因此没有可断言的接线。
 
 ## Execution checkpoint — 2026-09-13 (Task E paused, partial)
 

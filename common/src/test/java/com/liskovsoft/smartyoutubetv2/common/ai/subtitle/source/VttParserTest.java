@@ -50,4 +50,30 @@ public class VttParserTest {
         assertTrue(new VttParser().parse(null).isEmpty());
         assertTrue(new VttParser().parse("").isEmpty());
     }
+
+    /**
+     * Inline word timings are cue text, not timings. The parser has no per-word model, so the
+     * markers survive verbatim in the cue line and the normalizer strips them along with every
+     * other tag — the words reach the pipeline without any per-word time. Stated here so no
+     * fixture category claims word timing the pipeline cannot carry.
+     */
+    @Test
+    public void inlineWordTimingsAreCueTextAndNotInterpretedAsWordTimings() {
+        String vtt = "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\n"
+                + "<00:00:00.000><c>one</c> <00:00:00.500><c>two</c>";
+
+        List<SourceCue> cues = new VttParser().parse(vtt);
+
+        assertEquals(1, cues.size());
+        assertEquals("<00:00:00.000><c>one</c> <00:00:00.500><c>two</c>", cues.get(0).getText());
+    }
+
+    @Test
+    public void theNormalizerStripsInlineWordTimingTagsWithEveryOtherTag() {
+        List<SourceCue> normalized = new SubtitleNormalizer().normalize(
+                java.util.Collections.singletonList(new SourceCue(0, 2_000,
+                        "<00:00:00.000><c>one</c> <00:00:00.500><c>two</c>")));
+
+        assertEquals("one two", normalized.get(0).getText());
+    }
 }

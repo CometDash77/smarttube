@@ -204,7 +204,11 @@ Failures found and fixed by running rather than by inspection:
 - `decorate` overwrote the draft status with TRANSLATED; the draft/final distinction now lives
   in one place.
 - A call-deadline failure surfaces as a socket failure, not an interrupted read; the transport
-  now classifies by the request's own budget.
+  now classifies by the request's own budget. **Corrected by the M07–M09 correction run,
+  task 4:** classifying by elapsed time against the budget was the wrong rule — the tolerance
+  guess is gone, and a deadline before the response headers was reported as CANCELLED rather
+  than TIMEOUT, which the audit reproduced. The transport now classifies by exception type and
+  by whether the call it owns was cancelled, with no elapsed-time comparison.
 - Two bridge tests created their own bridge without a refresh listener, so they observed no
   repaints at all.
 
@@ -217,6 +221,62 @@ exact-SHA CI run exists yet.
 |---|---|---|
 | Exact-SHA GitHub Actions run for the M08 commits | `PENDING PUSH AUTHORIZATION` | An authorized push to `feature/ai-bilingual-subtitles` |
 | Device acceptance for context and streaming | `PENDING DEVICE` | A TV or Android device plus a candidate APK |
-| Display mode × streaming combination matrix | `NOT COVERED` | M09 section A |
+| Display mode × streaming combination matrix | `COVERED` | Closed by the M07–M09 correction run task 6 (`AiSubtitleCueBridgeModeTest`) |
 | Multi-content-block Anthropic streams | `KNOWN LIMITATION` | A request shape that emits more than one text block |
 | Persistent cache / summary (F) | `NOT IMPLEMENTED` | The measurement restart conditions above |
+
+## Correction — M07–M09 correction run, task 8 (2026-09-14)
+
+Appended, not a rewrite: the SHAs and numbers above are the historical record. Three claims this
+report made were wrong or unproven, and the correction run fixed the code behind all three.
+
+### 1. Section E: the context switch and the phone save did not take effect
+
+The section says "the context switch changes the output identity and starts a new session and
+cache" and that "both switches take effect on the current window immediately". The first was an
+identity-equality short circuit: the context was not part of the session identity, so toggling it
+compared equal and never rebuilt the live session. The phone save wrote storage while the running
+bridge kept the old configuration, so the settings page showed a saved value the player was not
+using. The audit's counterexample `reviewContextToggleRecreatesTheLiveSession` failed.
+
+Fixed in the correction run's task 2 and recorded in `M07-M09-correction-phase1-report.md` (C3),
+with the bridge-to-actual-request evidence the task-8 table asked for: the strengthened test
+asserts the rendered prompt (no video title before the toggle, present after, absent again after
+toggling back) rather than the generation counter, and `AiSubtitleRuntime.applyToBridge` became
+the single entry that applies the resolved provider, prompt and every stored playback setting.
+One PARTIAL remains open from that phase and is recorded in the phase 1 report: the JDK 11 lane
+could not observe the live bridge's request over real HTTP, so the phone test asserts the wiring
+up to that point and says so.
+
+### 2. Section C: "a final requires `finish_reason: stop` or a `[DONE]`" was not what the code did
+
+The line reads as a whitelist. The code excluded only `length` and `content_filter`, so every
+other non-empty `finish_reason` — a tool call, or a reason this adapter had never seen — was
+delivered as a finished translation. The audit's `reviewUnknownFinishReasonIsNotSuccessful`
+reproduced it: `text=half, final` from a `tool_calls` chunk.
+
+Task 5 of the correction run made the claim true: only `stop` or a compatible `[DONE]` completes
+a stream, a tool call or an unknown reason is a failure, and text after a completion signal is
+not accepted. The assertions are `anUnknownFinishReasonIsNotSuccessful` and
+`aToolCallFinishReasonIsNeverSubtitleText`, with the red evidence in
+`M07-M09-correction-phase3-report.md`.
+
+The same section's Anthropic counterpart — `error` events map to a failure — was also true but
+too coarse: every named error type mapped to PROTOCOL, including an overload, so a retryable
+condition became terminal. Named types now reuse the adapter's existing mapping
+(`anOverloadedStreamingErrorStaysRetryable`, `streamingErrorsReuseTheNamedCategories`).
+
+### 3. Section B: "the transport classifies by the request's own budget" was the wrong rule
+
+The bullet in "Failures found and fixed" is annotated above. In short: the elapsed-time comparison
+against the request budget is deleted, a deadline before the response headers was reported as
+CANCELLED rather than TIMEOUT, and a streamed 429 or 5xx was reported as PROTOCOL rather than a
+retryable category — so the non-streaming fallback the design calls for never ran. All three were
+reproduced red and fixed in task 4; see `M07-M09-correction-phase3-report.md`.
+
+### 4. What this section's numbers do and do not prove
+
+The M08 local runs (48 suites / 442 tests / 0 failures / 20 skipped on JDK 17, 78/0 on JDK 11)
+remain the M08 record and are not restated. The correction run's candidate numbers are its own
+and are in `progress.md`. Nothing here is a device result, and no exact-SHA CI run exists for any
+of these commits.

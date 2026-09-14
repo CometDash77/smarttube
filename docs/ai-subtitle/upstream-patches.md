@@ -19,18 +19,31 @@ Base: `master` is identical to `upstream/master` at `6e2e00bb8c989e089735c3f26fc
 `git diff master...HEAD` **is** the complete feature diff against the verified upstream base — not
 just the latest round of changes.
 
-Verified properties of the whole branch diff (180 files, +28073 / -1):
+Verified properties of the whole branch diff. The M09 figure below was wrong and is corrected
+here, per the M07–M09 correction run task 8:
 
-- Submodule pointers are unchanged: `MediaServiceCore 82e9ccde`, `SharedModules 86f0327`.
+| Candidate | Files | Insertions | Deletions |
+|---|---:|---:|---:|
+| `10d6a18cf` (the M09 candidate this section was first written against) | 184 | +29 324 | -1 |
+| `0fef49ade` (M07–M09 correction run, phases 1–4 — recomputed, not carried over) | 190 | +33 012 | -1 |
+
+- Submodule pointers are unchanged, and unchanged from upstream: `MediaServiceCore 82e9ccde`,
+  `SharedModules 86f0327` (the diff against `6e2e00bb8c` is empty for both paths).
 - No file under `exoplayer-amzn-2.10.6/`, `MediaServiceCore/`, or `SharedModules/` is modified.
-- No ExoPlayer source file is modified.
-- No Gradle dependency **version** is changed; exactly one dependency is added (`com.google.zxing:core:3.5.3`, for the QR pairing code the phone editor needs).
-- Every host Java file has a single-digit-to-low-double-digit line delta; there is no whole-file formatting, no rename, and no executable-bit change.
+- No ExoPlayer source file is modified: zero paths under `exoplayer-amzn-2.10.6/` appear in the
+  diff.
+- No Gradle dependency **version** is changed; exactly one dependency is added (`com.google.zxing:core:3.5.3`, for the QR pairing code the phone editor needs). `common/build.gradle`'s whole
+  diff is that one line.
+- Every host Java file has a single-digit-to-low-double-digit line delta, verified file by file
+  (M07–M09 correction run, task 8): `PlayerUIController +43`, `PlaybackPresenter +2`,
+  `SubtitleSettingsPresenter +6`, `SubtitleManager +35/-1`, `VideoPlayerGlue +4`. `ids.xml +1`.
+  Eight files in total, 93 insertions and 1 deletion, with no rename, no mode change, no
+  deletion and no whole-file reformatting (`git diff --summary` lists only `create mode` lines).
 - No provider, HTTP, cache, or scheduling logic lives in a host file: those are all under `common/.../common/ai/subtitle/`.
 - `VideoLoaderController.java` is **not** modified. The conditional hook was not needed: the adapter reaches the selected track through the existing public media-item service.
 
 Non-product files that also appear in the branch diff and are **not** upstream patches:
-`CONTEXT.md` (new glossary), `.gitignore` (one ignored local path), `.superpowers/sdd/M04-C7-research-report.md` (a process artifact committed by the M04 session), and `.github/workflows/ai-subtitle-validation.yml` (new feature-owned workflow).
+`CONTEXT.md` (new glossary), `.gitignore` (one ignored local path, `/.gh-config/`), `.superpowers/sdd/M04-C7-research-report.md` (a process artifact committed by the M04 session), and `.github/workflows/ai-subtitle-validation.yml` (new feature-owned workflow).
 
 ## Patch budget
 
