@@ -10,7 +10,15 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 
 ## Current state
 
-- Current milestone: **M07 — implementation and local automatic verification complete; CI and unified device acceptance pending.** Next milestone to execute: **M08** (bounded context, streaming, drafts, fallback).
+- Current milestone: **M08 — implementation and local automatic verification complete; CI and device acceptance pending.** Next milestone to execute: **M09** (coverage matrix, resource bounds and audit, upstream diff, release-candidate report).
+- M08 commit: `46c24aa0b` — bounded context, streamed drafts, both settings, and the two-protocol stream interpretations. Full detail: `worker-reports/M08-report.md`.
+- M08 local verification (2026-09-14, fresh ASCII copy at `C:\tmp\smartube-m07-m09`):
+  - JDK 17 full `:common:testStbetaDebugUnitTest` → `BUILD SUCCESSFUL`, 48 suites, **tests=442, failures=0, errors=0, skipped=20**.
+  - JDK 11 `:common:testStbetaDebugUnitTest --tests '....ai.subtitle.settings.*'` → `BUILD SUCCESSFUL`, 11 suites, **tests=78, failures=0, errors=0, skipped=0**.
+  - Both new switches default off, so this run is also the M07 core regression proving the optimizations can be disabled.
+- M08 deviations recorded in the report: no context field on `TranslationRequest` (the rendered instruction is the single source of truth); the Anthropic accumulator does not bucket by content block index (production asks for one text block); draft repaints are dropped rather than deferred (a draft is cumulative and a final always repaints); the streaming switch invalidates by cancel plus a new request id rather than by advancing the session epoch.
+- M08-F decision: persistent on-disk cache and video-summary context are **not implemented**. No measurement was run and none is claimed; the restart conditions are unchanged and neither blocks M09.
+- M07 status unchanged: M07 implementation and local automatic verification complete; its exact-SHA CI and unified device acceptance remain pending.
 - Current task: `M07 Task E — complete` (committed, tested); review items R0–R4 closed; R5 closed with one evidenced scope revision.
 - M07 review-fix commits: `a73ce61cb` (R3, subtitle track resolution), `468d77839` (R0/R1/R2/R4, Task E completion, settings lifecycle, prompt wiring). Full detail: `worker-reports/M07-report.md`.
 - M07 local verification (2026-09-14, fresh ASCII copy of the working tree at `C:\tmp\smartube-m07-m09`):
@@ -139,7 +147,7 @@ None.
 
 ## Planned next action
 
-Execute M08 per `worker-plans/M08-plan.md` (bounded context builder and prompt fingerprinting, cancellable streaming HTTP with SSE framing, per-protocol stream interpretation, drafts to the current cue with failure fallback, and the two real settings). Follow the resume rules in `worker-plans/M07-M09-continuation-plan.md` §10; M07 Task F device acceptance and exact-SHA CI stay pending and do not block M08 implementation. The older M04-C7/M05-C0 pause text below is historical and was resolved during M05/M06.
+Execute M09 per `worker-plans/M09-plan.md`: build the coverage matrix and the 2h+ synthetic timeline, bound the in-memory cache and the work map, audit phone/TV/provider/secret handling, verify the upstream patch surface against the real diff, and write `worker-reports/M09-report.md`. Follow the resume rules in `worker-plans/M07-M09-continuation-plan.md` §10. M07/M08 exact-SHA CI and all device acceptance stay pending and do not block M09 implementation and automatic checks; M09 cannot be marked complete without them. The older M04-C7/M05-C0 pause text below is historical and was resolved during M05/M06.
 
 ## Test status
 
