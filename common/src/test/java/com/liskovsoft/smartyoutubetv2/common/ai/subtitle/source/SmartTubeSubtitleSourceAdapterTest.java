@@ -94,16 +94,52 @@ public class SmartTubeSubtitleSourceAdapterTest {
     }
 
     @Test
-    public void matchSubtitlePrefersLanguageCodeOverName() {
+    public void matchSubtitleSelectsTheSelectedSameLanguageTrackRegardlessOfListOrder() {
+        FakeSubtitle manual = subtitle("en", "English", "http://example.com/manual");
+        FakeSubtitle asr = subtitle("en", "English (auto-generated)", "http://example.com/asr");
+        SourceTrackId asrTrack = new SourceTrackId("video1",
+                "subtitle:English (auto-generated):1", "en");
+        SourceTrackId manualTrack = new SourceTrackId("video1", "subtitle:English:1", "en");
+
+        List<MediaSubtitle> manualFirst = Arrays.asList(manual, asr);
+        List<MediaSubtitle> asrFirst = Arrays.asList(asr, manual);
+
+        assertEquals("the auto-generated track must win when it is the selected one",
+                "http://example.com/asr",
+                SmartTubeSubtitleSourceAdapter.matchSubtitle(asrFirst, asrTrack).getBaseUrl());
+        assertEquals("list order must not change the selected track",
+                "http://example.com/asr",
+                SmartTubeSubtitleSourceAdapter.matchSubtitle(manualFirst, asrTrack).getBaseUrl());
+
+        assertEquals("the manual track must win when it is the selected one",
+                "http://example.com/manual",
+                SmartTubeSubtitleSourceAdapter.matchSubtitle(asrFirst, manualTrack).getBaseUrl());
+        assertEquals("list order must not change the selected track",
+                "http://example.com/manual",
+                SmartTubeSubtitleSourceAdapter.matchSubtitle(manualFirst, manualTrack).getBaseUrl());
+    }
+
+    @Test
+    public void matchSubtitleFallsBackToSourceOnlyWhenOnlyTheLanguageCodeIsKnown() {
+        // Both tracks share the code "en", so nothing distinguishes the selected one; guessing
+        // would translate a track the user did not choose.
         FakeSubtitle manual = subtitle("en", "English", "http://example.com/manual");
         FakeSubtitle asr = subtitle("en", "English (auto-generated)", "http://example.com/asr");
 
-        // Track identity says "subtitle:en:1" - language component is "en".
-        MediaSubtitle matched = SmartTubeSubtitleSourceAdapter.matchSubtitle(
-                Arrays.asList(manual, asr), TRACK);
-        assertNotNull(matched);
-        assertEquals("manual is preferred when codes match (first entry wins)",
-                "http://example.com/manual", matched.getBaseUrl());
+        assertNull(SmartTubeSubtitleSourceAdapter.matchSubtitle(
+                Arrays.asList(manual, asr), TRACK));
+        assertNull(SmartTubeSubtitleSourceAdapter.matchSubtitle(
+                Arrays.asList(asr, manual), TRACK));
+    }
+
+    @Test
+    public void matchSubtitleUsesCodeWhenItIdentifiesExactlyOneTrack() {
+        FakeSubtitle ja = subtitle("ja", "Japanese", "http://example.com/ja");
+        SourceTrackId jaTrack = new SourceTrackId("video1", "subtitle:ja:1", "ja");
+
+        assertEquals("http://example.com/ja",
+                SmartTubeSubtitleSourceAdapter.matchSubtitle(
+                        Collections.singletonList(ja), jaTrack).getBaseUrl());
     }
 
     @Test
@@ -111,6 +147,47 @@ public class SmartTubeSubtitleSourceAdapterTest {
         FakeSubtitle manual = subtitle("ja", "Japanese", "http://example.com/ja");
         assertNull(SmartTubeSubtitleSourceAdapter.matchSubtitle(
                 Collections.singletonList(manual), TRACK));
+    }
+
+    @Test
+    public void buildTimelineFallsBackToSourceOnlyForEmptyContent() {
+        FakeSubtitle manual = subtitle("en", "English", "http://example.com/timedtext?v=video1");
+
+        assertNull(adapter(Collections.singletonList(manual), "   ").buildTimeline(
+                Collections.singletonList(manual), TRACK, url -> "   "));
+        assertNull("a subtitle list without a matching track must not produce a timeline",
+                adapter(Collections.emptyList(), SAMPLE_VTT).buildTimeline(
+                        Collections.emptyList(), TRACK, url -> SAMPLE_VTT));
+    }
+
+    @Test
+    public void overlappingCuesKeepBothTextsWithClippedTimes() {
+        String vtt = "WEBVTT\n\n"
+                + "00:00:00.000 --> 00:00:03.000\nFirst caption\n\n"
+                + "00:00:01.500 --> 00:00:04.000\nSecond caption";
+        FakeSubtitle manual = subtitle("en", "English", "http://example.com/timedtext?v=video1");
+
+        SourceTimeline timeline = adapter(Collections.singletonList(manual), vtt).buildTimeline(
+                Collections.singletonList(manual), TRACK, url -> vtt);
+
+        assertNotNull(timeline);
+        assertEquals(2, timeline.getSegments().size());
+        assertEquals("First caption", timeline.getSegments().get(0).getSourceText());
+        assertEquals("Second caption", timeline.getSegments().get(1).getSourceText());
+        assertTrue("an overlapping cue must be clipped, not dropped",
+                timeline.getSegments().get(0).getEndTimeMs() <= 1_500);
+    }
+
+    @Test
+    public void irregularLanguageNamesStillResolveTheSelectedTrack() {
+        FakeSubtitle auto = subtitle("en-US", "English (United States) (auto-generated)",
+                "http://example.com/us-asr");
+        SourceTrackId autoTrack = new SourceTrackId("video1",
+                "subtitle:English (United States) (auto-generated):1", "en-US");
+
+        assertEquals("http://example.com/us-asr",
+                SmartTubeSubtitleSourceAdapter.matchSubtitle(
+                        Collections.singletonList(auto), autoTrack).getBaseUrl());
     }
 
     @Test
@@ -123,6 +200,25 @@ public class SmartTubeSubtitleSourceAdapterTest {
                         "http://example.com/timedtext?v=1&fmt=vtt"));
         assertEquals("http://example.com/other/path.vtt",
                 SmartTubeSubtitleSourceAdapter.toVttUrl("http://example.com/other/path.vtt"));
+    }
+
+    @Test
+    public void toVttUrlAddsQueryWhenTheTimedTextUrlHasNone() {
+        assertEquals("http://example.com/timedtext?fmt=vtt",
+                SmartTubeSubtitleSourceAdapter.toVttUrl("http://example.com/timedtext"));
+    }
+
+    @Test
+    public void toVttUrlReplacesANonVttFormatWithoutTouchingSignedParameters() {
+        assertEquals("http://example.com/timedtext?v=1&lang=en&signature=abc%2F123%3D&fmt=vtt",
+                SmartTubeSubtitleSourceAdapter.toVttUrl(
+                        "http://example.com/timedtext?v=1&fmt=srv3&lang=en&signature=abc%2F123%3D"));
+    }
+
+    @Test
+    public void toVttUrlKeepsFragmentsAfterTheQuery() {
+        assertEquals("http://example.com/timedtext?v=1&fmt=vtt#t=10",
+                SmartTubeSubtitleSourceAdapter.toVttUrl("http://example.com/timedtext?v=1#t=10"));
     }
 
     @Test

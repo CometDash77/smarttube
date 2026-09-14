@@ -1,5 +1,7 @@
 package com.liskovsoft.smartyoutubetv2.common.ai.subtitle.source;
 
+import androidx.annotation.VisibleForTesting;
+
 import com.liskovsoft.mediaserviceinterfaces.data.MediaSubtitle;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SourceCue;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SourceTrackId;
@@ -22,8 +24,25 @@ import java.util.List;
  */
 public final class SmartTubeSubtitleSourceAdapter {
     /** Maximum characters per translation unit; conservative single-sentence default. */
-    private static final int TARGET_CHARS = 60;
-    private static final int MAX_CHARS = 200;
+    private int mTargetChars = 60;
+    private int mMaxChars = 200;
+    private int mLongSentenceChars = 80;
+
+    public synchronized void configureSegmentation(int targetChars, int maxChars,
+                                                   int longSentenceChars) {
+        if (targetChars < 1 || maxChars < targetChars || longSentenceChars <= 0) {
+            throw new IllegalArgumentException("invalid segmentation limits");
+        }
+        mTargetChars = targetChars;
+        mMaxChars = maxChars;
+        mLongSentenceChars = longSentenceChars;
+    }
+
+    @VisibleForTesting
+    public synchronized int[] segmentationLimitsForTesting() {
+        return new int[] {mTargetChars, mMaxChars, mLongSentenceChars};
+    }
+
 
     private final SubtitleFetcher mFetcher;
     private final SubtitleDownloader mDownloader;
@@ -123,53 +142,127 @@ public final class SmartTubeSubtitleSourceAdapter {
         }
 
         // breakSentences re-indexes the segments with a stable incrementing index.
-        List<SubtitleSegment> sentences = new RuleSentenceBreaker().breakSentences(segments);
-        List<TranslationUnit> units = new TranslationChunker().chunk(sentences, TARGET_CHARS, MAX_CHARS);
+        List<SubtitleSegment> sentences = new RuleSentenceBreaker(mLongSentenceChars).breakSentences(segments);
+        List<TranslationUnit> units = new TranslationChunker().chunk(sentences, mTargetChars, mMaxChars);
 
         return new SourceTimeline(sentences, units);
     }
 
     /**
-     * Matches the user's selected track by language. Tries the exact language-code match
-     * first, then falls back to a normalized display-name comparison that handles
-     * "English (auto-generated)" style names.
+     * Matches the selected track against the format-info subtitle list.
+     *
+     * <p>The track identity carries the same language string the player received for the
+     * selected format, which is the caption's display name when the service provides one and
+     * the language code otherwise. Name equality is therefore tried before code equality, and
+     * the lossy "strip the trailing parenthetical" comparison is only used when it identifies
+     * exactly one track. Anything ambiguous returns null so the caller falls back to the
+     * original subtitles instead of translating a track the user did not select.</p>
      */
     static MediaSubtitle matchSubtitle(List<MediaSubtitle> subtitles, SourceTrackId trackId) {
         if (subtitles == null || subtitles.isEmpty() || trackId == null) {
             return null;
         }
 
-        String language = extractLanguage(trackId.getTrackId());
-        if (language == null) {
+        String requested = extractLanguage(trackId.getTrackId());
+        if (requested == null || requested.trim().isEmpty()) {
             return null;
         }
 
-        String normalized = normalizeLanguage(language);
+        MediaSubtitle exactName = uniqueMatch(subtitles, requested, MATCH_NAME_EXACT);
+        if (exactName != null) return exactName;
 
-        // Prefer exact language-code match over name match (disambiguates manual vs ASR).
-        MediaSubtitle codeMatch = null;
-        MediaSubtitle nameMatch = null;
+        MediaSubtitle exactCode = uniqueMatch(subtitles, requested, MATCH_CODE_EXACT);
+        if (exactCode != null) return exactCode;
 
-        for (MediaSubtitle sub : subtitles) {
-            if (sub == null) continue;
-            if (normalized.equalsIgnoreCase(normalizeLanguage(sub.getLanguageCode()))) {
-                codeMatch = codeMatch != null ? codeMatch : sub;
-            }
-            if (normalized.equalsIgnoreCase(normalizeLanguage(sub.getName()))) {
-                nameMatch = nameMatch != null ? nameMatch : sub;
-            }
-        }
-
-        return codeMatch != null ? codeMatch : nameMatch;
+        return uniqueMatch(subtitles, requested, MATCH_NAME_NORMALIZED);
     }
 
-    /** Appends fmt=vtt to force the VTT wire format when the base URL is a timed-text URL. */
+    private static final int MATCH_NAME_EXACT = 0;
+    private static final int MATCH_CODE_EXACT = 1;
+    private static final int MATCH_NAME_NORMALIZED = 2;
+
+    /** Returns the single matching entry, or null when there are none or more than one. */
+    private static MediaSubtitle uniqueMatch(List<MediaSubtitle> subtitles, String requested,
+                                             int mode) {
+        MediaSubtitle match = null;
+
+        for (MediaSubtitle sub : subtitles) {
+            if (sub == null || !matches(sub, requested, mode)) continue;
+
+            if (match != null) return null;
+            match = sub;
+        }
+
+        return match;
+    }
+
+    private static boolean matches(MediaSubtitle sub, String requested, int mode) {
+        switch (mode) {
+            case MATCH_NAME_EXACT:
+                return equalsIgnoringCase(requested, sub.getName());
+            case MATCH_CODE_EXACT:
+                return equalsIgnoringCase(requested, sub.getLanguageCode());
+            case MATCH_NAME_NORMALIZED:
+                String normalized = normalizeLanguage(requested);
+                return !normalized.isEmpty()
+                        && normalized.equalsIgnoreCase(normalizeLanguage(sub.getName()));
+            default:
+                return false;
+        }
+    }
+
+    private static boolean equalsIgnoringCase(String first, String second) {
+        return first != null && second != null && first.trim().equalsIgnoreCase(second.trim());
+    }
+
+    /**
+     * Rewrites the {@code fmt} query parameter to {@code vtt} for timed-text URLs so the VTT
+     * parser gets the wire format it expects. Every other parameter is preserved byte for byte,
+     * and a URL without the timed-text marker is returned untouched.
+     */
     static String toVttUrl(String baseUrl) {
         if (baseUrl == null) return null;
-        if (baseUrl.contains("timedtext") && !baseUrl.contains("fmt=")) {
-            return baseUrl + "&fmt=vtt";
+        if (!baseUrl.contains("timedtext")) return baseUrl;
+
+        String fragment = "";
+        String withoutFragment = baseUrl;
+        int hash = baseUrl.indexOf('#');
+
+        if (hash >= 0) {
+            fragment = baseUrl.substring(hash);
+            withoutFragment = baseUrl.substring(0, hash);
         }
-        return baseUrl;
+
+        String prefix = withoutFragment;
+        String query = null;
+        int questionMark = withoutFragment.indexOf('?');
+
+        if (questionMark >= 0) {
+            query = withoutFragment.substring(questionMark + 1);
+            prefix = withoutFragment.substring(0, questionMark);
+        }
+
+        if (query == null) return prefix + "?fmt=vtt" + fragment;
+
+        StringBuilder rebuilt = new StringBuilder();
+
+        for (String parameter : query.split("&", -1)) {
+            if (parameter.isEmpty()) continue;
+
+            int equals = parameter.indexOf('=');
+            String name = equals >= 0 ? parameter.substring(0, equals) : parameter;
+
+            // Any existing format request is replaced; every other parameter is preserved.
+            if ("fmt".equals(name)) continue;
+
+            if (rebuilt.length() > 0) rebuilt.append('&');
+            rebuilt.append(parameter);
+        }
+
+        if (rebuilt.length() > 0) rebuilt.append('&');
+        rebuilt.append("fmt=vtt");
+
+        return prefix + "?" + rebuilt + fragment;
     }
 
     /** Extracts the language component from a track identity like "subtitle:en:formatId". */
