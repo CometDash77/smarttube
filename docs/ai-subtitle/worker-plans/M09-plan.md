@@ -26,15 +26,15 @@ Ponytail：只补已有套件缺失的场景，不重写 M07/M08 测试、不做
 **记录：** `docs/ai-subtitle/worker-reports/M09-report.md` 的验收矩阵章节。
 **fixture：** 先复用 `docs/ai-subtitle/fixture-provenance.md` 指向的独立 fixture；缺少的放同一既有测试资源目录并补来源声明，不复制 KissTranslator testdata。
 
-- [ ] 用现有测试方法名和设备步骤标识场景，关联实际证据；不另外维护一套场景 ID 注册表。
-- [ ] 每种语言 English/Japanese/Chinese 至少有 manual 与 ASR 自动 fixture；补 word-level、无空格、噪声、重复文本、快/慢语速、超长句、重叠/空隙。无实际可用字幕轨的设备组合注明。
-- [ ] 创建独立 2h+ 合成时间线，例如 7500 秒、每秒一小 cue，用虚拟时间遍历；不需等待两小时、不把它描述成两小时真机稳定性测试。
-- [ ] 断言正确 unit/segment 时间映射；没有 cue 的空隙不显示上一句；字幕源缺失/歧义/网络失败保持原字幕。
-- [ ] 用 fake provider 可控延迟组合播放事件：暂停→resume、前后 seek、50 次快速拖动、换轨/视频/配置、关闭字幕/AI、退出重进、后台前台。迟到 partial/final/error 全覆盖。
-- [ ] 100 次相同 tick/cue 不增加同一逻辑工作请求；seek 只优先最终位置；串行上下文不把未来译文写入当前历史；stream off 与 on 都跑核心链路。
-- [ ] AUTH/PROTOCOL/INVALID_OUTPUT/CANCELLED/NETWORK/TIMEOUT 及 HTTP 429/5xx 覆盖归一化与预算；包含 synchronous callback、throw、重复终止 callback，防止状态/句柄悬挂。
+- [x] 场景以现有测试方法名和设备步骤标识并关联证据，未另建场景 ID 注册表。
+- [x] fixture 补齐中文（人工 + 自动生成），英语/日语/中文 × 人工/自动生成齐备，并断言 word-level、无空格、噪声、重复文本、快/慢语速、长句、重叠、空隙九类 provenance 全部存在（`SubtitleFixturePipelineTest.theFixtureCoversEveryRequiredLanguageAndCaptionKind`）。此前该 fixture 是**没有调用者的数据**，本轮才第一次被断言。可用字幕轨的设备组合待设备确认。
+- [x] `TranslationSchedulerCapacityTest` 使用 7500 个 1 秒 cue 的合成时间线，以虚拟时间遍历 256 次前后跳转；报告明确写明这不是两小时真机稳定性测试。
+- [x] `SubtitleFixturePipelineTest.aGapInTheSourceHasNoUnitToShow` 断言空隙处没有可显示 unit，前后仍有；`everyUnitCoversContiguousSegmentsInTimelineOrder` 与 `everySegmentResolvesToAUnitAndEveryUnitToASegment` 断言映射；源缺失/歧义沿用 M07-R3 的 source-only 断言，网络失败沿用 `loadDeliversFailureForEmptySubtitles` 与调度器的 source fallback 断言。
+- [x] 覆盖：暂停→resume、前后 seek、连续拖动只保留最终位置、换轨/换视频/换配置、关闭字幕/AI、退出重进；迟到 partial/final/error 全部有断言。**未覆盖**：50 次快速拖动的显式计数用例、后台/前台（需要设备或 Activity 生命周期，M09-E 的输入）。
+- [x] `repeatedPositionTicksDoNotDuplicateRequests`（100 次）、`dragKeepsLatestPositionAndSeekEndDispatchesOnlyIt`、`aLaterUnitThatFinishedFirstIsNeverHistory`、以及关闭/打开 streaming 的两条链路（全量套件在开关默认关闭下通过，streaming 用例单独覆盖打开态）。
+- [x] 归一化与预算：`everyProviderFailureCategoryKeepsSourceOnly`（全部类别）、`terminalCategoriesDoNotRetry`、`rateLimitAndServerUseTheSameRetryBudget`（429/5xx）、`timeoutUsesThreeNetworkAttemptsWithBackoff`；同步回调与抛错：`providerExceptionIsIsolatedToSourceOnlyOutput`。**未覆盖**：重复终止 callback 的显式用例（传输层与各 adapter 用一次性标志保证至多一次，但没有专门断言重复投递）。
 
-矩阵字段：`场景/操作 | 预期 | 自动/设备证据 | 结果/问题`。SHA、设备和公共设置在报告头统一记录，仅例外行单列。
+矩阵字段：`场景/操作 | 预期 | 自动/设备证据 | 结果/问题`。SHA、设备和公共设置在报告头统一记录，仅例外行单列。矩阵正文见 `worker-reports/M09-report.md`。
 
 ## B. 长视频容量、请求预算与性能
 
@@ -43,37 +43,37 @@ Ponytail：只补已有套件缺失的场景，不重写 M07/M08 测试、不做
 
 现有内存 cache 是 HashMap；mWork 保留访问过的单元。只限制 lookahead 不能保证总内存不会随播放增长。
 
-- [ ] 内存 cache 改标准 LinkedHashMap LRU，初始上限 512 条且估算文本 UTF-8 总量 <=2 MiB，两者先到为准；条目尺寸在 put 时计算，替换扣旧值，clear 清计数。不另建缓存框架。
-- [ ] mWork 清除窗口外且非 active/retry 的历史终态；保留当前窗口和必要的短期失败抑制记录，后者同样有硬上限。cache 淘汰后可以按需重新翻译，但反复重绘不能绕过同一工作预算。
-- [ ] 总网络计数区分首次、transient retry、尾部修复、SSE→非流式回退。每一逻辑工作总预算 <=3；用户明确手动重试建立新预算，普通 redraw 不重置。
-- [ ] 完整 SourceTimeline 可以随字幕长度线性增长，但 Work/译文缓存/草稿/context 不应无限增长。源下载加初始 8 MiB 字节上限、100000 cue 上限，超限取消 AI 源处理并回原文；不能截断后声称“完整时间线”。
-- [ ] 检查 TreeMap<Long,TranslationUnit> 相同起点覆盖风险：fixture 两个 unit 同时开始，均不能丢失。若输入允许重叠，用既有 list/稳定次序作为次键，不静默覆盖。
-- [ ] 测试虚拟长片、反复前后 seek、256 次开关/退出重入：cache/Work/草稿/context 上限稳定、release 后无新增请求、定时回调被移除、取消句柄可释放。
-- [ ] 复用长时设备验收，在相同视频/清晰度下比较 AI off、非流式、流式：记录请求数、字幕到达延迟、内存起点/中点/终点和可见卡顿。网络等待与本地耗时分开；不新建持续遥测或全链路 percentile 框架。
-- [ ] 硬检查保留集合/输入上限、退出 2 个 tick 周期后无新派发、无新增 ANR/播放中断。若内存持续上涨或出现卡顿，用现有 Android profiler 定位并补针对性测量；不把没有设备基线支撑的统一 16ms 阈值作为发布门槛。
-- [ ] 性能失败只优化证据指出的热点，不凭猜测改线程模型或升级播放器。修正后只重跑受影响 suite/采样。
+- [x] `InMemoryTranslationCache` 改为访问序 `LinkedHashMap` LRU，上限 512 条且 UTF-8 文本总量 ≤2 MiB，先到为准；尺寸在 put 时计算、替换扣旧值、clear 清零。未新建缓存框架。测试：`theEntryCountLimitEvictsTheLeastRecentlyUsedEntry`、`theByteLimitEvictsUntilTheStoredTextFits`、`replacingAnEntryCorrectsTheStoredSizeInsteadOfDoubleCounting`、`aSingleValueLargerThanTheWholeBudgetIsNotKept`。
+- [x] `pruneWorkLocked` 在每次允许派发的窗口更新时清除窗口外的终态与已取消记录；只保留在途请求、当前窗口（含 30 秒回溯余量）以及缓存仍持有的结果——后者让工作记录的上限直接由缓存上限给出。**实现要点**：清除判定使用不过期的 `contains`，否则清除扫描本身会不断刷新 LRU，什么都淘汰不掉（本轮实测到该反馈回路并修复）。反复重绘不重置尝试预算由 `aRedrawNeverResetsTheAttemptBudget` 断言。
+- [x] `getFirstAttemptCount`/`getRetryAttemptCount`/`getFallbackAttemptCount` 分开计数，`attemptAccountingSeparatesFirstRetryAndFallback` 断言回退与普通重试不混算，`theStreamingFallbackStillStopsAfterTheAttemptBudget` 断言总预算为 3，手动重试建立新预算由 `manualRetryRequeuesTerminalFailuresWithAFreshBudget` 断言。**尾部修复无计数**：该模式在生产路径上不存在（见 M07 报告 R5 范围修订）。
+- [x] 源下载上限改为**字节**上限 8 MiB（此前按字符计数，多字节字幕可远超预期），适配器另有 100000 cue 上限；超限返回 null 走 source-only，绝不截断后声称完整。Work/缓存/草稿/context 的上限由 B 段其余条目覆盖。
+- [x] `mUnitsByStart` 改为 `TreeMap<Long, List<TranslationUnit>>`，同一起点按源顺序保留全部 unit；`twoUnitsThatShareAStartTimeAreBothDispatched` 断言两条都被派发。
+- [x] `aTwoHourTimelineStaysBoundedUnderRepeatedSeeks` 断言 256 次前后跳转后工作记录与缓存都在上限内；release 后无新增请求、定时回调与取消句柄沿用既有 `closeCancelsActiveWorkAndStopsDispatch` 等断言。**未覆盖**：256 次开关/退出重入的显式计数用例。
+- [ ] **PENDING DEVICE**：需要设备与候选 APK；未运行，未声称任何测量结果。
+- [ ] 集合/输入上限已由自动断言覆盖；**退出后无新派发与 ANR/播放中断需要设备**，未运行，未作为发布门槛。
+- [x] 本轮没有性能失败证据，因此没有改动线程模型、播放器或依赖版本。
 
 ## C. 手机、TV、Provider 与秘密数据审计
 
 **检查：** AI/settings、provider/http、Runtime、Bridge、三套资源、现有备份/导出排除规则；修改限发现缺陷的实际文件。
 
-- [ ] 设备路径：扫码/配对→编辑不丢失→保存→重开一致→真实连接测试→选择使用；手机/TV 同一存储；取消测试后迟到结果不弹错误通知。
-- [ ] 五 Provider 类型都跑假 HTTP 的保存/解析/请求路径；真实服务仅测试具备有效密钥和授权的组合，记录型号、协议、模型、流式支持，不记录 credential。
-- [ ] 切 Provider/model/Prompt/目标语言/分段策略/context 设置会产生应有身份变化；改双语顺序不重新请求；仅密钥替换时旧 adapter/请求不能继续使用旧凭证。
-- [ ] 用虚构唯一 secret canary 跑错误、取消、toString、报告和页面回显；捕获日志，断言 canary 不出现。扫描请求 query/headers/body 的错误传播，不能只搜索变量名 apiKey。
-- [ ] 检查备份、导出、手机响应、APK 测试资源不含真实密钥；若 M08 加磁盘缓存，单独检查该文件路径与 schema 不含 secret/原始鉴权 URL。
-- [ ] 检查三种显示模式、原文/译文顺序、简繁/英文界面、长选项遥控器可达、无 Provider/离线提示。不把源码类名和调试参数直接展示给用户。
+- [ ] **PENDING DEVICE**：手机页面路由、配对、保存、重开、迟到回调在真实 socket 测试中已覆盖；扫码与真机浏览需要设备。
+- [x] `ProviderAuditTest.everyProviderTypeResolvesToAProtocolAndCompletesThroughFakeHttp` 遍历全部 `ProviderType` 并按其协议完成一次假 HTTP 请求；真实服务需要有效密钥，本机未做。
+- [x] 身份变化沿用既有 generation/cache-key 断言；`bilingualOrderChangesPresentationWithoutNewRequests` 断言顺序不触发请求；`replacingTheSecretChangesWhatTheNextRequestCarries` 断言替换后的凭证用于下一次请求。
+- [x] `theCredentialCanaryNeverAppearsInAnyDiagnostic` 用唯一 canary 跑成功与错误响应、取消路径，并对 adapter、请求、调用句柄、HTTP 请求、HTTP 失败与响应对象逐一断言 canary 不出现。
+- [x] 手机状态响应不回传密钥（既有断言）；M08 未加磁盘缓存，因此没有新的落盘路径；密钥仍只存于 M04/G04-1 决定的加密 SecretStore。**备份/导出排除规则**沿用 M04 记录的结论，本轮未重新审计系统备份配置。
+- [x] 三种模式与顺序有自动断言；简繁/英文字符串齐备；无 Provider 与失败提示有独立字符串。**遥控器可达性与实际排版需要设备**。用户可见文案中未出现类名或调试参数。
 
 ## D. 上游补丁与持续回归流程
 
 **修改：** 在 `docs/ai-subtitle/upstream-patches.md` 补同步检查章节；如存在实际漏跑范围，最小修改 `.github/workflows/ai-subtitle-validation.yml`，不另外拆一份同步文档。
 
-- [ ] 核实当前仓库 remote 与上游基准 commit；用已验证 base SHA 比较完整 feature diff，而不是只看本轮 diff。submodule 指针、Gradle 依赖、ExoPlayer 路径必须列入审计。
-- [ ] 所有宿主文件改动逐项对应 upstream-patches 的用途/入口/回归测试；确认没有整文件格式化、rename、业务 HTTP/缓存/调度塞进宿主。
-- [ ] 保留现有 exact-SHA CI，确认 common 全量、JDK 11 偏好设置、lint、APK、报告产物真实执行；不增加第二条重复 workflow。无额外 CI 缺口则只记录现状。
-- [ ] 编写上游同步步骤：工作区清洁/保存用户修改→记录旧 upstream SHA→独立分支或工作树试合并→检查 hook 签名/字幕 identity→定向测试→全量 CI→设备核心回归→核对账本。本文不实际 merge upstream。
-- [ ] 回归 checklist 必须包含选轨、格式源、SubtitleManager cue 桥、seek/pause/off/release、保存/重启、Prompt 实际请求、SSE 取消和源结果迟到。
-- [ ] APK 对比基于实际 applicationId/签名/ABI，不按旧文档硬编码；不为了测试卸载用户配置。
+- [x] `origin` = 个人仓库，`upstream` = yuliskov/SmartTube；本地 `master` 与 `upstream/master` 同为 `6e2e00bb8c`，因此 `git diff master...HEAD` 就是相对已验证上游基准的完整 diff（180 文件，+28073/-1）。submodule 指针未变、无 ExoPlayer 源码改动、无依赖版本变化，唯一新增依赖已记入 `upstream-patches.md`。
+- [x] `upstream-patches.md` 已按实际 diff 重写：5 个宿主 Java 文件 + 1 个资源文件 + 1 个构建文件，逐项写明用途、补丁面与回归检查；发现两处**未登记**的宿主改动（`PlayerUIController`、`VideoPlayerGlue`）与一处构建改动并补齐；条件性 `VideoLoaderController` 钩子标记为**未使用**并说明原因。无整文件格式化、无 rename、宿主内无 HTTP/缓存/调度逻辑。
+- [x] `ai-subtitle-validation.yml` 未改动，仍覆盖 common 全量、JDK 11 设置通道、lint、assemble、APK 签名与报告产物；未新增第二条 workflow。**该 workflow 对候选 SHA 的运行仍待授权推送**。
+- [x] `upstream-patches.md` 的同步章节已按该顺序重写为可执行步骤，并明确本文不执行合并。本轮未 merge upstream。
+- [x] `upstream-patches.md` 新增回归 checklist，覆盖选轨、源、cue 桥、生命周期、持久化、Prompt 实际请求、SSE 取消与迟到源结果八类。
+- [ ] **PENDING**：需要候选 APK 与设备；未运行。
 
 ## E. 统一真机验收（记录设备证据，不单靠自动测试）
 
@@ -92,20 +92,20 @@ Ponytail：只补已有套件缺失的场景，不重写 M07/M08 测试、不做
 | 9 | 2h+ 视频长时连续播放并执行阶段采样 | 资源稳定；与模拟虚拟时间结果分开记录 |
 | 10 | 配对过期、非法值、失败/取消、密钥清除 | 准确反馈，原文仍可用，无密钥外泄 |
 
-- [ ] 记录每次设备型号/Android/ABI、视频/字幕类型、配置、时间和结果；无法公开的内容用可复验内部编号，不写密钥。
-- [ ] 阻断问题自动复现→修复提交→受影响 CI/设备路径复验；某个设备故障不阻止其他独立项，但最后不能漏掉。
-- [ ] 缺设备/服务凭据/真实字幕样本的单元明确 PENDING，给出操作步骤与补证触发条件；不得伪造截图、计数或跑分。
+- [ ] **PENDING DEVICE**：无设备，未记录任何设备行，也未伪造设备结果。
+- [x] 本轮自动检查发现的阻断（缓存淘汰在迭代中重排导致永不淘汰、工作记录无界增长、清除扫描自刷新 LRU）均已先复现、再修复、再跑全量套件复验。设备项待设备。
+- [x] M09-E 全部条目在报告中标 PENDING 并给出操作步骤与触发条件；未伪造任何截图、计数或跑分。
 
 ## F. 发布候选报告与完成门槛
 
 **交付：** `docs/ai-subtitle/worker-reports/M09-report.md`、更新 progress.md/roadmap.md 中实际状态；本次只规划，执行时生成真实报告。
 
-- [ ] 报告包含 M07→M09 提交清单、修改文件、修复问题、采纳/不采纳的 M08 优化、实际测试方法/计数、CI run 与代码 SHA、设备矩阵、性能原始数据位置、upstream diff 结论、已知限制。
-- [ ] 从最终候选 SHA 跑现有 CI：common 全量/JDK 11 通道/lint/assemble；检查产物而非只看绿色图标。final SHA 之后代码变化必须使相关证据重新建立。
-- [ ] 用候选 CI 产物完成设备验收；报告中保存包名、版本、ABI、SHA-256、签名指纹及对应安装设备。
-- [ ] M07 源/调度/设置正确、M08 可关闭且缓存安全、M09 资源/安全/上游/设备各维度均通过；无必需 PENDING、无未解决高影响错误才标 M09 完成。
-- [ ] 代码/自动检查已完但设备未完时，写“代码与自动检查完成，最终验收待设备”，不标 roadmap milestone complete。
-- [ ] 发布候选报告与正式发布分开。创建新 release/tag 或上传 APK 只在后续有授权时执行；不覆盖已有 tag，不自行扩大到正式发布。
+- [x] `worker-reports/M09-report.md` 包含上述全部字段；性能原始数据位置标为无（未运行设备采样），CI run 标为待授权推送。
+- [ ] **PENDING PUSH AUTHORIZATION**：未运行精确 SHA 的 CI，本地只跑 common 全量与 JDK 11 设置通道。
+- [ ] **PENDING DEVICE + PUSH**：无候选产物（未构建/未签名/未上传），未运行。
+- [ ] **未满足**：设备维度与精确 SHA CI 仍 PENDING，因此 M09 未标记完成。无已知未解决的高影响缺陷。
+- [x] 报告与进度台账按该措辞记录，roadmap milestone 未标 complete。
+- [x] 未创建 release/tag、未上传 APK、未覆盖任何已有 tag。
 
 ## 命令和测试证据
 

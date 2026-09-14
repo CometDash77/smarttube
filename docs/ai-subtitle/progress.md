@@ -10,7 +10,14 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 
 ## Current state
 
-- Current milestone: **M08 — implementation and local automatic verification complete; CI and device acceptance pending.** Next milestone to execute: **M09** (coverage matrix, resource bounds and audit, upstream diff, release-candidate report).
+- Current milestone: **M09 — implementation and automatic checks complete; final acceptance pending.** M09 commit `2f98945e3`; report `worker-reports/M09-report.md`. M09 is **not** marked complete and the roadmap milestone is not marked complete: the exact-SHA CI and the whole device matrix are still outstanding.
+- M09 delivered: an access-ordered LRU translation cache bounded at 512 entries / 2 MiB; window-based pruning of the scheduler work map (bounded by the cache, with a 30 s history margin); a byte-based source download limit (8 MiB) and a 100 000 cue cap; a list-per-start unit index so two units sharing a start time are both kept; separate first/retry/fallback attempt counters; a credential-canary audit; all six provider types exercised through a fake transport; and a fixture pipeline suite that finally asserts the independently authored caption categories.
+- M09 found and fixed three real defects that had made "bounded" false: the LRU never evicted (its scan reordered the map under the iterator, so the removal threw and the entry stayed; the cache reached 5741 entries), work records grew without bound (5741 after 256 seeks), and the prune scan itself kept the cache full by refreshing the LRU on every dispatch. A process defect was found too: five new cache tests were written without `@Test`, so the suite passed while running six of eleven methods.
+- M09 local verification (2026-09-14, fresh ASCII copy at `C:\tmp\smartube-m07-m09`):
+  - JDK 17 full `:common:testStbetaDebugUnitTest` → `BUILD SUCCESSFUL`, 51 suites, **tests=460, failures=0, errors=0, skipped=20**.
+  - JDK 11 `:common:testStbetaDebugUnitTest --tests '....ai.subtitle.settings.*'` → `BUILD SUCCESSFUL`, 11 suites, **tests=78, failures=0, errors=0, skipped=0**.
+- Upstream audit (M09-D): local `master` equals `upstream/master` at `6e2e00bb8c`, so the complete feature diff is 180 files, +28073/-1. `upstream-patches.md` was rewritten against the real diff: 5 host Java files, `ids.xml` and `common/build.gradle` (one added dependency); the previously undeclared host changes and the build change are now recorded, and the conditional `VideoLoaderController` hook is closed as unused. No upstream merge was performed.
+- M09 remaining: exact-SHA CI (`PENDING PUSH AUTHORIZATION`), the entire device matrix including the 2h device run and performance sampling (`PENDING DEVICE`), and two PARTIAL automatic items (an explicit 50-drag case and a repeated-terminal-callback assertion).
 - M08 commit: `46c24aa0b` — bounded context, streamed drafts, both settings, and the two-protocol stream interpretations. Full detail: `worker-reports/M08-report.md`.
 - M08 local verification (2026-09-14, fresh ASCII copy at `C:\tmp\smartube-m07-m09`):
   - JDK 17 full `:common:testStbetaDebugUnitTest` → `BUILD SUCCESSFUL`, 48 suites, **tests=442, failures=0, errors=0, skipped=20**.
@@ -147,7 +154,22 @@ None.
 
 ## Planned next action
 
-Execute M09 per `worker-plans/M09-plan.md`: build the coverage matrix and the 2h+ synthetic timeline, bound the in-memory cache and the work map, audit phone/TV/provider/secret handling, verify the upstream patch surface against the real diff, and write `worker-reports/M09-report.md`. Follow the resume rules in `worker-plans/M07-M09-continuation-plan.md` §10. M07/M08 exact-SHA CI and all device acceptance stay pending and do not block M09 implementation and automatic checks; M09 cannot be marked complete without them. The older M04-C7/M05-C0 pause text below is historical and was resolved during M05/M06.
+M07, M08 and M09 are implemented and automatically verified. The next action is the final
+acceptance pass, which needs two things this session did not have:
+
+1. **Push authorization** for `feature/ai-bilingual-subtitles`, so `ai-subtitle-validation.yml`
+   runs against the exact candidate SHA (full `common`, JDK 11 settings lane, lint, assemble,
+   signed APK and report artifacts). Record the run id and inspect the artifacts, not just the
+   green icon.
+2. **A device**, for `M09-plan.md` §E and the device rows of the M09 matrix: install a candidate
+   APK, verify the phone pairing flow, the three display modes and both bilingual orders in
+   en/zh/zh-rTW, remote-control reachability, seek/pause/off/release, background/foreground,
+   the 2h-long-video run with performance sampling, and provider failure and cancel behaviour.
+
+Until both exist, M09 stays "implementation and automatic checks complete, final acceptance
+pending" and the roadmap milestone stays incomplete. Do not create a release or tag.
+
+The older M04-C7/M05-C0 pause text below is historical and was resolved during M05/M06.
 
 ## Test status
 

@@ -1,23 +1,49 @@
 # AI Subtitle Upstream Modification Ledger
 
-Status: M04-C6 implementation present; Commander acceptance pending corrections
+Status: verified against the real feature diff at M09 (2026-09-14); each entry records its
+purpose, entry point, and regression check, and every host change in the branch appears below.
 
-Actual existing SmartTube files modified by AI Subtitle: **3**
+Actual existing SmartTube files modified by AI Subtitle: **5**
 
-Planned unconditional existing-file hooks: **3**
+Existing SmartTube resource files modified: **1** (`common/src/main/res/values/ids.xml`)
 
-Planned conditional existing-file hooks: **1**
+Existing build files modified: **1** (`common/build.gradle`, one added dependency)
+
+Planned conditional existing-file hooks: **1**, now **closed as unused**
 
 Only modifications to files inherited from official SmartTube belong here. New feature files, new tests, new resources, new docs, and a new feature-owned workflow do not count as upstream-file patches, though they remain visible in Git.
 
+## Verified against the real diff (M09-D)
+
+Base: `master` is identical to `upstream/master` at `6e2e00bb8c989e089735c3f26fcd5511669f1597`, so
+`git diff master...HEAD` **is** the complete feature diff against the verified upstream base — not
+just the latest round of changes.
+
+Verified properties of the whole branch diff (180 files, +28073 / -1):
+
+- Submodule pointers are unchanged: `MediaServiceCore 82e9ccde`, `SharedModules 86f0327`.
+- No file under `exoplayer-amzn-2.10.6/`, `MediaServiceCore/`, or `SharedModules/` is modified.
+- No ExoPlayer source file is modified.
+- No Gradle dependency **version** is changed; exactly one dependency is added (`com.google.zxing:core:3.5.3`, for the QR pairing code the phone editor needs).
+- Every host Java file has a single-digit-to-low-double-digit line delta; there is no whole-file formatting, no rename, and no executable-bit change.
+- No provider, HTTP, cache, or scheduling logic lives in a host file: those are all under `common/.../common/ai/subtitle/`.
+- `VideoLoaderController.java` is **not** modified. The conditional hook was not needed: the adapter reaches the selected track through the existing public media-item service.
+
+Non-product files that also appear in the branch diff and are **not** upstream patches:
+`CONTEXT.md` (new glossary), `.gitignore` (one ignored local path), `.superpowers/sdd/M04-C7-research-report.md` (a process artifact committed by the M04 session), and `.github/workflows/ai-subtitle-validation.yml` (new feature-owned workflow).
+
 ## Patch budget
 
-| Existing upstream file | Status | Intended patch surface | Merge risk |
+| Existing upstream file | Status | Actual patch surface | Merge risk |
 |---|---|---:|---:|
-| `common/.../app/presenters/PlaybackPresenter.java` | Implemented in M02; acceptance pending | Import + one controller registration | Low |
-| `common/.../exoplayer/other/SubtitleManager.java` | Implemented in M02; acceptance pending | One cue-bridge invocation | Low–Medium |
-| `common/.../app/presenters/settings/SubtitleSettingsPresenter.java` | Implemented in M04-C6; acceptance pending | One import plus one feature-owned `AiSubtitleSettingsPresenter` entry replacing the M02 test switch | Low |
-| `common/.../playback/controllers/VideoLoaderController.java` | Conditional | One format-info callback/handoff only if the adapter-only source spike fails | Medium |
+| `common/.../app/presenters/PlaybackPresenter.java` | Implemented (M02) | Import + one controller registration | Low |
+| `common/.../exoplayer/other/SubtitleManager.java` | Implemented (M02) | One bridge call around the cue list, one refresh-listener registration, one main-thread repaint hop, saved source cues | Low–Medium |
+| `common/.../app/presenters/settings/SubtitleSettingsPresenter.java` | Implemented (M04-C6) | One import plus one feature-owned `AiSubtitleSettingsPresenter` entry | Low |
+| `common/.../playback/controllers/PlayerUIController.java` | Implemented (M07) | Import, one dialog entry calling the feature-owned settings presenter, one status-text helper | Low |
+| `smarttubetv/.../tv/ui/playback/other/VideoPlayerGlue.java` | Implemented (M07) | One import, one `putAction`, one `adapter.add` | Low–Medium |
+| `common/src/main/res/values/ids.xml` | Implemented (M07) | One `item` entry for the new action id | Low |
+| `common/build.gradle` | Implemented (M07) | One added `implementation` dependency (zxing core) for the pairing QR code | Low |
+| `common/.../playback/controllers/VideoLoaderController.java` | **Closed as unused** | None. The adapter-only source path succeeded through the existing public media-item service, so no format-info handoff was needed | — |
 
 No modifications are planned in `MediaServiceCore`, `SharedModules`, `exoplayer-amzn-2.10.6`, `PlayerData.java`, player layouts, `EmbedPlayerView`, or `SubtitlePainter`.
 
@@ -77,15 +103,81 @@ MERGE RISK: Medium because `processFormatInfo` is in the video-open critical pat
 
 WHEN UPSTREAM CHANGES: Verify callback remains non-blocking, cannot throw into playback, and never changes the format-info/player-open order.
 
+## Implemented entry: `PlayerUIController.java`
+
+WHY MODIFIED: Give the player a direct AI subtitle entry and a status line, so a failure or a
+missing configuration is visible without leaving playback.
+
+PATCH SURFACE: One import block, one entry button that opens `AiSubtitleSettingsPresenter`, and
+one status helper that reads the bridge's runtime status. No translation, HTTP, cache, or
+scheduling logic.
+
+AI MODULE DEPENDENCY: `integration/AiSubtitleCueBridge`, `integration/AiSubtitleRuntime`,
+`settings/AiSubtitleData`, `settings/ui/AiSubtitleSettingsPresenter`.
+
+REGRESSION CHECK: The entry opens and closes, shows "not configured" without a provider, and
+never throws while the player is being torn down.
+
+## Implemented entry: `VideoPlayerGlue.java`
+
+WHY MODIFIED: The AI subtitle action must be reachable from the player's own action row.
+
+PATCH SURFACE: One import, one `putAction`, and one unconditional `adapter.add`. It is added
+outside the legacy per-button toggles because the feature is a primary entry, not a tweak.
+
+AI MODULE DEPENDENCY: `tv/ui/playback/actions/AiSubtitleAction`.
+
+REGRESSION CHECK: The action is present in the player row, other actions keep their existing
+order and visibility toggles, and remote-control focus still reaches the caption action.
+
+## Implemented entry: `common/src/main/res/values/ids.xml` and `common/build.gradle`
+
+WHY MODIFIED: The action needs an id, and the phone pairing page needs to render a QR code.
+
+PATCH SURFACE: One `item` entry in `ids.xml`; one added `implementation` line in
+`common/build.gradle`. No existing dependency version is touched.
+
+REGRESSION CHECK: The id resource resolves, the build assembles, and no dependency resolution
+or packaging behaviour changes for the existing modules.
+
 ## Explicitly rejected historical patch shape
 
 SmartTube PR #5839 modifies roughly 19 files and adds about 1,699 lines, including player UI, engine interfaces, settings serialization, renderer/painter code, embed view/layout, services, and resource files; several files also carry unrelated executable-bit changes. It demonstrates useful dual-cue concepts but is **Reference Only**, not a cherry-pick candidate for the current architecture.
 
 ## Upstream sync checklist
 
-1. Fetch `upstream` and review changes to the four files above before merging/rebasing.
-2. Compare the actual feature diff against this ledger; reject undeclared host-file changes.
-3. Check for whole-file formatting, mode changes, renames, and dependency upgrades.
-4. Run the GitHub Actions upstream-regression workflow for the exact integration SHA.
-5. Exercise caption discovery, selected-track identity, cue rendering, seek, off/on, video change, settings, persistence, and provider failure.
-6. Update each ledger entry only when the actual patch or upstream dependency changed.
+Run this before any future rebase or merge onto a newer official SmartTube. Do **not** merge
+upstream as part of reading this document.
+
+1. Working tree clean: commit or set aside local work first; never start a merge with
+   uncommitted changes.
+2. Record the old upstream base: `git rev-parse upstream/master` and
+   `git merge-base HEAD upstream/master`, so the diff that follows can be reproduced.
+3. Try the merge on an independent branch or a separate worktree, never on the feature branch
+   directly.
+4. Inspect the incoming changes to every file in the patch-budget table above, one entry at a
+   time, and re-check the hook signature and the caption identity it depends on.
+5. Verify the conditional `VideoLoaderController` entry stays unused: if upstream removes or
+   changes the public format-info access the adapter relies on, the hook becomes necessary and
+   must be re-evaluated before the merge is accepted.
+6. Run the targeted suites for the touched areas, then the full GitHub Actions validation on the
+   merged SHA.
+7. Run the device core regression: caption discovery, selected-track identity, cue rendering,
+   seek, off/on, video change, settings persistence, provider failure.
+8. Compare the ledger against the actual diff again; every host-file change must appear above,
+   and nothing above may be stale.
+
+## Regression checklist for the integration
+
+Keep these scenarios in the M09 matrix; they are the paths a rebase is most likely to break.
+
+| Area | Scenario |
+|---|---|
+| Track selection | Manual and auto-generated captions in the same language, track switch during playback |
+| Source | Timed-text download, missing or ambiguous track, empty captions, over-limit timeline |
+| Cue bridge | Rendered cue matches the source timing, original captions unchanged with the feature off |
+| Lifecycle | Seek, pause, resume, captions off, release, video change, background/foreground |
+| Persistence | Settings survive restart; provider, prompt, and language changes take effect |
+| Request | The selected prompt is what is actually sent; retry budget and cancellation hold |
+| Streaming | SSE cancellation, mid-stream disconnect, fallback to a plain request, late drafts |
+| Source results | A superseded source load never overwrites the current one; late results never render |
