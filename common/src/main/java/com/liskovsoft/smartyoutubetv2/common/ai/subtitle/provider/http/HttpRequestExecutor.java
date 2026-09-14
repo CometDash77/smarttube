@@ -35,6 +35,14 @@ public interface HttpRequestExecutor {
         void cancel();
 
         boolean isCancelled();
+
+        /**
+         * Stops the exchange and releases the connection. Unlike {@link #cancel()} this does not
+         * mean the caller withdrew the request: it means the exchange has already produced its
+         * one outcome, so nothing more should be read from it. A closed call delivers no further
+         * callback.
+         */
+        void close();
     }
 
     enum FailureReason {

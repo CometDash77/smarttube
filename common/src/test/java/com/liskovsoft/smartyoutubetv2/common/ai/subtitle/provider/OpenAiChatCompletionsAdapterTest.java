@@ -25,6 +25,7 @@ import java.util.Map;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -414,7 +415,7 @@ public class OpenAiChatCompletionsAdapterTest {
     }
 
     @Test
-    public void aStreamWithoutACompletionSignalIsNotASilentSuccess() {
+    public void anInterruptedStreamFailsRetryablySoAPlainRequestCanFollow() {
         FakeHttpExecutor executor = FakeHttpExecutor.deferred();
         OpenAiChatCompletionsAdapter adapter = adapter(executor,
                 profile("https://api.example.com/v1", null, null),
@@ -425,8 +426,187 @@ public class OpenAiChatCompletionsAdapterTest {
         executor.emit("message", "{\"choices\":[{\"delta\":{\"content\":\"half\"}}]}");
         executor.finishStream();
 
-        assertEquals(TranslationFailureCategory.PROTOCOL, callback.failure.getCategory());
+        assertEquals("a cut stream must stay retryable, or no fallback can ever happen",
+                TranslationFailureCategory.NETWORK, callback.failure.getCategory());
         assertTrue(callback.result == null);
+    }
+
+    /** The audit's counterexample for C6, on the streaming path. */
+    @Test
+    public void aStreamingRateLimitKeepsItsRetryableCategory() {
+        FakeHttpExecutor executor = FakeHttpExecutor.success("{\"error\":{}}", "rate");
+        executor.responseStatusCode = 429;
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        adapter(executor, profile("https://api.example.com/v1", null, null),
+                new RecordingSecretStore(SECRET)).translate(request("Hello"), callback);
+
+        assertEquals(TranslationFailureCategory.RATE_LIMITED, callback.failure.getCategory());
+    }
+
+    @Test
+    public void streamingStatusesAreClassifiedBeforeTheStreamIsInterpreted() {
+        assertStreamingStatusFailure(401, TranslationFailureCategory.AUTH);
+        assertStreamingStatusFailure(403, TranslationFailureCategory.AUTH);
+        assertStreamingStatusFailure(408, TranslationFailureCategory.TIMEOUT);
+        assertStreamingStatusFailure(429, TranslationFailureCategory.RATE_LIMITED);
+        assertStreamingStatusFailure(500, TranslationFailureCategory.SERVER);
+        assertStreamingStatusFailure(503, TranslationFailureCategory.SERVER);
+        assertStreamingStatusFailure(504, TranslationFailureCategory.TIMEOUT);
+        assertStreamingStatusFailure(400, TranslationFailureCategory.PROTOCOL);
+    }
+
+    /** The audit's counterexample for C7: only an accepted completion may succeed. */
+    @Test
+    public void anUnknownFinishReasonIsNotSuccessful() {
+        FakeHttpExecutor executor = FakeHttpExecutor.deferred();
+        OpenAiChatCompletionsAdapter adapter = adapter(executor,
+                profile("https://api.example.com/v1", null, null),
+                new RecordingSecretStore(SECRET));
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        adapter.translate(request("Hello"), callback);
+        executor.emit("message", "{\"choices\":[{\"delta\":{\"content\":\"half\"},"
+                + "\"finish_reason\":\"tool_calls\"}]}");
+        executor.finishStream();
+
+        assertTrue("only an accepted completion may succeed", callback.result == null);
+        assertEquals(TranslationFailureCategory.PROTOCOL, callback.failure.getCategory());
+    }
+
+    @Test
+    public void aToolCallFinishReasonIsNeverSubtitleText() {
+        FakeHttpExecutor executor = FakeHttpExecutor.deferred();
+        OpenAiChatCompletionsAdapter adapter = adapter(executor,
+                profile("https://api.example.com/v1", null, null),
+                new RecordingSecretStore(SECRET));
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        adapter.translate(request("Hello"), callback);
+        executor.emit("message", "{\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}");
+        executor.emit("message", "{\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}");
+        // A server that keeps the connection open after its refusal must change nothing.
+        executor.emit("message", "{\"choices\":[{\"delta\":{\"content\":\"MORE\"}}]}");
+
+        assertTrue(callback.result == null);
+        assertEquals(TranslationFailureCategory.PROTOCOL, callback.failure.getCategory());
+        assertEquals("no further draft may be published after a refusal",
+                Collections.singletonList("partial"), callback.partials);
+    }
+
+    @Test
+    public void theProtocolEndDeliversOnceAndClosesTheHttpRead() {
+        FakeHttpExecutor executor = FakeHttpExecutor.deferred();
+        OpenAiChatCompletionsAdapter adapter = adapter(executor,
+                profile("https://api.example.com/v1", null, null),
+                new RecordingSecretStore(SECRET));
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        adapter.translate(request("Hello"), callback);
+        executor.emit("message", "{\"choices\":[{\"delta\":{\"content\":\"你好\"}}]}");
+        executor.emit("message", "{\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}");
+
+        // The answer is complete before the socket closes: the read must already be closed and
+        // the outcome delivered exactly once.
+        assertEquals("你好", callback.result.getTranslatedText());
+        assertTrue(executor.getLastCall().isClosed());
+        int deliveries = callback.terminals;
+        java.util.List<String> drafts = new java.util.ArrayList<>(callback.partials);
+
+        executor.emit("message", "{\"choices\":[{\"delta\":{\"content\":\"LATE\"}}]}");
+        executor.finishStream();
+        executor.failStream(new HttpRequestExecutor.HttpFailure(
+                HttpRequestExecutor.FailureReason.NETWORK, "late", "req-late"));
+
+        assertEquals("a terminal outcome is delivered exactly once", deliveries,
+                callback.terminals);
+        assertEquals("no draft may be published after the outcome", drafts, callback.partials);
+        assertEquals("你好", callback.result.getTranslatedText());
+    }
+
+    /**
+     * The draft bound is a code-point budget at the exact boundary, counted so a surrogate pair
+     * is one code point and a pair split across two deltas is still one.
+     *
+     * <p>The plan also requires the bound to be checked <em>before</em> the text enters the
+     * buffer. That ordering is implemented but is not separable by assertion from the public
+     * surface: both orders reject the same input with the same failure, and the buffer is never
+     * read again once the call is terminal. The name says what this test can actually observe.</p>
+     */
+    @Test
+    public void aStreamIsAcceptedUpToTheDraftBoundAndRejectedPastIt() {
+        int bound = OpenAiChatCompletionsAdapter.MAX_STREAM_CODE_POINTS;
+        String pair = "😀";
+
+        // Exactly the bound, in one delta, ending on an astral character.
+        RecordingStreamCallback atBound = stream(ascii(bound - 1) + pair);
+        assertNotNull("a stream that ends exactly on the bound must complete", atBound.result);
+        assertNull(atBound.failure);
+
+        // One code point past it.
+        RecordingStreamCallback pastBound = stream(ascii(bound) + pair);
+        assertNull("a stream past the bound must not succeed", pastBound.result);
+        assertEquals(TranslationFailureCategory.INVALID_OUTPUT, pastBound.failure.getCategory());
+
+        // The same text with the surrogate pair split across two deltas: still the bound, because
+        // the pair is one code point and not two. The escapes keep the halves as lone surrogates
+        // on the wire, which is what a server splitting a pair mid-token looks like.
+        RecordingStreamCallback splitPair = stream(ascii(bound - 1), "\\uD83D", "\\uDE00");
+        assertNotNull("a split surrogate pair must still count as one code point", splitPair.result);
+    }
+
+    @Test
+    public void aSynchronouslyDeliveredOutcomeClosesTheHandleWhenItArrives() {
+        // The fake delivers inside execute(), so the outcome exists before the handle is returned.
+        FakeHttpExecutor executor = FakeHttpExecutor.success(
+                "{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}", "req-sync");
+        OpenAiChatCompletionsAdapter adapter = adapter(executor,
+                profile("https://api.example.com/v1", null, null),
+                new RecordingSecretStore(SECRET));
+
+        adapter.translate(request("Hello"), new RecordingCallback());
+
+        assertTrue("a handle that arrives after the outcome must be closed at once",
+                executor.getLastCall().isClosed());
+    }
+
+    private static void assertStreamingStatusFailure(int status,
+                                                     TranslationFailureCategory expected) {
+        FakeHttpExecutor executor = FakeHttpExecutor.success(
+                "{\"error\":{\"message\":\"private provider detail\"}}", "req-stream-" + status);
+        executor.responseStatusCode = status;
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        adapter(executor, profile("https://api.example.com/v1", null, null),
+                new RecordingSecretStore(SECRET)).translate(request("Hello"), callback);
+
+        assertEquals(expected, callback.failure.getCategory());
+        assertFalse(callback.failure.getMessage().contains("private provider detail"));
+    }
+
+    /** Drives one streaming request through the given text deltas, then a natural stop. */
+    private static RecordingStreamCallback stream(String... deltas) {
+        FakeHttpExecutor executor = FakeHttpExecutor.deferred();
+        OpenAiChatCompletionsAdapter adapter = adapter(executor,
+                profile("https://api.example.com/v1", null, null),
+                new RecordingSecretStore(SECRET));
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        adapter.translate(request("Hello"), callback);
+
+        for (String delta : deltas) {
+            executor.emit("message",
+                    "{\"choices\":[{\"delta\":{\"content\":\"" + delta + "\"}}]}");
+        }
+        executor.emit("message", "{\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}");
+
+        return callback;
+    }
+
+    private static String ascii(int count) {
+        StringBuilder text = new StringBuilder(count);
+        for (int i = 0; i < count; i++) text.append('x');
+        return text.toString();
     }
 
     @Test
@@ -512,6 +692,7 @@ public class OpenAiChatCompletionsAdapterTest {
         private final java.util.List<String> partials = new java.util.ArrayList<>();
         private TranslationResult result;
         private TranslationFailure failure;
+        private int terminals;
 
         @Override
         public void onPartial(TranslationResult partial) {
@@ -520,11 +701,13 @@ public class OpenAiChatCompletionsAdapterTest {
 
         @Override
         public void onSuccess(TranslationResult result) {
+            terminals++;
             this.result = result;
         }
 
         @Override
         public void onFailure(TranslationFailure failure) {
+            terminals++;
             this.failure = failure;
         }
     }
@@ -576,6 +759,10 @@ public class OpenAiChatCompletionsAdapterTest {
 
         void finishStream() {
             lastCallback.onSuccess(new HttpResponse(200, null, "req-stream"));
+        }
+
+        void failStream(HttpFailure failure) {
+            lastCallback.onFailure(failure);
         }
 
         static FakeHttpExecutor failure(HttpFailure failure) {
@@ -633,6 +820,7 @@ public class OpenAiChatCompletionsAdapterTest {
 
     private static final class FakeHttpCall implements HttpRequestExecutor.HttpCall {
         private boolean cancelled;
+        private boolean closed;
 
         @Override
         public void cancel() {
@@ -642,6 +830,15 @@ public class OpenAiChatCompletionsAdapterTest {
         @Override
         public boolean isCancelled() {
             return cancelled;
+        }
+
+        @Override
+        public void close() {
+            closed = true;
+        }
+
+        boolean isClosed() {
+            return closed;
         }
     }
 }

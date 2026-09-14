@@ -153,6 +153,142 @@ public class OkHttpStreamingTest {
                 callback);
     }
 
+    /** The same request asked for a single response, so the plain body path is the one used. */
+    private HttpRequestExecutor.HttpCall executePlain(String url, RecordingPlain callback,
+                                                      long timeoutMs) {
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("Content-Type", "application/json");
+        headers.put("Accept", "application/json");
+
+        return new OkHttpRequestExecutor().execute(
+                new HttpRequestExecutor.HttpRequest("POST", url, headers, "{}", timeoutMs),
+                callback);
+    }
+
+    /**
+     * The audit's counterexample for C5. This server never answers, so the call deadline is what
+     * ends the exchange; OkHttp cancels its own call to do that, which used to be read as the
+     * application cancelling and reported as CANCELLED.
+     */
+    @Test
+    public void aDeadlineBeforeTheResponseHeadersIsATimeoutNotACancel() throws Exception {
+        String url = serveNothing(2_000);
+        RecordingStream callback = new RecordingStream();
+
+        execute(url, callback, 200);
+
+        assertTrue(callback.await());
+        assertNotNull(callback.failure);
+        assertEquals(HttpRequestExecutor.FailureReason.TIMEOUT, callback.failure.getReason());
+    }
+
+    /** A plain (non-streaming) body that stalls after the headers is the same timeout. */
+    @Test
+    public void aPlainBodyThatNeverArrivesIsATimeout() throws Exception {
+        String url = serve("application/json", Collections.<byte[]>emptyList(), 0, true);
+        RecordingPlain callback = new RecordingPlain();
+
+        executePlain(url, callback, 600);
+
+        assertTrue(callback.await());
+        assertNotNull(callback.failure);
+        assertEquals(HttpRequestExecutor.FailureReason.TIMEOUT, callback.failure.getReason());
+    }
+
+    /** A connection dropped before the deadline is a network failure, not a timeout. */
+    @Test
+    public void aTruncatedBodyBeforeTheDeadlineIsANetworkFailure() throws Exception {
+        String url = serveTruncatedBody(64, 8);
+        RecordingPlain callback = new RecordingPlain();
+
+        executePlain(url, callback, 10_000);
+
+        assertTrue(callback.await());
+        assertNotNull(callback.failure);
+        assertEquals(HttpRequestExecutor.FailureReason.NETWORK, callback.failure.getReason());
+    }
+
+    /** A user cancel while the server still owes a response is silent, as it always was. */
+    @Test
+    public void cancellingBeforeTheResponseHeadersStaysSilent() throws Exception {
+        String url = serveNothing(2_000);
+        RecordingStream callback = new RecordingStream();
+
+        HttpRequestExecutor.HttpCall call = execute(url, callback, 10_000);
+        Thread.sleep(200);
+        call.cancel();
+        Thread.sleep(400);
+
+        assertNull("a cancelled call must not report success", callback.response);
+        assertNull("a cancelled call must not report failure", callback.failure);
+    }
+
+    /**
+     * Closing is what a protocol adapter does once it has its answer: the exchange must stop and
+     * deliver nothing further, and must not look like a failure.
+     */
+    @Test
+    public void closingTheReadStopsTheExchangeAndDeliversNothing() throws Exception {
+        String url = serve("text/event-stream", heartbeats(60), 100, true);
+        RecordingStream callback = new RecordingStream();
+
+        HttpRequestExecutor.HttpCall call = execute(url, callback, 10_000);
+        Thread.sleep(300);
+        call.close();
+        Thread.sleep(600);
+
+        assertNull("a closed call must not report success", callback.response);
+        assertNull("a closed call must not report failure", callback.failure);
+    }
+
+    /**
+     * Accepts one request and answers nothing at all for {@code quietMs}, so only the client's
+     * own deadline can end the exchange. Returns the URL.
+     */
+    private String serveNothing(final long quietMs) {
+        final ServerSocket server = mServer;
+
+        Thread thread = new Thread(() -> {
+            try (Socket socket = server.accept()) {
+                readRequest(socket.getInputStream());
+                Thread.sleep(quietMs);
+            } catch (Exception ignored) {
+                // The client's deadline closing the socket ends the sleep; the test body asserts.
+            }
+        });
+        thread.setDaemon(true);
+        thread.start();
+
+        return "http://127.0.0.1:" + mServer.getLocalPort() + "/v1/chat/completions";
+    }
+
+    /**
+     * Answers with a {@code Content-Length} larger than the body it actually sends, then closes.
+     * The client sees a connection dropped mid-body rather than a deadline.
+     */
+    private String serveTruncatedBody(final int declaredBytes, final int sentBytes) {
+        final ServerSocket server = mServer;
+
+        Thread thread = new Thread(() -> {
+            try (Socket socket = server.accept()) {
+                readRequest(socket.getInputStream());
+                OutputStream output = socket.getOutputStream();
+                output.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                        + "Content-Length: " + declaredBytes + "\r\nConnection: close\r\n\r\n")
+                        .getBytes(UTF_8));
+                output.write(new byte[sentBytes]);
+                output.flush();
+            } catch (Exception ignored) {
+                // The client's deadline or cancel closing the socket ends this; assertions are in
+                // the test body.
+            }
+        });
+        thread.setDaemon(true);
+        thread.start();
+
+        return "http://127.0.0.1:" + mServer.getLocalPort() + "/v1/chat/completions";
+    }
+
     private static List<byte[]> heartbeats(int count) {
         List<byte[]> fragments = new ArrayList<>();
         for (int i = 0; i < count; i++) fragments.add(": ping\n\n".getBytes(UTF_8));
@@ -218,6 +354,29 @@ public class OkHttpStreamingTest {
             }
 
             if (matched == 4) return;
+        }
+    }
+
+    /** Records the single terminal outcome of a request that asked for one response. */
+    private static final class RecordingPlain implements HttpRequestExecutor.HttpCallback {
+        private final CountDownLatch mDone = new CountDownLatch(1);
+        private volatile HttpRequestExecutor.HttpResponse response;
+        private volatile HttpRequestExecutor.HttpFailure failure;
+
+        @Override
+        public void onSuccess(HttpRequestExecutor.HttpResponse response) {
+            this.response = response;
+            mDone.countDown();
+        }
+
+        @Override
+        public void onFailure(HttpRequestExecutor.HttpFailure failure) {
+            this.failure = failure;
+            mDone.countDown();
+        }
+
+        boolean await() throws InterruptedException {
+            return mDone.await(20, TimeUnit.SECONDS);
         }
     }
 

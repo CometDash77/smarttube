@@ -241,5 +241,6 @@ public class ProviderAuditTest {
 
         @Override public void cancel() { mCancelled = true; }
         @Override public boolean isCancelled() { return mCancelled; }
+        @Override public void close() { }
     }
 }

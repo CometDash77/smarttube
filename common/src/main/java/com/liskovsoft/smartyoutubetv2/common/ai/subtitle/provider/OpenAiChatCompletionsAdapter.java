@@ -223,17 +223,33 @@ public final class OpenAiChatCompletionsAdapter implements ProtocolAdapter {
 
     /**
      * Accumulates one streamed translation. Every valid text delta is published as the full
-     * draft so far, so a renderer never shows a fragment as if it were the whole subtitle. A
-     * completed translation requires the stream's own end signal; an interruption, a length
-     * stop, or an empty result is a failure, never a silent success.
+     * draft so far, so a renderer never shows a fragment as if it were the whole subtitle.
+     *
+     * <p>A completed translation requires an accepted completion signal: a natural
+     * {@code finish_reason} of {@code stop}, or a {@code [DONE]} carrying no reason this adapter
+     * knows to be a refusal. Any other reason — {@code length}, {@code content_filter}, a tool
+     * call, or something this adapter has never seen — is a failure, never a silent success.
+     * Text that ends without any completion signal is an interrupted stream, reported as a
+     * retryable transport failure so the scheduler can retry it as a plain request.</p>
+     *
+     * <p>The outcome is decided as soon as the protocol says the message is complete, and the
+     * underlying HTTP read is closed at that point rather than held open for the server to end
+     * the socket. The cost is that the provider's request id, which arrives with the response
+     * headers, is not recorded for a stream that completes early, because the read is closed
+     * before the end-of-body callback that would have carried it. It stays a diagnostic that the
+     * non-streaming path and transport-level failures still carry; a failure reported from inside
+     * the stream carries none either, since the event hook has no request id to give.</p>
      */
     private final class StreamingHttpCallback implements HttpRequestExecutor.StreamCallback {
         private final Call mCall;
         private final TranslationStream mCallback;
         private final TranslationRequest mRequest;
         private final StringBuilder mText = new StringBuilder();
+        /** Code points appended so far; kept incrementally so the bound check stays cheap. */
+        private int mCodePoints;
         private String mFinishReason;
-        private boolean mDone;
+        /** A completion signal has been seen: the message is as complete as it will ever be. */
+        private boolean mComplete;
 
         StreamingHttpCallback(Call call, TranslationStream callback, TranslationRequest request) {
             mCall = call;
@@ -243,10 +259,11 @@ public final class OpenAiChatCompletionsAdapter implements ProtocolAdapter {
 
         @Override
         public void onEvent(String eventType, String data) {
-            if (mCall.isCancelled() || data == null || mDone) return;
+            if (mCall.isCancelled() || mCall.isDelivered() || data == null) return;
 
             if ("[DONE]".equals(data.trim())) {
-                mDone = true;
+                mComplete = true;
+                deliverOutcome();
                 return;
             }
 
@@ -268,47 +285,95 @@ public final class OpenAiChatCompletionsAdapter implements ProtocolAdapter {
             if (choice == null) return;
 
             Object finish = choice.get("finish_reason");
-            if (finish instanceof String) mFinishReason = (String) finish;
+            if (finish instanceof String) {
+                mFinishReason = (String) finish;
 
-            Map<String, Object> delta = asMap(choice.get("delta"));
-            if (delta == null) return;
+                if (!isAcceptedFinishReason(mFinishReason)) {
+                    deliverFailure(mCall, mCallback, unacceptedFinishFailure(mFinishReason));
+                    return;
+                }
 
-            Object content = delta.get("content");
-            if (!(content instanceof String) || ((String) content).isEmpty()) return;
-
-            mText.append((String) content);
-
-            if (mText.codePointCount(0, mText.length()) > MAX_STREAM_CODE_POINTS) {
-                deliverFailure(mCall, mCallback, new TranslationFailure(
-                        TranslationFailureCategory.INVALID_OUTPUT,
-                        "Provider streamed more text than a subtitle can hold."));
-                return;
+                // A natural stop ends the message; anything after it carries no new text.
+                mComplete = true;
             }
 
-            mCallback.onPartial(TranslationResult.partialResult(
-                    mRequest.getSessionId(), mRequest.getRequestId(), mRequest.getUnit(),
-                    mText.toString()));
+            Map<String, Object> delta = asMap(choice.get("delta"));
+            Object content = delta != null ? delta.get("content") : null;
+
+            if (content instanceof String && !((String) content).isEmpty()) {
+                if (!appendWithinLimit((String) content)) {
+                    deliverFailure(mCall, mCallback, new TranslationFailure(
+                            TranslationFailureCategory.INVALID_OUTPUT,
+                            "Provider streamed more text than a subtitle can hold."));
+                    return;
+                }
+
+                mCallback.onPartial(TranslationResult.partialResult(
+                        mRequest.getSessionId(), mRequest.getRequestId(), mRequest.getUnit(),
+                        mText.toString()));
+            }
+
+            // The protocol said the message is complete; do not wait for the socket to close.
+            if (mComplete) deliverOutcome();
+        }
+
+        /**
+         * Adds one delta if it fits the subtitle bound. The count is kept incrementally rather
+         * than recomputed over the accumulated text, and a surrogate pair split across two
+         * deltas is counted as the one code point it is.
+         */
+        private boolean appendWithinLimit(String text) {
+            int added = text.codePointCount(0, text.length());
+
+            if (mText.length() > 0 && text.length() > 0
+                    && Character.isHighSurrogate(mText.charAt(mText.length() - 1))
+                    && Character.isLowSurrogate(text.charAt(0))) {
+                added--;
+            }
+
+            if (mCodePoints + added > MAX_STREAM_CODE_POINTS) return false;
+
+            mCodePoints += added;
+            mText.append(text);
+            return true;
         }
 
         @Override
         public void onSuccess(HttpRequestExecutor.HttpResponse response) {
-            if (mCall.isCancelled()) return;
+            if (mCall.isCancelled() || mCall.isDelivered()) return;
 
             mCall.setRequestId(response != null ? response.getRequestId() : null);
 
-            if ("length".equals(mFinishReason) || "content_filter".equals(mFinishReason)) {
-                deliverFailure(mCall, mCallback, new TranslationFailure(
-                        TranslationFailureCategory.INVALID_OUTPUT,
-                        "Provider stopped before the translation was complete."));
+            // The same status judgement the non-streaming path makes, before any stream state is
+            // consulted: a rejected request never carried a stream to interpret.
+            int status = response != null ? response.getStatusCode() : 0;
+            if (status < 200 || status >= 300) {
+                deliverFailure(mCall, mCallback, TranslationFailureMapper.fromHttpStatus(status));
                 return;
             }
 
-            if (mFinishReason == null && !mDone) {
+            if (!mComplete) {
+                // Text with no completion signal is a cut stream, not a finished translation.
+                // The category is retryable on purpose: the scheduler's answer to an interrupted
+                // stream is one plain request under the same budget.
                 deliverFailure(mCall, mCallback, new TranslationFailure(
-                        TranslationFailureCategory.PROTOCOL,
-                        "Provider stream ended without a completion signal."));
+                        TranslationFailureCategory.NETWORK,
+                        "Provider stream ended before the translation was complete."));
                 return;
             }
+
+            deliverOutcome();
+        }
+
+        @Override
+        public void onFailure(HttpRequestExecutor.HttpFailure failure) {
+            handleTransportFailure(mCall, mCallback, failure);
+        }
+
+        /** Delivers the single outcome once the protocol has declared the message complete. */
+        private void deliverOutcome() {
+            if (mCall.isCancelled() || mCall.isDelivered()) return;
+            if (!mComplete) return;
 
             String translated = mText.toString().trim();
 
@@ -326,9 +391,19 @@ public final class OpenAiChatCompletionsAdapter implements ProtocolAdapter {
                     translated));
         }
 
-        @Override
-        public void onFailure(HttpRequestExecutor.HttpFailure failure) {
-            handleTransportFailure(mCall, mCallback, failure);
+        /** Only a natural stop completes a stream; a compatibility [DONE] is handled separately. */
+        private boolean isAcceptedFinishReason(String reason) {
+            return "stop".equals(reason);
+        }
+
+        /** A reason this adapter does not accept is a failure, whatever kind it is. */
+        private TranslationFailure unacceptedFinishFailure(String reason) {
+            if ("length".equals(reason) || "content_filter".equals(reason)) {
+                return new TranslationFailure(TranslationFailureCategory.INVALID_OUTPUT,
+                        "Provider stopped before the translation was complete.");
+            }
+            return new TranslationFailure(TranslationFailureCategory.PROTOCOL,
+                    "Provider ended the response without a translation.");
         }
     }
 
@@ -400,7 +475,7 @@ public final class OpenAiChatCompletionsAdapter implements ProtocolAdapter {
     private void handleResponse(Call call, TranslationCallback callback,
                                 TranslationRequest request,
                                 HttpRequestExecutor.HttpResponse response) {
-        if (call.isCancelled()) {
+        if (call.isCancelled() || call.isDelivered()) {
             return;
         }
         call.setRequestId(response != null ? response.getRequestId() : null);
@@ -425,7 +500,7 @@ public final class OpenAiChatCompletionsAdapter implements ProtocolAdapter {
 
     private void handleTransportFailure(Call call, TranslationCallback callback,
                                         HttpRequestExecutor.HttpFailure failure) {
-        if (call.isCancelled() || failure == null
+        if (call.isCancelled() || call.isDelivered() || failure == null
                 || failure.getReason() == HttpRequestExecutor.FailureReason.CANCELLED) {
             return;
         }
@@ -532,10 +607,27 @@ public final class OpenAiChatCompletionsAdapter implements ProtocolAdapter {
             return mRequestId;
         }
 
+        /**
+         * Whether this call has already produced its single outcome. Every terminal path checks
+         * this one flag, so a second signal — a protocol end signal followed by end of stream, a
+         * late delta, an error after the answer — cannot deliver or append anything again.
+         */
+        synchronized boolean isDelivered() {
+            return mDelivered;
+        }
+
         synchronized void setHttpCall(HttpRequestExecutor.HttpCall httpCall) {
             mHttpCall = httpCall;
-            if (mCancelled && mHttpCall != null) {
+
+            if (mHttpCall == null) return;
+
+            // The outcome may have been decided before the handle existed: a synchronous failure
+            // during execute(), or a cancel from the caller. Either way the exchange must not
+            // keep reading.
+            if (mCancelled) {
                 mHttpCall.cancel();
+            } else if (mDelivered) {
+                mHttpCall.close();
             }
         }
 
@@ -548,6 +640,12 @@ public final class OpenAiChatCompletionsAdapter implements ProtocolAdapter {
                 return false;
             }
             mDelivered = true;
+
+            // The exchange has produced its one outcome; stop reading it rather than waiting for
+            // the server to close a stream it has already finished describing.
+            if (mHttpCall != null) {
+                mHttpCall.close();
+            }
             return true;
         }
     }

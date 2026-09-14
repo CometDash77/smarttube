@@ -86,7 +86,7 @@ interface StreamCallback extends HttpCallback {
 事件累积放在各 Adapter 的请求回调内；本轮不预建两个 Accumulator 类或泛化 LLM parser 框架。
 
 - [x] OpenAI 请求使用 `stream:true` 与 event-stream accept；只累积首个 choice 的 `delta.content`，角色/用量/额外 choice 块都被忽略。final 需要停止原因为 `stop`（或 `[DONE]` 补齐）；length/content filter/无完成信号 EOF 一律失败。[Chat Completions stream](https://developers.openai.com/api/reference/resources/chat/subresources/completions/streaming-events)
-- [x] Anthropic 只累积 `text_delta`，`message_stop` 前验证停止原因（仅接受 `end_turn`/`stop_sequence`）；ping 与未知事件忽略，`error` 事件映射为失败，thinking/tool 块不渲染。**偏差**：未按 content block index 分桶，而是把所有 text block 的 text_delta 顺序累加——当前生产只发一个 text block，按索引分桶在只有一个文本块时不改变结果，且不引入未使用的数据结构。[Anthropic streaming](https://platform.claude.com/docs/en/build-with-claude/streaming)
+- [x] Anthropic 只累积 `text_delta`，`message_stop` 前验证停止原因（仅接受 `end_turn`/`stop_sequence`）；ping 与未知事件忽略，`error` 事件映射为失败，thinking/tool 块不渲染。**偏差**：未按 content block index 分桶，而是把所有 text block 的 text_delta 顺序累加——请求体的 `content` 只是一个字符串，并不约束响应返回几个 text block；响应只含一个文本块时按索引分桶结果相同，多文本块时会按到达顺序拼接而非按块分组，因此这是已知限制而不是"请求保证只有一个块"。[Anthropic streaming](https://platform.claude.com/docs/en/build-with-claude/streaming)
 - [x] 每个有效增量都发布“完整累计草稿”的 `partialResult`（断言 `Arrays.asList("你","你好")`）；final 用 `finalResult` 且身份一致。
 - [x] 五个 Provider 类型继续复用两个协议适配器，未新增品牌 parser；流式开关默认关闭，能力判断来自用户设置与实际响应，不从未知型号名推测。
 - [x] 断言覆盖：多 choice、空 role chunk、usage chunk、未知 Anthropic 事件、非文本 block、JSON 损坏、长度/`max_tokens` 停止、完成后重复事件、完成前断流。两个协议的非流式原套件全部保留并通过。

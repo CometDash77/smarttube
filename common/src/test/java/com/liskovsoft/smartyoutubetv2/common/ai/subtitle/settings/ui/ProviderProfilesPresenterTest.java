@@ -444,5 +444,9 @@ public class ProviderProfilesPresenterTest {
         public boolean isCancelled() {
             return false;
         }
+
+        @Override
+        public void close() {
+        }
     }
 }

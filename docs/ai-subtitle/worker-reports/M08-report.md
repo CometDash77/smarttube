@@ -104,9 +104,11 @@ Evidence: `streamedDeltasBecomeCumulativeDraftsAndStopCompletesTheTranslation`,
 (Anthropic). Both non-streaming suites are unchanged and still pass.
 
 **Deviation:** the Anthropic accumulator does not bucket deltas by content block index. The
-production request asks for one text block; bucketing would add a data structure that changes
-no observable behaviour for that shape. Recorded as a known limitation: a future multi-block
-request would need the index.
+request body sends the source as a plain string, so nothing in it constrains how many text
+blocks a response carries; bucketing would add a data structure that changes no observable
+behaviour while a response holds one text block. Recorded as a known limitation: a response
+with more than one text block is concatenated in arrival order rather than by block, and would
+need the index.
 
 ## D. Drafts to the current cue and failure recovery
 

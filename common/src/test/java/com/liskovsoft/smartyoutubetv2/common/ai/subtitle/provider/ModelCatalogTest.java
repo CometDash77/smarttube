@@ -340,5 +340,9 @@ public class ModelCatalogTest {
         public boolean isCancelled() {
             return cancelled;
         }
+
+        @Override
+        public void close() {
+        }
     }
 }

@@ -380,6 +380,10 @@ public class AiSubtitlePhoneInputServerTest {
         public boolean isCancelled() {
             return false;
         }
+
+        @Override
+        public void close() {
+        }
     }
 
     private static final class HttpResponse {

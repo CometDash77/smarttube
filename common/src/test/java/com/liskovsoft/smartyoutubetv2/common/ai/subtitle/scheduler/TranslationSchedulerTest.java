@@ -10,6 +10,12 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationProfi
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationUnit;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.prompt.PromptProfile;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSession;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.OpenAiChatCompletionsAdapter;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.ProviderProfile;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.ProviderProtocol;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.ProviderType;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.provider.http.HttpRequestExecutor;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.SecretStore;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.source.SourceTimeline;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.FakeTranslationProvider;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCall;
@@ -975,6 +981,242 @@ public class TranslationSchedulerTest {
         return SourceTimeline.from(
                 Collections.singletonList(segment(0, 0, 20_000, "0-20")),
                 Collections.singletonList(unit(0, 0, "0-20")));
+    }
+
+    // ------------------------------------------------- real adapter, fake transport
+
+    /**
+     * A closed loop through the real OpenAI adapter: the scheduler's own retry and fallback
+     * decisions are what these tests measure, so the transport is scripted rather than mocked.
+     */
+    @Test
+    public void aRateLimitedStreamFallsBackToExactlyOnePlainRequest() {
+        ScriptedTransport transport = new ScriptedTransport(
+                Script.rejected(429), Script.completed("译文"));
+        TranslationScheduler scheduler = providerScheduler(openAiAdapter(transport));
+        scheduler.setStreamingEnabled(true);
+        scheduler.setLookaheadMs(0);
+
+        scheduler.onPositionUpdate(10_000, NOW);
+
+        assertEquals(1, transport.requestCount());
+        assertTrue("the first attempt must be a streamed request",
+                transport.bodyAt(0).contains("\"stream\":true"));
+
+        scheduler.onPositionUpdate(10_000,
+                scheduler.getRetryDueAtMsForTesting(unit(0, 0, "0-20")));
+
+        assertEquals("a rate-limited stream costs exactly one plain retry",
+                2, transport.requestCount());
+        assertTrue("the retry must be a plain request",
+                transport.bodyAt(1).contains("\"stream\":false"));
+        assertEquals("译文", scheduler.getCachedTranslation(unit(0, 0, "0-20")));
+
+        // A transport failure arriving after the accepted final must not reach the scheduler at
+        // all: no extra request, and the cached translation is still there.
+        transport.failLate();
+        scheduler.onPositionUpdate(10_000, NOW + 60_000);
+
+        assertEquals("a late transport failure must not cost another request",
+                2, transport.requestCount());
+        assertEquals("nor clear the accepted translation",
+                "译文", scheduler.getCachedTranslation(unit(0, 0, "0-20")));
+    }
+
+    @Test
+    public void anAuthRejectionCostsExactlyOneRequest() {
+        ScriptedTransport transport = new ScriptedTransport(Script.rejected(401));
+        TranslationScheduler scheduler = providerScheduler(openAiAdapter(transport));
+        scheduler.setStreamingEnabled(true);
+        scheduler.setLookaheadMs(0);
+
+        scheduler.onPositionUpdate(10_000, NOW);
+        scheduler.onPositionUpdate(10_000, NOW + 60_000);
+
+        assertEquals("a credential failure is terminal, not retryable", 1, transport.requestCount());
+        assertTrue(scheduler.hasFailed(unit(0, 0, "0-20")));
+    }
+
+    @Test
+    public void aTruncatedStreamRecoversWithOnePlainRequestAndKeepsTheSource() {
+        ScriptedTransport transport = new ScriptedTransport(
+                Script.truncated("半"), Script.completed("完整译文"));
+        TranslationScheduler scheduler = providerScheduler(openAiAdapter(transport));
+        scheduler.setStreamingEnabled(true);
+        scheduler.setLookaheadMs(0);
+
+        scheduler.onPositionUpdate(10_000, NOW);
+
+        assertEquals("the partial text reached the listener before the stream was cut",
+                Collections.singletonList("draft"), mDrafts);
+
+        scheduler.onPositionUpdate(10_000,
+                scheduler.getRetryDueAtMsForTesting(unit(0, 0, "0-20")));
+
+        assertEquals(2, transport.requestCount());
+        assertTrue("the recovery request must still carry the original subtitle",
+                transport.bodyAt(1).contains("0-20"));
+        assertEquals("完整译文", scheduler.getCachedTranslation(unit(0, 0, "0-20")));
+        assertNull("a recovered unit must not keep a stale draft",
+                scheduler.getDraftTranslation(unit(0, 0, "0-20")));
+    }
+
+    /** The real OpenAI adapter in front of the scripted transport. */
+    private static OpenAiChatCompletionsAdapter openAiAdapter(HttpRequestExecutor executor) {
+        ProviderProfile profile = new ProviderProfile("profile-1", "Test Provider",
+                ProviderType.OPENAI_COMPATIBLE, ProviderProtocol.OPENAI_CHAT_COMPLETIONS,
+                "https://api.example.com/v1", "credential-ref-1", "model-1",
+                Collections.<String>emptyList(),
+                Collections.<String, String>emptyMap(),
+                Collections.<String, String>emptyMap());
+
+        return new OpenAiChatCompletionsAdapter(executor, profile, new StaticSecretStore());
+    }
+
+    private static final class StaticSecretStore implements SecretStore {
+        @Override
+        public String get(String reference) {
+            return "synthetic-credential";
+        }
+
+        @Override
+        public void put(String reference, String secret) {
+        }
+
+        @Override
+        public void delete(String reference) {
+        }
+    }
+
+    private TranslationScheduler providerScheduler(TranslationProvider provider) {
+        TranslationScheduler scheduler = new TranslationScheduler(mSession, provider, PROMPT,
+                new InMemoryTranslationCache(), new TranslationScheduler.Listener() {
+            @Override
+            public void onTranslationArrived() {
+                mArrived.add("arrived");
+            }
+
+            @Override
+            public void onTranslationDraft() {
+                mDrafts.add("draft");
+            }
+
+            @Override
+            public void onTranslationFailed(String reason) {
+                mFailed.add(reason);
+            }
+        });
+        scheduler.setThrottleMs(0);
+        scheduler.setTimeline(singleUnitTimeline());
+        return scheduler;
+    }
+
+    /** One scripted exchange: a rejection status, a completed stream, or a cut one. */
+    private static final class Script {
+        private final int mStatus;
+        private final String mText;
+        private final boolean mComplete;
+
+        private Script(int status, String text, boolean complete) {
+            mStatus = status;
+            mText = text;
+            mComplete = complete;
+        }
+
+        static Script rejected(int status) {
+            return new Script(status, null, false);
+        }
+
+        static Script completed(String text) {
+            return new Script(200, text, true);
+        }
+
+        /** Text, then end of stream with no completion signal. */
+        static Script truncated(String text) {
+            return new Script(200, text, false);
+        }
+    }
+
+    /**
+     * Answers each request with the next script, in order. A streamed request gets SSE events; a
+     * plain one gets a single JSON response, exactly as the two provider paths differ.
+     */
+    private static final class ScriptedTransport implements HttpRequestExecutor {
+        private final List<Script> mScripts;
+        private final List<String> mBodies = new ArrayList<>();
+        private HttpCallback mLastCallback;
+        private int mIndex;
+
+        ScriptedTransport(Script... scripts) {
+            mScripts = Arrays.asList(scripts);
+        }
+
+        @Override
+        public HttpCall execute(HttpRequest request, HttpCallback callback) {
+            mLastCallback = callback;
+            mBodies.add(request.getBody() != null ? request.getBody() : "");
+
+            int number = ++mIndex;
+            Script script = mScripts.get(Math.min(number - 1, mScripts.size() - 1));
+            boolean streamed = mBodies.get(mBodies.size() - 1).contains("\"stream\":true");
+
+            if (script.mStatus != 200) {
+                callback.onSuccess(new HttpResponse(script.mStatus, "{\"error\":{}}",
+                        "req-" + number));
+                return new TrackingHttpCall();
+            }
+
+            if (!streamed) {
+                callback.onSuccess(new HttpResponse(200,
+                        "{\"choices\":[{\"message\":{\"content\":\"" + script.mText + "\"}}]}",
+                        "req-" + number));
+                return new TrackingHttpCall();
+            }
+
+            StreamCallback stream = (StreamCallback) callback;
+
+            if (script.mText != null) {
+                stream.onEvent("message",
+                        "{\"choices\":[{\"delta\":{\"content\":\"" + script.mText + "\"}}]}");
+            }
+
+            if (script.mComplete) {
+                stream.onEvent("message",
+                        "{\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}");
+            }
+
+            callback.onSuccess(new HttpResponse(200, null, "req-" + number));
+            return new TrackingHttpCall();
+        }
+
+        int requestCount() {
+            return mBodies.size();
+        }
+
+        /** Delivers a transport failure for the newest request, long after it was answered. */
+        void failLate() {
+            mLastCallback.onFailure(new HttpFailure(
+                    HttpRequestExecutor.FailureReason.NETWORK, "late", "req-late"));
+        }
+
+        String bodyAt(int index) {
+            return mBodies.get(index);
+        }
+    }
+
+    private static final class TrackingHttpCall implements HttpRequestExecutor.HttpCall {
+        @Override
+        public void cancel() {
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return false;
+        }
+
+        @Override
+        public void close() {
+        }
     }
 
     /** {@code count} one-second cues, so a long timeline is cheap to drive in virtual time. */

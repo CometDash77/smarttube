@@ -27,6 +27,7 @@ import java.util.Map;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -407,7 +408,7 @@ public class AnthropicMessagesAdapterTest {
     }
 
     @Test
-    public void aStreamWithoutMessageStopIsNotASilentSuccess() {
+    public void anInterruptedStreamFailsRetryablySoAPlainRequestCanFollow() {
         FakeHttpExecutor executor = FakeHttpExecutor.deferred();
         AnthropicMessagesAdapter adapter = adapter(executor,
                 profile("https://api.anthropic.com", null, null),
@@ -419,12 +420,13 @@ public class AnthropicMessagesAdapterTest {
                 "{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"half\"}}");
         executor.finishStream();
 
-        assertEquals(TranslationFailureCategory.PROTOCOL, callback.failure.getCategory());
+        assertEquals("a cut stream must stay retryable, or no fallback can ever happen",
+                TranslationFailureCategory.NETWORK, callback.failure.getCategory());
         assertTrue(callback.result == null);
     }
 
     @Test
-    public void aStreamingErrorEventBecomesAFailure() {
+    public void messageStopDeliversOnceAndClosesTheHttpRead() {
         FakeHttpExecutor executor = FakeHttpExecutor.deferred();
         AnthropicMessagesAdapter adapter = adapter(executor,
                 profile("https://api.anthropic.com", null, null),
@@ -432,11 +434,155 @@ public class AnthropicMessagesAdapterTest {
         RecordingStreamCallback callback = new RecordingStreamCallback();
 
         adapter.translate(request("Hello"), callback);
-        executor.emit("error",
-                "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}");
-        executor.finishStream();
+        executor.emit("content_block_delta",
+                "{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"你好\"}}");
+        executor.emit("message_delta",
+                "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}");
+        executor.emit("message_stop", "{\"type\":\"message_stop\"}");
 
-        assertEquals(TranslationFailureCategory.PROTOCOL, callback.failure.getCategory());
+        // The answer is complete before the socket closes: the read must already be closed and
+        // the outcome delivered exactly once.
+        assertEquals("你好", callback.result.getTranslatedText());
+        assertTrue(executor.getLastCall().isClosed());
+        int deliveries = callback.terminals;
+        java.util.List<String> drafts = new java.util.ArrayList<>(callback.partials);
+
+        executor.emit("content_block_delta",
+                "{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"LATE\"}}");
+        executor.finishStream();
+        executor.failStream(new HttpRequestExecutor.HttpFailure(
+                HttpRequestExecutor.FailureReason.NETWORK, "late", "req-late"));
+
+        assertEquals("a terminal outcome is delivered exactly once", deliveries,
+                callback.terminals);
+        assertEquals("no draft may be published after the outcome", drafts, callback.partials);
+        assertEquals("你好", callback.result.getTranslatedText());
+    }
+
+    @Test
+    public void streamingStatusesAreClassifiedBeforeTheStreamIsInterpreted() {
+        assertStreamingStatusFailure(401, TranslationFailureCategory.AUTH);
+        assertStreamingStatusFailure(403, TranslationFailureCategory.AUTH);
+        assertStreamingStatusFailure(408, TranslationFailureCategory.TIMEOUT);
+        assertStreamingStatusFailure(429, TranslationFailureCategory.RATE_LIMITED);
+        assertStreamingStatusFailure(500, TranslationFailureCategory.SERVER);
+        assertStreamingStatusFailure(504, TranslationFailureCategory.TIMEOUT);
+        assertStreamingStatusFailure(400, TranslationFailureCategory.PROTOCOL);
+    }
+
+    /** The audit's counterexample for C6: an overloaded stream must stay retryable. */
+    @Test
+    public void anOverloadedStreamingErrorStaysRetryable() {
+        RecordingStreamCallback callback = streamError("overloaded_error");
+        assertEquals(TranslationFailureCategory.SERVER, callback.failure.getCategory());
+    }
+
+    @Test
+    public void streamingErrorsReuseTheNamedCategories() {
+        assertEquals(TranslationFailureCategory.RATE_LIMITED,
+                streamError("rate_limit_error").failure.getCategory());
+        assertEquals(TranslationFailureCategory.AUTH,
+                streamError("authentication_error").failure.getCategory());
+        assertEquals(TranslationFailureCategory.SERVER,
+                streamError("api_error").failure.getCategory());
+        // Nothing known maps it, so it stays conservative rather than becoming retryable.
+        assertEquals(TranslationFailureCategory.PROTOCOL,
+                streamError("something_new").failure.getCategory());
+    }
+
+    /**
+     * The draft bound is a code-point budget at the exact boundary, counted so a surrogate pair
+     * is one code point and a pair split across two deltas is still one.
+     *
+     * <p>The plan also requires the bound to be checked <em>before</em> the text enters the
+     * buffer. That ordering is implemented but is not separable by assertion from the public
+     * surface: both orders reject the same input with the same failure, and the buffer is never
+     * read again once the call is terminal. The name says what this test can actually observe.</p>
+     */
+    @Test
+    public void aStreamIsAcceptedUpToTheDraftBoundAndRejectedPastIt() {
+        int bound = AnthropicMessagesAdapter.MAX_STREAM_CODE_POINTS;
+        String pair = "😀";
+
+        RecordingStreamCallback atBound = streamText(ascii(bound - 1) + pair);
+        assertNotNull("a stream that ends exactly on the bound must complete", atBound.result);
+        assertNull(atBound.failure);
+
+        RecordingStreamCallback pastBound = streamText(ascii(bound) + pair);
+        assertNull("a stream past the bound must not succeed", pastBound.result);
+        assertEquals(TranslationFailureCategory.INVALID_OUTPUT, pastBound.failure.getCategory());
+
+        // The same text with the surrogate pair split across two deltas: still the bound, because
+        // the pair is one code point and not two.
+        RecordingStreamCallback splitPair = streamText(ascii(bound - 1), "\\uD83D", "\\uDE00");
+        assertNotNull("a split surrogate pair must still count as one code point", splitPair.result);
+    }
+
+    @Test
+    public void aSynchronouslyDeliveredOutcomeClosesTheHandleWhenItArrives() {
+        FakeHttpExecutor executor = FakeHttpExecutor.success(successBody("ok"), "req-sync");
+        AnthropicMessagesAdapter adapter = adapter(executor,
+                profile("https://api.anthropic.com", null, null),
+                new RecordingSecretStore(SECRET));
+
+        adapter.translate(request("Hello"), new RecordingCallback());
+
+        assertTrue("a handle that arrives after the outcome must be closed at once",
+                executor.getLastCall().isClosed());
+    }
+
+    private static RecordingStreamCallback streamError(String errorType) {
+        FakeHttpExecutor executor = FakeHttpExecutor.deferred();
+        AnthropicMessagesAdapter adapter = adapter(executor,
+                profile("https://api.anthropic.com", null, null),
+                new RecordingSecretStore(SECRET));
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        adapter.translate(request("Hello"), callback);
+        executor.emit("error", "{\"type\":\"error\",\"error\":{\"type\":\"" + errorType + "\"}}");
+
+        return callback;
+    }
+
+    /** Drives one streaming request through the given text deltas, then message_stop. */
+    private static RecordingStreamCallback streamText(String... deltas) {
+        FakeHttpExecutor executor = FakeHttpExecutor.deferred();
+        AnthropicMessagesAdapter adapter = adapter(executor,
+                profile("https://api.anthropic.com", null, null),
+                new RecordingSecretStore(SECRET));
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        adapter.translate(request("Hello"), callback);
+
+        for (String delta : deltas) {
+            executor.emit("content_block_delta", "{\"type\":\"content_block_delta\","
+                    + "\"delta\":{\"type\":\"text_delta\",\"text\":\"" + delta + "\"}}");
+        }
+        executor.emit("message_delta",
+                "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}");
+        executor.emit("message_stop", "{\"type\":\"message_stop\"}");
+
+        return callback;
+    }
+
+    private static void assertStreamingStatusFailure(int status,
+                                                     TranslationFailureCategory expected) {
+        FakeHttpExecutor executor = FakeHttpExecutor.success(
+                "{\"error\":{\"message\":\"private provider detail\"}}", "req-stream-" + status);
+        executor.responseStatusCode = status;
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        adapter(executor, profile("https://api.anthropic.com", null, null),
+                new RecordingSecretStore(SECRET)).translate(request("Hello"), callback);
+
+        assertEquals(expected, callback.failure.getCategory());
+        assertFalse(callback.failure.getMessage().contains("private provider detail"));
+    }
+
+    private static String ascii(int count) {
+        StringBuilder text = new StringBuilder(count);
+        for (int i = 0; i < count; i++) text.append('x');
+        return text.toString();
     }
 
     private static void assertStatusFailure(int status,
@@ -507,6 +653,7 @@ public class AnthropicMessagesAdapterTest {
         private final java.util.List<String> partials = new java.util.ArrayList<>();
         private TranslationResult result;
         private TranslationFailure failure;
+        private int terminals;
 
         @Override
         public void onPartial(TranslationResult partial) {
@@ -515,11 +662,13 @@ public class AnthropicMessagesAdapterTest {
 
         @Override
         public void onSuccess(TranslationResult result) {
+            terminals++;
             this.result = result;
         }
 
         @Override
         public void onFailure(TranslationFailure failure) {
+            terminals++;
             this.failure = failure;
         }
     }
@@ -571,6 +720,10 @@ public class AnthropicMessagesAdapterTest {
 
         void finishStream() {
             lastCallback.onSuccess(new HttpResponse(200, null, "req-stream"));
+        }
+
+        void failStream(HttpFailure failure) {
+            lastCallback.onFailure(failure);
         }
 
         static FakeHttpExecutor failure(HttpFailure failure) {
@@ -628,6 +781,7 @@ public class AnthropicMessagesAdapterTest {
 
     private static final class FakeHttpCall implements HttpRequestExecutor.HttpCall {
         private boolean cancelled;
+        private boolean closed;
 
         @Override
         public void cancel() {
@@ -637,6 +791,15 @@ public class AnthropicMessagesAdapterTest {
         @Override
         public boolean isCancelled() {
             return cancelled;
+        }
+
+        @Override
+        public void close() {
+            closed = true;
+        }
+
+        boolean isClosed() {
+            return closed;
         }
     }
 }

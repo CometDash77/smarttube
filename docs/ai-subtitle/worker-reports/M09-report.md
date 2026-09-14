@@ -43,8 +43,8 @@ proves it; every device row is marked `PENDING DEVICE` rather than being claimed
 | AUTH / PROTOCOL / INVALID_OUTPUT / CANCELLED / NETWORK / TIMEOUT, 429, 5xx | Normalized, budgeted, terminal categories never retried | `everyProviderFailureCategoryKeepsSourceOnly`, `terminalCategoriesDoNotRetry`, `rateLimitAndServerUseTheSameRetryBudget`, `timeoutUsesThreeNetworkAttemptsWithBackoff` | PASS |
 | Provider throws synchronously | Isolated to source output | `providerExceptionIsIsolatedToSourceOnlyOutput` | PASS |
 | Streaming off and on | Core chain passes in both modes | Full suite runs with both switches off; streaming cases run with it on | PASS |
-| 50 rapid drags (explicit count) | Only the final position dispatches | Not written as a 50-iteration case; the semantics are covered by the drag test | PARTIAL |
-| Repeated terminal callback | No state or handle left hanging | Guaranteed by one-shot flags in the transport and adapters, but no dedicated assertion | PARTIAL |
+| 50 rapid drags (explicit count) | Only the final position dispatches | Not written as a 50-iteration case; the semantics are covered by the drag test | PARTIAL — closed by the M07–M09 correction run phase 1 (`AiSubtitleControllerTest`) |
+| Repeated terminal callback | No state or handle left hanging | Guaranteed by one-shot flags in the transport and adapters, but no dedicated assertion | PARTIAL — closed by the M07–M09 correction run phase 3 (terminal-count assertions in both adapter streaming suites) |
 | Background / foreground, PiP | Lifecycle correct, no background requests | Needs a device | PENDING DEVICE |
 | 2h+ continuous playback on a device | Resource stability | Needs a device | PENDING DEVICE |
 
@@ -175,7 +175,7 @@ eleven methods in that class. The suite was re-run after the fix.
 | Exact-SHA CI (common, lint, assemble, JDK 11 lane, artifacts) | `PENDING PUSH AUTHORIZATION` | An authorized push to the feature branch |
 | Device matrix (sections E and the device rows above) | `PENDING DEVICE` | A TV/Android device and a candidate APK |
 | Performance and memory sampling on a long video | `NOT RUN` | The same device |
-| 50-drag explicit case, repeated-terminal-callback assertion | `PARTIAL` | Cheap to add if the device matrix needs them |
+| 50-drag explicit case, repeated-terminal-callback assertion | `CLOSED` | Both closed by the M07–M09 correction run (phase 1 and phase 3) |
 | Partial-batch repair | `NOT IMPLEMENTED` | The three restart conditions in `M07-report.md` §R5-2 |
 | Persistent cache and video summary | `NOT IMPLEMENTED` | The measurement conditions in `M08-report.md` §F |
 | Display mode × streaming combination matrix | `NOT COVERED` | M09 section A follow-up |

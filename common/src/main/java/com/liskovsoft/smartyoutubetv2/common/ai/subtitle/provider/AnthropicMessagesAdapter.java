@@ -226,15 +226,26 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
      * Accumulates one streamed translation from Anthropic's named events.
      *
      * <p>Only {@code text_delta} payloads become subtitle text; thinking and tool blocks are
-     * ignored rather than rendered. A completed translation requires {@code message_stop} with
-     * an accepted stop reason, so a truncated or interrupted stream is a failure rather than a
-     * silent success. Each delta publishes the full draft so far.</p>
+     * ignored rather than rendered. A completed translation requires {@code message_stop}, and the
+     * stop reason recorded before it must be {@code end_turn} or {@code stop_sequence}, so a
+     * truncated or interrupted stream is a failure rather than a silent success. Each delta
+     * publishes the full draft so far.</p>
+     *
+     * <p>The outcome is decided as soon as {@code message_stop} arrives, and the underlying HTTP
+     * read is closed at that point rather than held open for the server to end the socket. The
+     * cost is that the provider's request id, which arrives with the response headers, is not
+     * recorded for a stream that completes early, because the read is closed before the
+     * end-of-body callback that would have carried it. It stays a diagnostic that the
+     * non-streaming path and transport-level failures still carry; a failure reported from inside
+     * the stream carries none either, since the event hook has no request id to give.</p>
      */
     private final class StreamingHttpCallback implements HttpRequestExecutor.StreamCallback {
         private final Call mCall;
         private final TranslationStream mCallback;
         private final TranslationRequest mRequest;
         private final StringBuilder mText = new StringBuilder();
+        /** Code points appended so far; kept incrementally so the bound check stays cheap. */
+        private int mCodePoints;
         private boolean mMessageStopped;
         private String mStopReason;
 
@@ -246,7 +257,9 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
 
         @Override
         public void onEvent(String eventType, String data) {
-            if (mCall.isCancelled() || data == null || mMessageStopped) return;
+            if (mCall.isCancelled() || mCall.isDelivered() || data == null || mMessageStopped) {
+                return;
+            }
 
             final Map<String, Object> event;
             try {
@@ -270,10 +283,15 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
                     break;
                 case "message_stop":
                     mMessageStopped = true;
+                    // The protocol says the message is complete; do not wait for the socket.
+                    deliverOutcome();
                     break;
                 case "error":
+                    // The named error type is the only signal here: an SSE error event carries no
+                    // HTTP status. An unrecognised type stays conservative rather than retryable.
+                    TranslationFailureCategory named = namedErrorCategory(data);
                     deliverFailure(mCall, mCallback, new TranslationFailure(
-                            TranslationFailureCategory.PROTOCOL,
+                            named != null ? named : TranslationFailureCategory.PROTOCOL,
                             "Provider reported a streaming error."));
                     break;
                 default:
@@ -293,9 +311,7 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
             Object text = delta.get("text");
             if (!(text instanceof String) || ((String) text).isEmpty()) return;
 
-            mText.append((String) text);
-
-            if (mText.codePointCount(0, mText.length()) > MAX_STREAM_CODE_POINTS) {
+            if (!appendWithinLimit((String) text)) {
                 deliverFailure(mCall, mCallback, new TranslationFailure(
                         TranslationFailureCategory.INVALID_OUTPUT,
                         "Provider streamed more text than a subtitle can hold."));
@@ -307,18 +323,64 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
                     mText.toString()));
         }
 
+        /**
+         * Adds one delta if it fits the subtitle bound. The count is kept incrementally rather
+         * than recomputed over the accumulated text, and a surrogate pair split across two
+         * deltas is counted as the one code point it is.
+         */
+        private boolean appendWithinLimit(String text) {
+            int added = text.codePointCount(0, text.length());
+
+            if (mText.length() > 0 && text.length() > 0
+                    && Character.isHighSurrogate(mText.charAt(mText.length() - 1))
+                    && Character.isLowSurrogate(text.charAt(0))) {
+                added--;
+            }
+
+            if (mCodePoints + added > MAX_STREAM_CODE_POINTS) return false;
+
+            mCodePoints += added;
+            mText.append(text);
+            return true;
+        }
+
         @Override
         public void onSuccess(HttpRequestExecutor.HttpResponse response) {
-            if (mCall.isCancelled()) return;
+            if (mCall.isCancelled() || mCall.isDelivered()) return;
 
             mCall.setRequestId(response != null ? response.getRequestId() : null);
 
-            if (!mMessageStopped) {
-                deliverFailure(mCall, mCallback, new TranslationFailure(
-                        TranslationFailureCategory.PROTOCOL,
-                        "Provider stream ended without a completion signal."));
+            // The same status judgement the non-streaming path makes, before any stream state is
+            // consulted: a rejected request never carried a stream to interpret.
+            int status = response != null ? response.getStatusCode() : 0;
+            if (status < 200 || status >= 300) {
+                deliverFailure(mCall, mCallback, errorFailure(status,
+                        response != null ? response.getBody() : null));
                 return;
             }
+
+            if (!mMessageStopped) {
+                // Text with no completion signal is a cut stream, not a finished translation.
+                // The category is retryable on purpose: the scheduler's answer to an interrupted
+                // stream is one plain request under the same budget.
+                deliverFailure(mCall, mCallback, new TranslationFailure(
+                        TranslationFailureCategory.NETWORK,
+                        "Provider stream ended before the translation was complete."));
+                return;
+            }
+
+            deliverOutcome();
+        }
+
+        @Override
+        public void onFailure(HttpRequestExecutor.HttpFailure failure) {
+            handleTransportFailure(mCall, mCallback, failure);
+        }
+
+        /** Delivers the single outcome once the protocol has declared the message complete. */
+        private void deliverOutcome() {
+            if (mCall.isCancelled() || mCall.isDelivered()) return;
+            if (!mMessageStopped) return;
 
             if (!isAcceptedStopReason(mStopReason)) {
                 deliverFailure(mCall, mCallback, new TranslationFailure(
@@ -341,11 +403,6 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
             mCallback.onSuccess(TranslationResult.finalResult(
                     mRequest.getSessionId(), mRequest.getRequestId(), mRequest.getUnit(),
                     translated));
-        }
-
-        @Override
-        public void onFailure(HttpRequestExecutor.HttpFailure failure) {
-            handleTransportFailure(mCall, mCallback, failure);
         }
 
         private boolean isAcceptedStopReason(String reason) {
@@ -431,7 +488,7 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
     private void handleResponse(Call call, TranslationCallback callback,
                                 TranslationRequest request,
                                 HttpRequestExecutor.HttpResponse response) {
-        if (call.isCancelled()) {
+        if (call.isCancelled() || call.isDelivered()) {
             return;
         }
         call.setRequestId(response != null ? response.getRequestId() : null);
@@ -458,7 +515,7 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
 
     private void handleTransportFailure(Call call, TranslationCallback callback,
                                         HttpRequestExecutor.HttpFailure failure) {
-        if (call.isCancelled() || failure == null
+        if (call.isCancelled() || call.isDelivered() || failure == null
                 || failure.getReason() == HttpRequestExecutor.FailureReason.CANCELLED) {
             return;
         }
@@ -606,10 +663,27 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
             return mRequestId;
         }
 
+        /**
+         * Whether this call has already produced its single outcome. Every terminal path checks
+         * this one flag, so a second signal — a {@code message_stop} followed by end of stream, a
+         * late delta, an error after the answer — cannot deliver or append anything again.
+         */
+        synchronized boolean isDelivered() {
+            return mDelivered;
+        }
+
         synchronized void setHttpCall(HttpRequestExecutor.HttpCall httpCall) {
             mHttpCall = httpCall;
-            if (mCancelled && mHttpCall != null) {
+
+            if (mHttpCall == null) return;
+
+            // The outcome may have been decided before the handle existed: a synchronous failure
+            // during execute(), or a cancel from the caller. Either way the exchange must not
+            // keep reading.
+            if (mCancelled) {
                 mHttpCall.cancel();
+            } else if (mDelivered) {
+                mHttpCall.close();
             }
         }
 
@@ -622,6 +696,12 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
                 return false;
             }
             mDelivered = true;
+
+            // The exchange has produced its one outcome; stop reading it rather than waiting for
+            // the server to close a stream it has already finished describing.
+            if (mHttpCall != null) {
+                mHttpCall.close();
+            }
             return true;
         }
     }
