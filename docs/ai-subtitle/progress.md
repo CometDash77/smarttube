@@ -10,14 +10,32 @@ Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
 
 ## Current state
 
-- Current milestone: **M07 — phone repair, full subtitle timeline, scheduler and settings (implementation in progress)**; M06 Gate 7 device smoke remains pending separately.
-- Current task: `M07 Task A — phone local editing, optimistic save, and real save/test feedback`
-- Task A status: **A1-A8 implemented and automatically verified (74/74 focused settings tests); device/CI acceptance pending.**
+- Current milestone: **M07 — implementation and local automatic verification complete; CI and unified device acceptance pending.** Next milestone to execute: **M08** (bounded context, streaming, drafts, fallback).
+- Current task: `M07 Task E — complete` (committed, tested); review items R0–R4 closed; R5 closed with one evidenced scope revision.
+- M07 review-fix commits: `a73ce61cb` (R3, subtitle track resolution), `468d77839` (R0/R1/R2/R4, Task E completion, settings lifecycle, prompt wiring). Full detail: `worker-reports/M07-report.md`.
+- M07 local verification (2026-09-14, fresh ASCII copy of the working tree at `C:\tmp\smartube-m07-m09`):
+  - JDK 17 full `:common:testStbetaDebugUnitTest` → `BUILD SUCCESSFUL`, 45 suites, **tests=388, failures=0, errors=0, skipped=20**.
+  - JDK 11 `:common:testStbetaDebugUnitTest --tests '....ai.subtitle.settings.*'` (ADR-010 lane) → `BUILD SUCCESSFUL`, 11 suites, **tests=78, failures=0, errors=0, skipped=0**.
+  - The 20 JDK 17 skips are exactly the inherited Robolectric preference/secret suites, which run 0-skipped in the JDK 11 lane. No result is a device result.
+- R5 outcome (evidence in `M07-report.md` §R5): the D3 manual-retry entry was genuinely missing and is now implemented (`TranslationScheduler.retryFailed` + a player settings entry + assertions). Partial-batch repair (M07 exit condition 7, second half) has **no executable production mode**: the boundary classes have no production caller, `BoundaryProtocol.encodeItem` has no caller at all, both adapters return whole-unit free text, the built-in indexed Prompt does not emit the wire format, the index base differs between request and validator, and no assembly path exists for a tail sub-unit. Recorded as a scope revision with restart conditions; the checkboxes stay unchecked and no roadmap exit condition was deleted.
+- M07 not done: exact-SHA CI (`PENDING PUSH AUTHORIZATION`), unified device acceptance Task F (`PENDING DEVICE`), lint/assemble at candidate SHA (CI only).
+- Task A status: **A1-A8 implemented and automatically verified (settings suites now 78/78 on the JDK 11 lane); device/CI acceptance pending.**
 - M07 production changes in working tree: `AiSubtitlePhoneInputServer` now uses explicit save/test routes, pairing token on requests, strict version equality, no state-field overwrite, provider/protocol/base URL/model/target language/prompt fields, keep/replace/clear secret actions, prompt/provider rollback, and the existing `ProviderProfilesPresenter` save/test path; TV test callbacks are main-thread guarded and suppress late results after cancel/close. `ProviderProfilesPresenter.clearSecret` supports the explicit clear action.
 - M07 automatic verification: local JDK 11 command `:common:testStbetaDebugUnitTest --tests 'com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.*'` => `BUILD SUCCESSFUL in 1m 9s`; parsed 11 XML suites, tests=74, failures=0, errors=0, skipped=0.
-- M07 source/scheduler status: `SmartTubeSubtitleSourceAdapter` and `TranslationScheduler` still do not exist; Task B/C/D/E are not started.
+- M07 committed status: Task A `717618f86`, Task B `738325822`, Task C `1ce3d8b2e`, Task D `38604559d`. Task C focused scheduler/integration tests passed 62/62; Task D focused scheduler/integration tests passed 67/67. CI and device acceptance are still pending.
 - Baseline preserved: M02-M06 code remains present. M06 and earlier device checks remain pending; r6 CI/release evidence does not validate these uncommitted M07 changes.
 - Device status: no TV/device connected; no M07 device validation attempted.
+
+## Pause checkpoint (2026-09-13, M07 Task E interrupted) — SUPERSEDED 2026-09-14
+
+> Superseded by the "Current state" section above and by `worker-reports/M07-report.md`. The record below is kept for history only: the uncommitted Task E work it describes was compiled, tested, corrected and committed as `468d77839`.
+
+- Resume point: Task C and D are committed. HEAD is `38604559d`. Task E has partial, uncommitted implementation in the working tree and has not compiled or been tested since the last edits.
+- Task C/D evidence: Task C `1ce3d8b2e` — focused scheduler/integration run parsed 6 XML suites, tests=62, failures=0, errors=0, skipped=0. Task D `38604559d` — focused scheduler/integration run parsed 6 XML suites, tests=67, failures=0, errors=0, skipped=0. Both local-only; no CI/device claim.
+- Uncommitted Task E code: `AiSubtitleData` stores lookahead/throttle/segmentation limits; `AiSubtitleCueBridge` accepts scheduling and segmentation changes; `AiSubtitleRuntime.applySchedulingToBridge` reads the store and applies both; TV settings add lookahead, throttle, and segmentation options; phone server draft, page, validation, persistence, and Runtime application were extended; `RuleSentenceBreaker` and `SmartTubeSubtitleSourceAdapter` accept configured thresholds; English/simplified/traditional strings were added.
+- Not yet done for Task E: compile the partial tree; add/verify persistence and rejection tests; verify lookahead 30s vs 90s request-window behavior; verify TV and phone write/read the same values; run focused settings/scheduler/integration tests; update E checkboxes and progress; make one Task E commit. Full common/lint/assemble and Task F device acceptance remain deferred as planned.
+- Resume order: (1) `git status`/`git diff` and review the 10 dirty files; (2) copy the full repository to an ASCII path such as `C:\tmp\smartube-test` before Gradle; (3) compile/run targeted tests; (4) finish only missing tests/documentation; (5) commit Task E as one unit; (6) then prepare final Task F checklist, without starting M08.
+- Owner: next resumption agent for this goal.
 
 ## Pause checkpoint (2026-09-12)
 
@@ -121,7 +139,7 @@ None.
 
 ## Planned next action
 
-Development is paused by the user. On explicit resume, complete and verify the retained M04-C7 correction, restore the report evidence gate, obtain the independent C7 review, and only then continue to M05-C0. Do not start M05 while C7 is `CHANGES_REQUIRED`.
+Execute M08 per `worker-plans/M08-plan.md` (bounded context builder and prompt fingerprinting, cancellable streaming HTTP with SSE framing, per-protocol stream interpretation, drafts to the current cue with failure fallback, and the two real settings). Follow the resume rules in `worker-plans/M07-M09-continuation-plan.md` §10; M07 Task F device acceptance and exact-SHA CI stay pending and do not block M08 implementation. The older M04-C7/M05-C0 pause text below is historical and was resolved during M05/M06.
 
 ## Test status
 

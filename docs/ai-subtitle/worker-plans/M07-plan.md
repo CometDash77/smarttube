@@ -130,6 +130,14 @@
 - [x] D5 尽量直接调用 M06 的 accepted-prefix/tail recovery；不要另写 response parser 或第二套批次协议。单 unit 单请求失败则只重试该 unit，已经成功的邻近 unit 不重发。
 - [x] D6 同一测试文件加入超时、429、5xx、鉴权、取消、空/错误覆盖、草稿、前缀+尾部失败、预算耗尽场景。断言总请求次数、已接受覆盖、缓存内容和 source fallback，而不只是断言方法被调用。
 
+## Execution checkpoint — 2026-09-13 (Task E paused, partial)
+
+- Committed: Task C `1ce3d8b2e`; Task D `38604559d`. HEAD is Task D.
+- Task C automatic evidence: focused scheduler/integration run => 6 suites / 62 tests / 0 failures / 0 errors / 0 skipped.
+- Task D automatic evidence: focused scheduler/integration run => 6 suites / 67 tests / 0 failures / 0 errors / 0 skipped.
+- Interrupted Task E working tree (uncommitted, unverified): `AiSubtitleData` has lookahead/throttle/segmentation settings; `AiSubtitleCueBridge` accepts scheduling and segmentation changes; `AiSubtitleRuntime.applySchedulingToBridge` applies persisted values; TV presenter exposes the three settings; phone server drafts, validates, persists, and applies the values; `RuleSentenceBreaker`/`SmartTubeSubtitleSourceAdapter` accept configured thresholds; strings updated for en/zh/zh-TW.
+- Resume first: compile the dirty tree from an ASCII copy; add persistence/rejection and 30s-vs-90s window tests; run focused settings + scheduler + integration tests; update E checkboxes/progress; commit Task E once. Do not start M08.
+- Device acceptance remains Task F.
 ## 8. Task E：接通实际生效的设置与回归
 
 **Files:** `AI/settings/AiSubtitleData.java`、`AI/settings/ui/AiSubtitleSettingsPresenter.java`、`AI/settings/remote/AiSubtitlePhoneInputServer.java`、`AI/integration/AiSubtitleRuntime.java`、`AiSubtitleCueBridge.java` 与三套 AI 字符串；扩展现有 settings/integration 测试。
