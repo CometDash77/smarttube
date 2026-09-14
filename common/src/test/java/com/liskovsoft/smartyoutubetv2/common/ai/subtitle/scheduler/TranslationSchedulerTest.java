@@ -2,6 +2,7 @@ package com.liskovsoft.smartyoutubetv2.common.ai.subtitle.scheduler;
 
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.cache.InMemoryTranslationCache;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.cache.TranslationCache;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.cache.TranslationCacheKey;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SourceTrackId;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SubtitleSegment;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SubtitleSegmentId;
@@ -26,6 +27,7 @@ import org.junit.Test;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -627,6 +629,162 @@ public class TranslationSchedulerTest {
         return scheduler;
     }
 
+    /**
+     * Drives a 60-cue timeline to its middle and asserts, by cache access rather than by elapsed
+     * time, that building one unit's context reads only that unit and its three immediate
+     * predecessors — and that the rendered body quotes neither a future cue nor a far-past one.
+     */
+    @Test
+    public void buildingTheContextReadsOnlyTheImmediatePredecessors() {
+        RecordingGetCache cache = new RecordingGetCache();
+        RecordingProvider provider = new RecordingProvider();
+        TranslationScheduler scheduler = new TranslationScheduler(mSession, provider,
+                CONTEXT_PROMPT, cache, null);
+        scheduler.setThrottleMs(0);
+        scheduler.setContextEnabled(true);
+        scheduler.setLookaheadMs(0);
+        scheduler.setTimeline(oneCuePerSecondTimeline(60));
+
+        // Stop in the middle: the last cue has no future cue to assert about.
+        for (int second = 0; second < 30; second++) {
+            scheduler.onPositionUpdate(second * 1_000L, NOW + second);
+            provider.completeLast();
+        }
+
+        cache.resetCount();
+        scheduler.onPositionUpdate(30_000, NOW + 30);
+
+        // One read decides whether the frozen key already holds a result, then one per candidate
+        // history entry. Reading the whole timeline would be 31 reads here, and repeating one
+        // key would satisfy a bare count, so the keys themselves are checked too.
+        assertEquals("the context must not read the whole history", 4, cache.getCount());
+        assertEquals("each read must be a different key", 4, cache.getDistinctKeyCount());
+
+        String prompt = provider.lastRequest.getRenderedPrompt();
+        assertTrue(prompt.contains("cue 27"));
+        assertTrue(prompt.contains("cue 29"));
+        assertFalse("a cue from far back must not be quoted", prompt.contains("cue 10"));
+        assertFalse("a cue that has not been reached must not be quoted",
+                prompt.contains("cue 40"));
+    }
+
+    @Test
+    public void aFailureBehindThePlayheadIsNotRetried() {
+        RecordingProvider provider = new RecordingProvider();
+        TranslationScheduler scheduler = new TranslationScheduler(mSession, provider, PROMPT,
+                new InMemoryTranslationCache(), null);
+        scheduler.setThrottleMs(0);
+        scheduler.setLookaheadMs(0);
+        scheduler.setTimeline(timeline());
+
+        scheduler.onPositionUpdate(25_000, NOW);
+        provider.failLast(TranslationFailureCategory.AUTH);
+        assertTrue(scheduler.hasFailed(unit(1, 1, "20-40")));
+
+        // Play on to the 50-60 cue. The 20-40 record stays inside the 30 s history margin, so
+        // the window prune deliberately keeps it even though the playhead has passed it.
+        scheduler.onPositionChanged(50_000, NOW + 1);
+        assertTrue("the margin keeps the record reachable", scheduler.hasFailed(unit(1, 1, "20-40")));
+
+        int before = provider.getCallCount();
+        scheduler.retryFailed(50_000, NOW + 2);
+
+        assertTrue("a cue the playhead has already passed stays failed",
+                scheduler.hasFailed(unit(1, 1, "20-40")));
+        assertEquals("and it must not cost a request", before, provider.getCallCount());
+    }
+
+    @Test
+    public void aLongUnitCrossingThePlayheadCanBeRetriedManually() {
+        RecordingProvider provider = new RecordingProvider();
+        TranslationScheduler scheduler = new TranslationScheduler(mSession, provider, PROMPT,
+                new InMemoryTranslationCache(), null);
+        scheduler.setThrottleMs(0);
+        scheduler.setTimeline(longCueTimeline());
+
+        scheduler.onPositionUpdate(60_000, NOW);
+        provider.failLast(TranslationFailureCategory.AUTH);
+        assertTrue(scheduler.hasFailed(unit(0, 2, "one long cue")));
+
+        scheduler.retryFailed(60_000, NOW + 1);
+
+        assertEquals("a cue that still covers the playhead must be retriable",
+                2, provider.getCallCount());
+        assertFalse(scheduler.hasFailed(unit(0, 2, "one long cue")));
+    }
+
+    @Test
+    public void aStreamFallbackIsCountedOnceAndLaterRetriesAreOrdinaryRetries() {
+        StreamingProvider provider = new StreamingProvider();
+        TranslationScheduler scheduler = streamingScheduler(provider);
+        scheduler.setLookaheadMs(0);
+
+        scheduler.onPositionUpdate(10_000, NOW);
+        provider.fail(TranslationFailureCategory.NETWORK);
+
+        scheduler.onPositionUpdate(10_000,
+                scheduler.getRetryDueAtMsForTesting(unit(0, 0, "0-20")));
+        provider.fail(TranslationFailureCategory.SERVER);
+
+        scheduler.onPositionUpdate(10_000,
+                scheduler.getRetryDueAtMsForTesting(unit(0, 0, "0-20")));
+        provider.complete("final");
+
+        assertEquals("stream, then one plain fallback, then one plain retry", 3,
+                provider.getCallCount());
+        assertEquals(1, scheduler.getFirstAttemptCount());
+        assertEquals(1, scheduler.getFallbackAttemptCount());
+        assertEquals(1, scheduler.getRetryAttemptCount());
+    }
+
+    @Test
+    public void closeReleasesTheWorkRecords() {
+        RecordingProvider provider = new RecordingProvider();
+        TranslationScheduler scheduler = new TranslationScheduler(mSession, provider, PROMPT,
+                new InMemoryTranslationCache(), null);
+        scheduler.setThrottleMs(0);
+        scheduler.setLookaheadMs(0);
+        scheduler.setTimeline(timeline());
+
+        scheduler.onPositionUpdate(10_000, NOW);
+        provider.completeLast();
+        assertEquals("[ZH] 0-20", scheduler.getCachedTranslation(unit(0, 0, "0-20")));
+
+        scheduler.close();
+
+        assertEquals("close must release every work record", 0, scheduler.getWorkCount());
+        assertNull("and stop resolving translations from a discarded scheduler",
+                scheduler.getCachedTranslation(unit(0, 0, "0-20")));
+    }
+
+    @Test
+    public void lateDeliveriesAfterCloseCannotDispatchOrRepaint() {
+        StreamingProvider provider = new StreamingProvider();
+        TranslationScheduler scheduler = streamingScheduler(provider);
+        scheduler.setLookaheadMs(0);
+
+        scheduler.onPositionUpdate(10_000, NOW);
+        StreamingProvider.StreamHandle handle = provider.capture();
+
+        scheduler.close();
+
+        int calls = provider.getCallCount();
+        int drafts = mDrafts.size();
+        int arrived = mArrived.size();
+        int failed = mFailed.size();
+
+        handle.emitPartial("late draft");
+        provider.complete("late final");
+        provider.fail(TranslationFailureCategory.NETWORK);
+        scheduler.onPositionUpdate(20_000, NOW + 1);
+        scheduler.resume(20_000, NOW + 2);
+
+        assertEquals("no request may start after close", calls, provider.getCallCount());
+        assertEquals("a late draft must not repaint", drafts, mDrafts.size());
+        assertEquals("a late final must not be published", arrived, mArrived.size());
+        assertEquals("a late failure must not be published", failed, mFailed.size());
+    }
+
     @Test
     public void streamedDraftsReachTheListenerWithoutSpendingAnAttempt() {
         StreamingProvider provider = new StreamingProvider();
@@ -817,6 +975,70 @@ public class TranslationSchedulerTest {
         return SourceTimeline.from(
                 Collections.singletonList(segment(0, 0, 20_000, "0-20")),
                 Collections.singletonList(unit(0, 0, "0-20")));
+    }
+
+    /** {@code count} one-second cues, so a long timeline is cheap to drive in virtual time. */
+    private static SourceTimeline oneCuePerSecondTimeline(int count) {
+        List<SubtitleSegment> segments = new ArrayList<>();
+        List<TranslationUnit> units = new ArrayList<>();
+
+        for (int i = 0; i < count; i++) {
+            String text = "cue " + i;
+            segments.add(segment(i, i * 1_000L, i * 1_000L + 900L, text));
+            units.add(unit(i, i, text));
+        }
+
+        return SourceTimeline.from(segments, units);
+    }
+
+    /** A single unit whose three segments span two minutes, so it outlives the playhead. */
+    private static SourceTimeline longCueTimeline() {
+        List<SubtitleSegment> segments = Arrays.asList(
+                segment(0, 0, 40_000, "one long cue"),
+                segment(1, 40_000, 80_000, "one long cue"),
+                segment(2, 80_000, 120_000, "one long cue"));
+
+        return SourceTimeline.from(segments,
+                Collections.singletonList(unit(0, 2, "one long cue")));
+    }
+
+    /** Cache decorator that records reads, so context cost is asserted by access, not by time. */
+    private static final class RecordingGetCache implements TranslationCache {
+        private final InMemoryTranslationCache mDelegate = new InMemoryTranslationCache();
+        private final List<TranslationCacheKey> mKeys = new ArrayList<>();
+
+        @Override
+        public TranslationResult get(TranslationCacheKey key) {
+            mKeys.add(key);
+            return mDelegate.get(key);
+        }
+
+        @Override
+        public boolean contains(TranslationCacheKey key) {
+            return mDelegate.contains(key);
+        }
+
+        @Override
+        public void put(TranslationCacheKey key, TranslationResult result) {
+            mDelegate.put(key, result);
+        }
+
+        @Override
+        public void clear() {
+            mDelegate.clear();
+        }
+
+        void resetCount() {
+            mKeys.clear();
+        }
+
+        int getCount() {
+            return mKeys.size();
+        }
+
+        int getDistinctKeyCount() {
+            return new HashSet<>(mKeys).size();
+        }
     }
 
     private static SourceTimeline timeline() {

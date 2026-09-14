@@ -31,6 +31,11 @@ public final class SourceTimeline {
         return mSegments;
     }
 
+    /**
+     * The units of this timeline, ordered by the index of their first segment. Callers that
+     * locate a unit by binary search rely on that order; the production builder emits units in
+     * segment order, and a fixture that does not would silently resolve the wrong neighbours.
+     */
     public List<TranslationUnit> getUnits() {
         return mUnits;
     }

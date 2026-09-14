@@ -3,6 +3,7 @@ package com.liskovsoft.smartyoutubetv2.common.ai.subtitle.scheduler;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.cache.TranslationCache;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.cache.TranslationCacheKey;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SubtitleSegment;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SubtitleSegmentId;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationUnit;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.prompt.PromptProfile;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.prompt.PromptRenderer;
@@ -58,6 +59,8 @@ public final class TranslationScheduler {
      * context still finds the last few translated units after a forward jump.
      */
     private static final long MIN_HISTORY_MARGIN_MS = 30_000;
+    /** Upper bound on the earlier units examined for one request's context. */
+    private static final int MAX_HISTORY_UNITS = TranslationContextBuilder.MAX_HISTORY_UNITS;
 
     private final TranslationSession mSession;
     private final TranslationProvider mProvider;
@@ -151,8 +154,9 @@ public final class TranslationScheduler {
     }
 
     /**
-     * Enables streamed drafts. Only a request whose callback can consume drafts is streamed;
-     * every other case keeps the single-response contract.
+     * Enables streamed drafts. A request is streamed only while streaming is enabled and the
+     * unit has not already fallen back from a transient streamed failure; every other case
+     * keeps the single-response contract.
      */
     public void setStreamingEnabled(boolean enabled) {
         synchronized (this) {
@@ -162,6 +166,7 @@ public final class TranslationScheduler {
                 // A user who re-enables streaming gets a fresh chance on units that fell back.
                 for (Work work : mWork.values()) {
                     work.mStreamingDisabled = false;
+                    work.mFallbackPending = false;
                 }
             }
         }
@@ -170,7 +175,12 @@ public final class TranslationScheduler {
     /**
      * Re-evaluates work after the streaming switch. The request in flight is cancelled and its
      * draft cleared so the new mode applies immediately; a cancelled call returns to PENDING and
-     * is re-dispatched under the new mode without spending a new attempt.
+     * is re-dispatched under the new mode.
+     *
+     * <p>The cancelled request had already reached the provider, so it counts against the
+     * unit's attempt budget exactly like any other issued request, and the re-dispatch spends
+     * one more. The budget is what actually bounds the network: only the mode changes here, not
+     * the number of requests a unit may cost.</p>
      */
     public void onStreamingChanged(long positionMs, long nowMs) {
         synchronized (this) {
@@ -258,9 +268,9 @@ public final class TranslationScheduler {
     }
 
     /**
-     * Manual retry entry. Only terminal failures inside the current window are re-queued, and
-     * they get a fresh attempt budget because the user asked explicitly; ordinary redraws never
-     * reset the budget.
+     * Manual retry entry. Only terminal failures still relevant to the playhead are re-queued —
+     * see {@link #isInRetryWindow} for what that means exactly — and they get a fresh attempt
+     * budget because the user asked explicitly; ordinary redraws never reset the budget.
      */
     public void retryFailed(long positionMs, long nowMs) {
         synchronized (this) {
@@ -269,7 +279,7 @@ public final class TranslationScheduler {
             long windowEnd = windowEnd(mPositionMs, mLookaheadMs);
 
             for (Work work : mWork.values()) {
-                if (work.mState == WorkState.FAILED && startTime(work.mUnit) <= windowEnd) {
+                if (work.mState == WorkState.FAILED && isInRetryWindow(work.mUnit, windowEnd)) {
                     work.mState = WorkState.PENDING;
                     work.mAttempts = 0;
                     work.mFailureMessage = "";
@@ -350,7 +360,17 @@ public final class TranslationScheduler {
             cancelCall(work);
         }
 
+        // Nothing outlives the scheduler: work records, the time index, and every queued
+        // notification are dropped, so a late partial, final, or error cannot dispatch, and a
+        // drain that starts after this returns without delivering anything. A drain already past
+        // its copy can still deliver its snapshot; that window closes when the bridge drops its
+        // reference to this scheduler, which every caller does. The cancelled calls above
+        // release their references too.
+        mWork.clear();
         mUnitsByStart.clear();
+        mSegmentTimes.clear();
+        mActive = null;
+        mPendingEvents.clear();
         mTimeline = null;
     }
 
@@ -384,6 +404,10 @@ public final class TranslationScheduler {
 
     private void requestCurrentUnitLocked(TranslationUnit unit, long nowMs) {
         if (mClosed || mPaused || unit == null || mSession.isClosed() || mSession.isPaused()) return;
+
+        // Every explicit request enters here, so this is where the no-timeline fallback is
+        // bounded. dispatch() never sees it: without a timeline it returns before pruning.
+        pruneUntimedWorkLocked(unit);
 
         Work work = workFor(unit);
 
@@ -443,6 +467,11 @@ public final class TranslationScheduler {
      * <p>A record whose result is still in the cache is kept: the frozen cache key lives on the
      * record, so dropping it early would make a cached translation unreachable and force a
      * needless re-request. That also bounds the map by the cache's own entry bound.</p>
+     *
+     * <p>The map's ceiling is therefore the cache's entry limit, plus the units still inside the
+     * window, plus whatever the throttle interval added since the last prune, plus the one
+     * request in flight. It is deliberately not "512 records": the cache is what holds finished
+     * text, and the window is what bounds unfinished records.</p>
      */
     private void pruneWorkLocked(long windowEnd) {
         long earliestKept = mPositionMs - Math.max(mLookaheadMs, MIN_HISTORY_MARGIN_MS);
@@ -463,7 +492,39 @@ public final class TranslationScheduler {
             if (start < 0) continue;
             if (start <= windowEnd && start >= earliestKept) continue;
 
-            if (work.mCacheKey != null && mCache.contains(work.mCacheKey)) continue;
+            if (isResultStillCached(work)) continue;
+
+            expired.add(entry.getKey());
+        }
+
+        for (TranslationCacheKey key : expired) {
+            mWork.remove(key);
+        }
+    }
+
+    /**
+     * Bounds the display-cue fallback, where a unit has no start time and the window prune has
+     * nothing to compare against. Of the records with no start time, only the cue being
+     * requested, the request in flight, and any record whose result is still cached survive;
+     * the rest have left the visible cue and would otherwise stay forever. Records that do have
+     * a start time are not this method's business and are left to {@link #pruneWorkLocked}.
+     *
+     * <p>The cue being requested is kept whatever its state, so a failed cue is not silently
+     * re-created on the next redraw and cannot spend a second budget in a loop. It stops being
+     * the current cue as soon as a different one is requested, which is also when it becomes
+     * eligible for removal.</p>
+     */
+    private void pruneUntimedWorkLocked(TranslationUnit current) {
+        TranslationCacheKey currentKey = identityFor(current);
+        List<TranslationCacheKey> expired = new ArrayList<>();
+
+        for (Map.Entry<TranslationCacheKey, Work> entry : mWork.entrySet()) {
+            Work work = entry.getValue();
+
+            if (entry.getKey().equals(currentKey)) continue;
+            if (work == mActive || work.mState == WorkState.IN_FLIGHT) continue;
+            if (startTime(work.mUnit) >= 0) continue;
+            if (isResultStillCached(work)) continue;
 
             expired.add(entry.getKey());
         }
@@ -480,7 +541,7 @@ public final class TranslationScheduler {
         for (Work work : mWork.values()) {
             if (work.mState == WorkState.WAITING_RETRY
                     && work.mDueAtMs <= nowMs
-                    && startTime(work.mUnit) <= windowEnd) {
+                    && isInRetryWindow(work.mUnit, windowEnd)) {
                 due.add(work);
             }
         }
@@ -495,6 +556,17 @@ public final class TranslationScheduler {
 
     private void submitLocked(Work work, long nowMs) {
         if (mActive != null || work.mState != WorkState.PENDING) return;
+
+        // Every dispatch path — window fill, redraw, resume, due retry, streaming toggle —
+        // funnels through here, so this is the one place the budget cannot be bypassed. A
+        // request that was cancelled before its answer still went to the provider and already
+        // spent its attempt, so a cancel-and-retry cycle stops at the same ceiling.
+        if (work.mAttempts >= mMaxAttempts) {
+            work.mState = WorkState.FAILED;
+            work.mFailureMessage = "Translation attempt budget exhausted.";
+            queueTranslationFailed(work.mFailureMessage);
+            return;
+        }
 
         // The selected Prompt, its bounded context, and the cache identity are frozen on the
         // unit's first dispatch, so a redraw cannot rebuild them from a scrolling history and
@@ -512,8 +584,11 @@ public final class TranslationScheduler {
 
         if (work.mAttempts == 1) {
             mFirstAttempts++;
-        } else if (!work.mStreamed && work.mStreamingDisabled) {
+        } else if (work.mFallbackPending) {
+            // Only the single streamed-to-plain conversion is a fallback. A later plain retry
+            // after that is an ordinary retry, however many of them the budget allows.
             mFallbackAttempts++;
+            work.mFallbackPending = false;
         } else {
             mRetryAttempts++;
         }
@@ -554,8 +629,10 @@ public final class TranslationScheduler {
 
         // A stream that failed for a transient reason falls back to one plain request. The
         // fallback spends the same attempt budget, so a unit still stops after three tries.
+        // The flag is one-shot: it marks the next request as the fallback and nothing later.
         if (work.mStreamed && failure != null && failure.isRetryable()) {
             work.mStreamingDisabled = true;
+            work.mFallbackPending = true;
         }
 
         if (failure == null) {
@@ -625,6 +702,17 @@ public final class TranslationScheduler {
         work.mCall = null;
     }
 
+    /**
+     * The shared work lookup every dispatch path uses. A record that finished translating but
+     * whose result has since been evicted becomes a fresh request: a SUCCEEDED record would
+     * otherwise answer "already translated" from an empty cache and leave the cue source-only
+     * for the rest of the video.
+     *
+     * <p>Only that one transition is reset. A FAILED record keeps its terminal state — the
+     * eviction is irrelevant to it — and only an explicit manual retry reopens its budget. The
+     * frozen Prompt and cache identity are kept, so the rebuild sends exactly what was sent
+     * before rather than re-deriving a context from a history that has moved on.</p>
+     */
     private Work workFor(TranslationUnit unit) {
         TranslationCacheKey identity = identityFor(unit);
         Work work = mWork.get(identity);
@@ -632,9 +720,21 @@ public final class TranslationScheduler {
         if (work == null) {
             work = new Work(unit, identity);
             mWork.put(identity, work);
+        } else if (work.mState == WorkState.SUCCEEDED && !isResultStillCached(work)) {
+            work.mState = WorkState.PENDING;
+            work.mAttempts = 0; // a new cache fill after a completed translation
+            work.mCall = null;
         }
 
         return work;
+    }
+
+    /**
+     * Whether a record that has frozen its request identity still resolves to stored text. The
+     * predicate is independent of state; only {@link #workFor} applies it to a finished record.
+     */
+    private boolean isResultStillCached(Work work) {
+        return work.mCacheKey != null && mCache.contains(work.mCacheKey);
     }
 
     private Work workForLookup(TranslationUnit unit) {
@@ -700,22 +800,57 @@ public final class TranslationScheduler {
      * Reference history for one unit: only units that start strictly earlier on the same
      * timeline, oldest first, each carrying its accepted final translation when one exists. A
      * future unit that happened to finish first never becomes history.
+     *
+     * <p>The timeline units are ordered by their first segment, so the current unit's position
+     * is found by binary search and only the few immediately preceding units are examined.
+     * Scanning the whole unit list would make every request cost one timeline walk and one
+     * cache lookup per cue on the video, which on a two-hour timeline is thousands of lookups
+     * to build at most three lines of context.</p>
      */
     private List<TranslationContextBuilder.Entry> historyFor(TranslationUnit unit) {
         SourceTimeline timeline = mTimeline;
         if (timeline == null) return Collections.emptyList();
 
+        List<TranslationUnit> units = timeline.getUnits();
         int firstIndex = unit.getFirstSegmentId().getIndex();
-        List<TranslationContextBuilder.Entry> history = new ArrayList<>();
+        int insertion = firstUnitAtOrAfter(units, firstIndex);
 
-        for (TranslationUnit candidate : timeline.getUnits()) {
+        List<TranslationContextBuilder.Entry> history = new ArrayList<>(MAX_HISTORY_UNITS);
+
+        for (int i = insertion - 1; i >= 0 && insertion - i <= MAX_HISTORY_UNITS; i--) {
+            TranslationUnit candidate = units.get(i);
+
+            // An overlapping unit that reaches into the current one is not background.
             if (candidate.getLastSegmentId().getIndex() >= firstIndex) continue;
 
             history.add(new TranslationContextBuilder.Entry(
                     candidate.getSourceText(), acceptedTranslationFor(candidate)));
         }
 
+        Collections.reverse(history);
         return history;
+    }
+
+    /**
+     * Index of the first unit whose first segment index is at least {@code firstIndex}, for a
+     * unit list already ordered by first segment index. Returns {@code units.size()} when the
+     * unit starts after every recorded one.
+     */
+    private static int firstUnitAtOrAfter(List<TranslationUnit> units, int firstIndex) {
+        int low = 0;
+        int high = units.size();
+
+        while (low < high) {
+            int mid = (low + high) >>> 1;
+
+            if (units.get(mid).getFirstSegmentId().getIndex() < firstIndex) {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+
+        return low;
     }
 
     private String acceptedTranslationFor(TranslationUnit unit) {
@@ -749,6 +884,34 @@ public final class TranslationScheduler {
     private long startTime(TranslationUnit unit) {
         long[] range = mSegmentTimes.get(unit.getFirstSegmentId().getIndex());
         return range != null ? range[0] : -1;
+    }
+
+    /** Whether the unit's own time range still covers the playhead, however long it runs. */
+    private boolean coversPosition(TranslationUnit unit) {
+        List<SubtitleSegmentId> ids = unit.getSegmentIds();
+        if (ids.isEmpty()) return false;
+
+        long[] first = mSegmentTimes.get(ids.get(0).getIndex());
+        long[] last = mSegmentTimes.get(ids.get(ids.size() - 1).getIndex());
+        if (first == null || last == null) return false;
+
+        return mPositionMs >= first[0] && mPositionMs <= last[1];
+    }
+
+    /**
+     * Whether a retry may still be issued for this unit. Only work for the cue under the
+     * playhead or for a cue the window has not passed yet qualifies: the retained history
+     * margin exists so the bounded context can find recent text, not so a failed sentence that
+     * already played can be translated again behind the viewer's back.
+     *
+     * <p>A unit with no time record is the display-cue fallback. There is no window to compare
+     * against, and the caller is the cue the player is showing right now, so it stays eligible.</p>
+     */
+    private boolean isInRetryWindow(TranslationUnit unit, long windowEnd) {
+        long start = startTime(unit);
+        if (start < 0) return true;
+        if (coversPosition(unit)) return true;
+        return start >= mPositionMs && start <= windowEnd;
     }
 
     private long backoffDelay(int completedAttempts) {
@@ -787,10 +950,23 @@ public final class TranslationScheduler {
     }
 
     private void drainEvents() {
-        if (mPendingEvents.isEmpty()) return;
+        List<Runnable> events;
 
-        List<Runnable> events = new ArrayList<>(mPendingEvents);
-        mPendingEvents.clear();
+        synchronized (this) {
+            // close() empties the queue under this same lock. A drain that starts after it must
+            // not resurrect a notification for a scheduler that is already gone.
+            if (mClosed) {
+                mPendingEvents.clear();
+                return;
+            }
+
+            if (mPendingEvents.isEmpty()) return;
+
+            // Copy and clear under the lock; the listeners themselves run outside it so a
+            // synchronous repaint cannot re-enter while state is being mutated.
+            events = new ArrayList<>(mPendingEvents);
+            mPendingEvents.clear();
+        }
 
         for (Runnable event : events) {
             event.run();
@@ -921,6 +1097,8 @@ public final class TranslationScheduler {
         private String mDraft;
         private boolean mStreamed;
         private boolean mStreamingDisabled;
+        /** Set by a transient streamed failure; marks exactly the next request as the fallback. */
+        private boolean mFallbackPending;
         private WorkState mState = WorkState.PENDING;
         private int mAttempts;
         private long mRequestId;

@@ -27,6 +27,8 @@ import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -139,8 +141,132 @@ public class TranslationSchedulerCapacityTest {
         assertEquals(0, scheduler.getRetryAttemptCount());
     }
 
-    // ---------------------------------------------------------------- helpers
+    /**
+     * A one-entry cache stands in for the real 512-entry / 2 MiB bound: once the current unit's
+     * completed translation has been evicted, its work record must not keep claiming SUCCEEDED
+     * against an empty cache. Coming back to the cue has to translate it again.
+     */
+    @Test
+    public void anEvictedCurrentTranslationIsRequestedAgain() {
+        InMemoryTranslationCache cache = new InMemoryTranslationCache(1, 1024);
+        FakeTranslationProvider provider = new FakeTranslationProvider();
+        TranslationScheduler scheduler = scheduler(provider, cache);
+        scheduler.setLookaheadMs(0);
 
+        scheduler.onPositionUpdate(1_000, NOW);
+        TranslationUnit first = twoHourTimeline().getUnits().get(1);
+        assertNotNull(scheduler.getCachedTranslation(first));
+
+        scheduler.onPositionUpdate(2_000, NOW + 1_000);
+        assertNull("a one-entry cache must evict the first unit's result",
+                scheduler.getCachedTranslation(first));
+
+        scheduler.onPositionChanged(1_000, NOW + 2_000);
+        assertNotNull("eviction cannot leave SUCCEEDED permanently source-only",
+                scheduler.getCachedTranslation(first));
+    }
+
+    /**
+     * The display-cue fallback has no timeline at all, so the window prune cannot bound it: one
+     * work record per requested cue would accumulate for as long as the fallback runs.
+     */
+    @Test
+    public void noTimelineFallbackWorkStaysBounded() {
+        TranslationScheduler scheduler = scheduler(new FakeTranslationProvider(),
+                new InMemoryTranslationCache());
+        scheduler.setTimeline(null);
+
+        for (int i = 0; i < 1000; i++) {
+            scheduler.requestCurrentUnit(new TranslationUnit(
+                    java.util.Collections.singletonList(new SubtitleSegmentId(TRACK, 0)),
+                    "source " + i), NOW + i);
+
+            assertTrue("fallback work also needs a bound; actual=" + scheduler.getWorkCount(),
+                    scheduler.getWorkCount() <= 513);
+        }
+    }
+
+    /**
+     * The same bound has to hold when some cues fail: a terminal failure is neither cached nor
+     * the current cue forever, so its record leaves with the cue that owned it.
+     */
+    @Test
+    public void noTimelineFallbackStaysBoundedAcrossFailures() {
+        AlternatingProvider provider = new AlternatingProvider();
+        TranslationScheduler scheduler = scheduler(provider, new InMemoryTranslationCache());
+        scheduler.setTimeline(null);
+
+        for (int i = 0; i < 1000; i++) {
+            scheduler.requestCurrentUnit(new TranslationUnit(
+                    java.util.Collections.singletonList(new SubtitleSegmentId(TRACK, 0)),
+                    "source " + i), NOW + i);
+
+            assertTrue("mixed success and failure cues must stay bounded; actual="
+                            + scheduler.getWorkCount(),
+                    scheduler.getWorkCount() <= 513);
+        }
+    }
+
+    /**
+     * A normal timeline walked one cue at a time, never seeking, and never completing more than
+     * one request at once. Both the all-success and the all-failure walks stay inside the cache
+     * plus window bound from the first cue to the two-thousandth.
+     */
+    @Test
+    public void continuousSuccessAndFailureWindowsStayBounded() {
+        for (final boolean fail : new boolean[] {false, true}) {
+            InMemoryTranslationCache cache = new InMemoryTranslationCache();
+            TranslationProvider provider = new TranslationProvider() {
+                @Override
+                public TranslationCall translate(TranslationRequest request,
+                                                 TranslationCallback callback) {
+                    if (fail) {
+                        callback.onFailure(new TranslationFailure(
+                                TranslationFailureCategory.AUTH, "synthetic"));
+                    } else {
+                        callback.onSuccess(TranslationResult.finalResult(
+                                request.getSessionId(), request.getRequestId(),
+                                request.getUnit(), "ok"));
+                    }
+
+                    return new NopCall();
+                }
+            };
+            TranslationScheduler scheduler = scheduler(provider, cache);
+            scheduler.setLookaheadMs(0);
+            scheduler.setThrottleMs(30_000);
+
+            for (int i = 0; i < 2000; i++) {
+                scheduler.onPositionUpdate(i * 1_000L, NOW + i * 1_000L);
+
+                assertTrue("work=" + scheduler.getWorkCount() + " fail=" + fail,
+                        scheduler.getWorkCount() <= 574);
+                assertTrue("cache=" + cache.size(), cache.size() <= 512);
+            }
+        }
+    }
+
+    /**
+     * Cancelling and resuming is how the player re-issues work, and it must not buy extra
+     * requests: a cancelled request reached the provider, so it already counts.
+     */
+    @Test
+    public void cancellingAndResumingNeverExceedsTheAttemptBudget() {
+        RecordingProvider provider = new RecordingProvider();
+        TranslationScheduler scheduler = scheduler(provider, new InMemoryTranslationCache());
+        scheduler.setTimeline(oneUnitTimeline());
+
+        for (int i = 0; i < 6; i++) {
+            scheduler.onPositionUpdate(1_000, NOW + i);
+            scheduler.pause();
+            scheduler.resume(1_000, NOW + i);
+        }
+
+        assertEquals("the budget still stops at three issued requests",
+                3, provider.getCallCount());
+    }
+
+    // ---------------------------------------------------------------- helpers
     private TranslationScheduler scheduler(TranslationProvider provider,
                                            InMemoryTranslationCache cache) {
         mSession = new TranslationSession(sessionId(), 1);
@@ -263,6 +389,27 @@ public class TranslationSchedulerCapacityTest {
         @Override
         public boolean isCancelled() {
             return mCancelled;
+        }
+    }
+
+    /** Succeeds on odd cues and fails terminally on even ones, completing synchronously. */
+    private static final class AlternatingProvider implements TranslationProvider {
+        private int mCallCount;
+
+        @Override
+        public TranslationCall translate(TranslationRequest request, TranslationCallback callback) {
+            mCallCount++;
+
+            if (mCallCount % 2 == 0) {
+                callback.onFailure(new TranslationFailure(
+                        TranslationFailureCategory.AUTH, "synthetic " + mCallCount));
+            } else {
+                callback.onSuccess(TranslationResult.finalResult(request.getSessionId(),
+                        request.getRequestId(), request.getUnit(),
+                        "[ZH] " + request.getSourceText()));
+            }
+
+            return new NopCall();
         }
     }
 }
