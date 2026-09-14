@@ -13,7 +13,9 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.source.SourceTimeline;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.FakeTranslationProvider;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCall;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationProvider;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCallback;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationRequest;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationStream;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailure;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailureCategory;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationResult;
@@ -30,6 +32,7 @@ import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -42,6 +45,10 @@ public class TranslationSchedulerTest {
     private static final PromptProfile PROMPT = new PromptProfile(
             "prompt-1", "Test prompt",
             "Translate {{source_text}} into {{target_language}}.", 1, false);
+    /** Prompt that actually consumes the bounded context, so it can be observed in the body. */
+    private static final PromptProfile CONTEXT_PROMPT = new PromptProfile(
+            "prompt-ctx", "Context prompt",
+            "Translate {{source_text}} into {{target_language}}. Earlier: {{context}}", 1, false);
     private static final long NOW = 10_000L;
 
     private TranslationSession mSession;
@@ -49,6 +56,7 @@ public class TranslationSchedulerTest {
     private TranslationScheduler mScheduler;
     private List<String> mArrived;
     private List<String> mFailed;
+    private List<String> mDrafts;
 
     @Before
     public void setUp() {
@@ -58,11 +66,17 @@ public class TranslationSchedulerTest {
         mProvider = new RecordingProvider();
         mArrived = new ArrayList<>();
         mFailed = new ArrayList<>();
+        mDrafts = new ArrayList<>();
         mScheduler = new TranslationScheduler(mSession, mProvider, PROMPT, new InMemoryTranslationCache(),
                 new TranslationScheduler.Listener() {
                     @Override
                     public void onTranslationArrived() {
                         mArrived.add("arrived");
+                    }
+
+                    @Override
+                    public void onTranslationDraft() {
+                        mDrafts.add("draft");
                     }
 
                     @Override
@@ -483,6 +497,322 @@ public class TranslationSchedulerTest {
         return SourceTimeline.from(segments, units);
     }
 
+    @Test
+    public void boundedContextCarriesTheTitleDescriptionAndEarlierSources() {
+        RecordingProvider provider = new RecordingProvider();
+        TranslationScheduler scheduler = contextScheduler(provider);
+        scheduler.setVideoMetadata("My video", "About things");
+        scheduler.setLookaheadMs(0);
+
+        scheduler.onPositionUpdate(20_000, NOW);
+
+        String prompt = provider.lastRequest.getRenderedPrompt();
+        assertTrue(prompt.contains("Title: My video"));
+        assertTrue(prompt.contains("Description: About things"));
+        assertTrue(prompt.contains("Earlier subtitles: 0-20"));
+        assertFalse("a later unit must never appear as history", prompt.contains("50-60"));
+    }
+
+    @Test
+    public void contextIsOffUntilItIsEnabled() {
+        RecordingProvider provider = new RecordingProvider();
+        TranslationScheduler scheduler = new TranslationScheduler(mSession, provider, CONTEXT_PROMPT,
+                new InMemoryTranslationCache(), null);
+        scheduler.setThrottleMs(0);
+        scheduler.setVideoMetadata("My video", "About things");
+        scheduler.setLookaheadMs(0);
+        scheduler.setTimeline(timeline());
+
+        scheduler.onPositionUpdate(20_000, NOW);
+
+        String prompt = provider.lastRequest.getRenderedPrompt();
+        assertFalse(prompt.contains("Title: My video"));
+        assertTrue("the context variable stays present but empty",
+                prompt.endsWith("Earlier: "));
+    }
+
+    @Test
+    public void enablingContextChangesTheRenderedPromptForTheSameUnit() {
+        RecordingProvider offProvider = new RecordingProvider();
+        TranslationScheduler off = new TranslationScheduler(mSession, offProvider, CONTEXT_PROMPT,
+                new InMemoryTranslationCache(), null);
+        off.setThrottleMs(0);
+        off.setVideoMetadata("My video", null);
+        off.setLookaheadMs(0);
+        off.setTimeline(timeline());
+        off.onPositionUpdate(20_000, NOW);
+
+        RecordingProvider onProvider = new RecordingProvider();
+        TranslationScheduler on = contextScheduler(onProvider);
+        on.setVideoMetadata("My video", null);
+        on.setLookaheadMs(0);
+
+        on.onPositionUpdate(20_000, NOW);
+
+        assertNotEquals("the context switch is part of the request identity",
+                offProvider.lastRequest.getRenderedPrompt(),
+                onProvider.lastRequest.getRenderedPrompt());
+    }
+
+    @Test
+    public void anUnfinishedEarlierUnitContributesSourceOnly() {
+        RecordingProvider provider = new RecordingProvider();
+        TranslationScheduler scheduler = contextScheduler(provider);
+        scheduler.setLookaheadMs(0);
+
+        scheduler.onPositionUpdate(10_000, NOW);
+        scheduler.onPositionUpdate(20_000, NOW);
+
+        String prompt = provider.lastRequest.getRenderedPrompt();
+        assertTrue(prompt.contains("Earlier subtitles: 0-20"));
+        assertFalse("an unfinished unit must not contribute a translation",
+                prompt.contains("=>"));
+    }
+
+    @Test
+    public void anAcceptedFinalBecomesHistoryForTheNextUnit() {
+        RecordingProvider provider = new RecordingProvider();
+        TranslationScheduler scheduler = contextScheduler(provider);
+        scheduler.setLookaheadMs(0);
+        scheduler.setTimeline(timeline());
+
+        scheduler.onPositionUpdate(10_000, NOW);
+        provider.completeLast();
+
+        scheduler.onPositionUpdate(50_000, NOW);
+
+        String prompt = provider.lastRequest.getRenderedPrompt();
+        assertTrue("the accepted translation must be part of the next unit's context",
+                prompt.contains("0-20 => [ZH] 0-20"));
+    }
+
+    @Test
+    public void aLaterUnitThatFinishedFirstIsNeverHistory() {
+        RecordingProvider provider = new RecordingProvider();
+        TranslationScheduler scheduler = contextScheduler(provider);
+
+        scheduler.onPositionUpdate(10_000, NOW);
+        scheduler.requestCurrentUnit(unit(1, 1, "20-40"), NOW);
+        provider.completeLast();
+
+        scheduler.requestCurrentUnit(unit(0, 0, "0-20"), NOW);
+
+        assertFalse("a unit that comes later on the timeline is not background",
+                provider.lastRequest.getRenderedPrompt().contains("Earlier subtitles:"));
+    }
+
+    @Test
+    public void aFrozenRequestIsReusedVerbatimAfterTheHistoryMovesOn() {
+        RecordingProvider provider = new RecordingProvider();
+        TranslationScheduler scheduler = contextScheduler(provider);
+        scheduler.setLookaheadMs(0);
+        scheduler.setTimeline(timeline());
+
+        scheduler.onPositionUpdate(20_000, NOW);
+        scheduler.requestCurrentUnit(unit(0, 0, "0-20"), NOW);
+        provider.completeLast();
+
+        List<String> prompts = provider.promptsFor("20-40");
+        assertEquals("the unit must be sent twice, not re-frozen", 2, prompts.size());
+        assertEquals("a redraw must reuse the frozen instruction verbatim",
+                prompts.get(0), prompts.get(1));
+    }
+
+    private TranslationScheduler contextScheduler(RecordingProvider provider) {
+        TranslationScheduler scheduler = new TranslationScheduler(mSession, provider,
+                CONTEXT_PROMPT, new InMemoryTranslationCache(), null);
+        scheduler.setThrottleMs(0);
+        scheduler.setContextEnabled(true);
+        scheduler.setTimeline(timeline());
+        return scheduler;
+    }
+
+    @Test
+    public void streamedDraftsReachTheListenerWithoutSpendingAnAttempt() {
+        StreamingProvider provider = new StreamingProvider();
+        TranslationScheduler scheduler = streamingScheduler(provider);
+        scheduler.setLookaheadMs(0);
+
+        scheduler.onPositionUpdate(10_000, NOW);
+        assertTrue("a streaming request must ask for drafts", provider.lastCallbackIsStreaming);
+
+        provider.emitPartial("\u4f60");
+        provider.emitPartial("\u4f60\u597d");
+
+        assertEquals("the latest cumulative draft wins", "\u4f60\u597d",
+                scheduler.getDraftTranslation(unit(0, 0, "0-20")));
+        assertEquals(2, mDrafts.size());
+        assertNull("a draft must never be released as final text",
+                scheduler.getCachedTranslation(unit(0, 0, "0-20")));
+        assertEquals("one request, no retry", 1, provider.getCallCount());
+    }
+
+    @Test
+    public void aFinalReplacesTheDraftAndEntersTheCache() {
+        StreamingProvider provider = new StreamingProvider();
+        TranslationScheduler scheduler = streamingScheduler(provider);
+        scheduler.setLookaheadMs(0);
+
+        scheduler.onPositionUpdate(10_000, NOW);
+        provider.emitPartial("draft text");
+        provider.complete("final text");
+
+        assertEquals("final text", scheduler.getCachedTranslation(unit(0, 0, "0-20")));
+        assertNull("the draft must be gone once the final arrives",
+                scheduler.getDraftTranslation(unit(0, 0, "0-20")));
+    }
+
+    @Test
+    public void aStreamInterruptionFallsBackToAPlainRequest() {
+        StreamingProvider provider = new StreamingProvider();
+        TranslationScheduler scheduler = streamingScheduler(provider);
+        scheduler.setLookaheadMs(0);
+
+        scheduler.onPositionUpdate(10_000, NOW);
+        provider.emitPartial("partial");
+        provider.fail(TranslationFailureCategory.NETWORK);
+
+        long due = scheduler.getRetryDueAtMsForTesting(unit(0, 0, "0-20"));
+        scheduler.onPositionUpdate(10_000, due);
+
+        assertEquals("one streamed attempt plus one plain fallback", 2, provider.getCallCount());
+        assertFalse("the fallback must not stream again", provider.lastCallbackIsStreaming);
+        assertNull("an interrupted stream must not leave a draft behind",
+                scheduler.getDraftTranslation(unit(0, 0, "0-20")));
+    }
+
+    @Test
+    public void theStreamingFallbackStillStopsAfterTheAttemptBudget() {
+        StreamingProvider provider = new StreamingProvider();
+        TranslationScheduler scheduler = streamingScheduler(provider);
+        scheduler.setLookaheadMs(0);
+
+        scheduler.onPositionUpdate(10_000, NOW);
+        provider.fail(TranslationFailureCategory.NETWORK);
+        long first = scheduler.getRetryDueAtMsForTesting(unit(0, 0, "0-20"));
+
+        scheduler.onPositionUpdate(10_000, first);
+        provider.fail(TranslationFailureCategory.NETWORK);
+        long second = scheduler.getRetryDueAtMsForTesting(unit(0, 0, "0-20"));
+
+        scheduler.onPositionUpdate(10_000, second);
+        provider.fail(TranslationFailureCategory.NETWORK);
+
+        assertEquals("the budget stays three attempts in total", 3, provider.getCallCount());
+        assertTrue(scheduler.hasFailed(unit(0, 0, "0-20")));
+    }
+
+    @Test
+    public void seekingClearsTheDraftAndCancelsTheStream() {
+        StreamingProvider provider = new StreamingProvider();
+        TranslationScheduler scheduler = streamingScheduler(provider);
+        scheduler.setLookaheadMs(0);
+
+        scheduler.onPositionUpdate(10_000, NOW);
+        StreamingProvider.StreamHandle first = provider.capture();
+        first.emitPartial("draft");
+        assertEquals("draft", scheduler.getDraftTranslation(unit(0, 0, "0-20")));
+
+        mSession.advanceEpoch();
+        scheduler.onPositionChanged(50_000, NOW);
+
+        assertTrue("the stream in flight must be cancelled", first.isCancelled());
+        assertNull("a seek must clear the draft", scheduler.getDraftTranslation(unit(0, 0, "0-20")));
+
+        first.emitPartial("late");
+
+        assertNull("a draft from a superseded stream must stay invisible",
+                scheduler.getDraftTranslation(unit(0, 0, "0-20")));
+    }
+
+    private TranslationScheduler streamingScheduler(StreamingProvider provider) {
+        TranslationScheduler scheduler = new TranslationScheduler(mSession, provider, PROMPT,
+                new InMemoryTranslationCache(), new TranslationScheduler.Listener() {
+            @Override
+            public void onTranslationArrived() {
+                mArrived.add("arrived");
+            }
+
+            @Override
+            public void onTranslationDraft() {
+                mDrafts.add("draft");
+            }
+
+            @Override
+            public void onTranslationFailed(String reason) {
+                mFailed.add(reason);
+            }
+        });
+        scheduler.setThrottleMs(0);
+        scheduler.setStreamingEnabled(true);
+        scheduler.setTimeline(timeline());
+        return scheduler;
+    }
+
+    /** Provider double that can emit streamed drafts and complete or fail explicitly. */
+    private static final class StreamingProvider implements TranslationProvider {
+        private int mCallCount;
+        private boolean lastCallbackIsStreaming;
+        private TranslationCallback lastCallback;
+        private TranslationRequest lastRequest;
+        private TrackingCall lastCall;
+
+        @Override
+        public TranslationCall translate(TranslationRequest request,
+                                         TranslationCallback callback) {
+            mCallCount++;
+            lastRequest = request;
+            lastCallback = callback;
+            lastCallbackIsStreaming = callback instanceof TranslationStream;
+            lastCall = new TrackingCall();
+            return lastCall;
+        }
+
+        int getCallCount() {
+            return mCallCount;
+        }
+
+        StreamHandle capture() {
+            return new StreamHandle(lastCallback, lastRequest, lastCall);
+        }
+
+        void emitPartial(String text) {
+            capture().emitPartial(text);
+        }
+
+        void complete(String text) {
+            lastCallback.onSuccess(TranslationResult.finalResult(lastRequest.getSessionId(),
+                    lastRequest.getRequestId(), lastRequest.getUnit(), text));
+        }
+
+        void fail(TranslationFailureCategory category) {
+            lastCallback.onFailure(new TranslationFailure(category, "synthetic " + category));
+        }
+
+        /** One captured streaming attempt, usable after newer requests have replaced it. */
+        static final class StreamHandle {
+            private final TranslationStream mCallback;
+            private final TranslationRequest mRequest;
+            private final TrackingCall mCall;
+
+            StreamHandle(TranslationCallback callback, TranslationRequest request,
+                         TrackingCall call) {
+                mCallback = (TranslationStream) callback;
+                mRequest = request;
+                mCall = call;
+            }
+
+            boolean isCancelled() {
+                return mCall.isCancelled();
+            }
+
+            void emitPartial(String text) {
+                mCallback.onPartial(TranslationResult.partialResult(mRequest.getSessionId(),
+                        mRequest.getRequestId(), mRequest.getUnit(), text));
+            }
+        }
+    }
+
     private static SourceTimeline singleUnitTimeline() {
         return SourceTimeline.from(
                 Collections.singletonList(segment(0, 0, 20_000, "0-20")),
@@ -521,6 +851,7 @@ public class TranslationSchedulerTest {
 
     private static final class RecordingProvider implements TranslationProvider {
         private final List<String> mUnitTexts = new ArrayList<>();
+        private final Map<String, List<String>> mPromptsBySource = new LinkedHashMap<>();
         private TranslationCall previousCall;
         private TranslationCall lastCall;
         private TranslationRequest lastRequest;
@@ -532,6 +863,12 @@ public class TranslationSchedulerTest {
                                          com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCallback callback) {
             mCallCount++;
             mUnitTexts.add(request.getSourceText());
+            List<String> prompts = mPromptsBySource.get(request.getSourceText());
+            if (prompts == null) {
+                prompts = new ArrayList<>();
+                mPromptsBySource.put(request.getSourceText(), prompts);
+            }
+            prompts.add(request.getRenderedPrompt());
             lastRequest = request;
             lastCallback = callback;
             previousCall = lastCall;
@@ -541,6 +878,11 @@ public class TranslationSchedulerTest {
 
         List<String> unitTexts() {
             return new ArrayList<>(mUnitTexts);
+        }
+
+        List<String> promptsFor(String sourceText) {
+            List<String> prompts = mPromptsBySource.get(sourceText);
+            return prompts != null ? new ArrayList<>(prompts) : new ArrayList<String>();
         }
         int getCallCount() {
             return mCallCount;

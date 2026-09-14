@@ -21,6 +21,16 @@ public interface HttpRequestExecutor {
         void onFailure(HttpFailure failure);
     }
 
+    /**
+     * Streaming extension: the transport delivers each framed server-sent event as it arrives.
+     *
+     * <p>{@link HttpCallback#onSuccess} still means "the HTTP read finished"; a protocol adapter
+     * must have seen its own end-of-stream signal before it reports a completed translation.</p>
+     */
+    interface StreamCallback extends HttpCallback {
+        void onEvent(String eventType, String data);
+    }
+
     interface HttpCall {
         void cancel();
 

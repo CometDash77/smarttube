@@ -58,4 +58,6 @@
     <string name="ai_subtitle_order_source_first">Original first</string>
     <string name="ai_subtitle_order_translation_first">Translation first</string>
     <string name="ai_subtitle_retry">Retry failed translations</string>
+    <string name="ai_subtitle_context">Use earlier subtitles as context</string>
+    <string name="ai_subtitle_streaming">Show streamed drafts while translating</string>
 </resources>

@@ -205,7 +205,8 @@ public class AiSubtitlePhoneInputServerTest {
         HttpResponse response = request("POST", "/save",
                 saveForm("&lookaheadSeconds=30&scheduleThrottleSeconds=15"
                         + "&segmentTargetChars=100&segmentMaxChars=320&longSentenceChars=100"
-                        + "&bilingualOrder=translation"), true, false);
+                        + "&bilingualOrder=translation&contextEnabled=on&streamingEnabled=on"),
+                true, false);
 
         assertEquals(200, response.code);
         assertTrue(response.body.contains("\"saveSucceeded\":true"));
@@ -217,11 +218,14 @@ public class AiSubtitlePhoneInputServerTest {
         assertEquals(320, data.getSegmentMaxChars());
         assertEquals(100, data.getLongSentenceChars());
         assertTrue("the bilingual order must round-trip", data.isTranslationFirst());
+        assertTrue("the context switch must round-trip", data.isContextEnabled());
+        assertTrue("the streaming switch must round-trip", data.isStreamingEnabled());
 
         HttpResponse reloaded = request("GET", "/", "", true, true);
         assertTrue("the page must render the saved values",
                 reloaded.body.contains("id=\"lookaheadSeconds\" type=\"number\" value=\"30\""));
         assertTrue(reloaded.body.contains("value=\"translation\" selected"));
+        assertTrue(reloaded.body.contains("value=\"on\" selected"));
     }
 
     private static String saveForm(String extra) {

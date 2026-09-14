@@ -58,4 +58,6 @@
     <string name="ai_subtitle_order_source_first">原文在上</string>
     <string name="ai_subtitle_order_translation_first">譯文在上</string>
     <string name="ai_subtitle_retry">重試失敗的翻譯</string>
+    <string name="ai_subtitle_context">參考前文字幕</string>
+    <string name="ai_subtitle_streaming">串流顯示翻譯草稿</string>
 </resources>

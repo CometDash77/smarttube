@@ -11,14 +11,19 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSess
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionId;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.source.SourceTimeline;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCall;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationContextBuilder;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCallback;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailure;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailureCategory;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationProvider;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationRequest;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationResult;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationStream;
 
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -34,6 +39,8 @@ import java.util.TreeMap;
 public final class TranslationScheduler {
     public interface Listener {
         void onTranslationArrived();
+        /** A streamed draft for the unit that is still in flight; never final text. */
+        void onTranslationDraft();
         void onTranslationFailed(String reason);
     }
 
@@ -53,6 +60,8 @@ public final class TranslationScheduler {
     private final Listener mListener;
     private final PromptProfile mPromptProfile;
     private final PromptRenderer mPromptRenderer = new PromptRenderer();
+    private final TranslationContextBuilder mContextBuilder = new TranslationContextBuilder();
+    /** Keyed by the context-free unit identity; each Work freezes its context-bearing key. */
     private final Map<TranslationCacheKey, Work> mWork = new HashMap<>();
     private final TreeMap<Long, TranslationUnit> mUnitsByStart = new TreeMap<>();
     private final Map<Integer, long[]> mSegmentTimes = new HashMap<>();
@@ -60,6 +69,9 @@ public final class TranslationScheduler {
     private final List<Runnable> mPendingEvents = new ArrayList<>();
 
     private SourceTimeline mTimeline;
+    private String mVideoTitle = "";
+    private String mVideoDescription = "";
+    private boolean mContextEnabled;
     private Work mActive;
     private long mPositionMs = -1;
     private long mLookaheadMs = 90_000;
@@ -68,6 +80,7 @@ public final class TranslationScheduler {
     private long mRequestIdSeed;
     private int mMaxAttempts = 3;
     private int mJitterRangeMs = 250;
+    private boolean mStreamingEnabled;
     private boolean mClosed;
     private boolean mPaused;
 
@@ -107,6 +120,58 @@ public final class TranslationScheduler {
         mJitterRangeMs = jitterRangeMs;
     }
 
+    /** Video metadata for the bounded context; only later requests see a change. */
+    public void setVideoMetadata(String title, String description) {
+        synchronized (this) {
+            mVideoTitle = title != null ? title : "";
+            mVideoDescription = description != null ? description : "";
+        }
+    }
+
+    /**
+     * Enables the bounded context. This changes the output identity, so the caller is expected
+     * to start a new session rather than flipping it on a live one.
+     */
+    public void setContextEnabled(boolean enabled) {
+        synchronized (this) {
+            mContextEnabled = enabled;
+        }
+    }
+
+    /**
+     * Enables streamed drafts. Only a request whose callback can consume drafts is streamed;
+     * every other case keeps the single-response contract.
+     */
+    public void setStreamingEnabled(boolean enabled) {
+        synchronized (this) {
+            mStreamingEnabled = enabled;
+
+            if (enabled) {
+                // A user who re-enables streaming gets a fresh chance on units that fell back.
+                for (Work work : mWork.values()) {
+                    work.mStreamingDisabled = false;
+                }
+            }
+        }
+    }
+
+    /**
+     * Re-evaluates work after the streaming switch. The request in flight is cancelled and its
+     * draft cleared so the new mode applies immediately; a cancelled call returns to PENDING and
+     * is re-dispatched under the new mode without spending a new attempt.
+     */
+    public void onStreamingChanged(long positionMs, long nowMs) {
+        synchronized (this) {
+            clearDraftsLocked();
+            cancelTransientWorkLocked();
+
+            if (positionMs >= 0) mPositionMs = positionMs;
+            dispatch(nowMs, true);
+        }
+
+        drainEvents();
+    }
+
     public void setTimeline(SourceTimeline timeline) {
         synchronized (this) {
             setTimelineLocked(timeline);
@@ -127,6 +192,7 @@ public final class TranslationScheduler {
 
     public void onPositionChanged(long positionMs, long nowMs) {
         synchronized (this) {
+            clearDraftsLocked();
             cancelTransientWorkLocked();
 
             if (positionMs >= 0) {
@@ -143,6 +209,7 @@ public final class TranslationScheduler {
     public void onSeekDrag(long positionMs) {
         synchronized (this) {
             if (positionMs >= 0) mPositionMs = positionMs;
+            clearDraftsLocked();
             cancelTransientWorkLocked();
         }
     }
@@ -212,29 +279,39 @@ public final class TranslationScheduler {
     }
 
     public synchronized String getCachedTranslation(TranslationUnit unit) {
-        if (unit == null) return null;
+        Work work = workForLookup(unit);
 
-        TranslationResult result = mCache.get(keyFor(unit));
+        // Nothing can be cached before the unit's first dispatch froze its request identity.
+        if (work == null || work.mCacheKey == null) return null;
+
+        TranslationResult result = mCache.get(work.mCacheKey);
         return result != null ? result.getTranslatedText() : null;
     }
 
+    /** Latest streamed draft for a unit; never stored as final text or as history. */
+    public synchronized String getDraftTranslation(TranslationUnit unit) {
+        Work work = workForLookup(unit);
+        return work != null ? work.mDraft : null;
+    }
+
     public synchronized boolean hasFailed(TranslationUnit unit) {
-        Work work = unit == null ? null : mWork.get(keyFor(unit));
+        Work work = workForLookup(unit);
         return work != null && work.mState == WorkState.FAILED;
     }
 
     public synchronized String getFailureMessage(TranslationUnit unit) {
-        Work work = unit == null ? null : mWork.get(keyFor(unit));
+        Work work = workForLookup(unit);
         return work != null ? work.mFailureMessage : "";
     }
 
     public synchronized long getRetryDueAtMsForTesting(TranslationUnit unit) {
-        Work work = unit == null ? null : mWork.get(keyFor(unit));
+        Work work = workForLookup(unit);
         return work != null ? work.mDueAtMs : -1;
     }
 
     public synchronized void close() {
         mClosed = true;
+        clearDraftsLocked();
         cancelTransientWorkLocked();
 
         for (Work work : mWork.values()) {
@@ -268,7 +345,7 @@ public final class TranslationScheduler {
     private void requestCurrentUnitLocked(TranslationUnit unit, long nowMs) {
         if (mClosed || mPaused || unit == null || mSession.isClosed() || mSession.isPaused()) return;
 
-        Work work = workFor(unit, keyFor(unit));
+        Work work = workFor(unit);
 
         if (work.mState != WorkState.PENDING) return;
 
@@ -307,7 +384,7 @@ public final class TranslationScheduler {
         for (TranslationUnit unit : mUnitsByStart.subMap(mPositionMs, true, windowEnd, true).values()) {
             if (mActive != null) return;
 
-            Work work = workFor(unit, keyFor(unit));
+            Work work = workFor(unit);
 
             if (work.mState == WorkState.PENDING) submitLocked(work, nowMs);
         }
@@ -336,23 +413,19 @@ public final class TranslationScheduler {
     private void submitLocked(Work work, long nowMs) {
         if (mActive != null || work.mState != WorkState.PENDING) return;
 
-        TranslationResult cached = mCache.get(work.mKey);
+        // The selected Prompt, its bounded context, and the cache identity are frozen on the
+        // unit's first dispatch, so a redraw cannot rebuild them from a scrolling history and
+        // a retry reuses exactly what was already sent.
+        if (work.mCacheKey == null && !freezeRequestLocked(work)) return;
+
+        TranslationResult cached = mCache.get(work.mCacheKey);
         if (cached != null && cached.isFinal()) {
             work.mState = WorkState.SUCCEEDED;
             return;
         }
 
-        // The selected Prompt Profile is rendered before anything can reach the network, so an
-        // unusable prompt is terminal and falls back to the original subtitles.
-        String renderedPrompt = renderPrompt(work.mUnit);
-        if (renderedPrompt == null) {
-            work.mState = WorkState.FAILED;
-            work.mFailureMessage = "Prompt could not be rendered.";
-            queueTranslationFailed(work.mFailureMessage);
-            return;
-        }
-
         work.mAttempts++;
+        work.mStreamed = isStreamingAllowed(work);
         work.mGeneration = mSession.getGeneration();
         work.mEpoch = mSession.getEpoch();
         work.mRequestId = ++mRequestIdSeed;
@@ -360,10 +433,12 @@ public final class TranslationScheduler {
         mActive = work;
 
         TranslationRequest request = new TranslationRequest(
-                mSession.getSessionId(), work.mRequestId, work.mUnit, renderedPrompt);
+                mSession.getSessionId(), work.mRequestId, work.mUnit, work.mRenderedPrompt);
 
         try {
-            work.mCall = mProvider.translate(request, new SchedulerCallback(work, request));
+            work.mCall = mProvider.translate(request,
+                    work.mStreamed ? new SchedulerStreamCallback(work, request)
+                            : new SchedulerCallback(work, request));
         } catch (Exception e) {
             work.mCall = null;
             finishFailureLocked(work, new TranslationFailure(
@@ -373,7 +448,8 @@ public final class TranslationScheduler {
 
     private void finishSuccessLocked(Work work, TranslationResult result, long nowMs) {
         work.mState = WorkState.SUCCEEDED;
-        mCache.put(work.mKey, result);
+        work.mDraft = null;
+        mCache.put(work.mCacheKey, result);
 
         if (mActive == work) mActive = null;
 
@@ -382,6 +458,14 @@ public final class TranslationScheduler {
     }
 
     private void finishFailureLocked(Work work, TranslationFailure failure, long nowMs) {
+        work.mDraft = null;
+
+        // A stream that failed for a transient reason falls back to one plain request. The
+        // fallback spends the same attempt budget, so a unit still stops after three tries.
+        if (work.mStreamed && failure != null && failure.isRetryable()) {
+            work.mStreamingDisabled = true;
+        }
+
         if (failure == null) {
             failure = new TranslationFailure(
                     TranslationFailureCategory.INVALID_OUTPUT, "Translation failed.");
@@ -425,7 +509,19 @@ public final class TranslationScheduler {
         }
     }
 
+    private boolean isStreamingAllowed(Work work) {
+        return mStreamingEnabled && !work.mStreamingDisabled;
+    }
+
+    private void clearDraftsLocked() {
+        for (Work work : mWork.values()) {
+            work.mDraft = null;
+        }
+    }
+
     private void cancelCall(Work work) {
+        work.mDraft = null;
+
         if (work.mCall == null) return;
 
         try {
@@ -437,24 +533,57 @@ public final class TranslationScheduler {
         work.mCall = null;
     }
 
-    private Work workFor(TranslationUnit unit, TranslationCacheKey key) {
-        Work work = mWork.get(key);
+    private Work workFor(TranslationUnit unit) {
+        TranslationCacheKey identity = identityFor(unit);
+        Work work = mWork.get(identity);
 
         if (work == null) {
-            work = new Work(unit, key);
-            mWork.put(key, work);
+            work = new Work(unit, identity);
+            mWork.put(identity, work);
         }
 
         return work;
     }
 
-    private TranslationCacheKey keyFor(TranslationUnit unit) {
+    private Work workForLookup(TranslationUnit unit) {
+        return unit == null ? null : mWork.get(identityFor(unit));
+    }
+
+    /** Context-free identity: it decides which unit a work item belongs to, not what it sends. */
+    private TranslationCacheKey identityFor(TranslationUnit unit) {
         return TranslationCacheKey.from(mSession.getSessionId(), unit,
                 CONTEXT_FINGERPRINT_NONE, SEGMENTATION_VERSION, BOUNDARY_VERSION);
     }
 
+    private TranslationCacheKey cacheKeyFor(TranslationUnit unit, String contextFingerprint) {
+        return TranslationCacheKey.from(mSession.getSessionId(), unit,
+                contextFingerprint, SEGMENTATION_VERSION, BOUNDARY_VERSION);
+    }
+
+    /**
+     * Builds and freezes one unit's context, rendered prompt, and cache identity. Returns false
+     * when the Prompt cannot be rendered, which is terminal and never reaches the network.
+     */
+    private boolean freezeRequestLocked(Work work) {
+        String context = mContextEnabled
+                ? mContextBuilder.build(mVideoTitle, mVideoDescription, historyFor(work.mUnit))
+                : "";
+        String renderedPrompt = renderPrompt(work.mUnit, context);
+
+        if (renderedPrompt == null) {
+            work.mState = WorkState.FAILED;
+            work.mFailureMessage = "Prompt could not be rendered.";
+            queueTranslationFailed(work.mFailureMessage);
+            return false;
+        }
+
+        work.mRenderedPrompt = renderedPrompt;
+        work.mCacheKey = cacheKeyFor(work.mUnit, fingerprint(renderedPrompt));
+        return true;
+    }
+
     /** Renders the frozen Prompt Profile for one unit; null means the prompt is unusable. */
-    private String renderPrompt(TranslationUnit unit) {
+    private String renderPrompt(TranslationUnit unit, String context) {
         Map<String, String> values = new LinkedHashMap<>();
         TranslationSessionId sessionId = mSession.getSessionId();
 
@@ -465,14 +594,64 @@ public final class TranslationScheduler {
                 sessionId.getProfile().getTargetLanguage());
         values.put(PromptVariable.UNIT_INDEX.getName(),
                 String.valueOf(unit.getFirstSegmentId().getIndex()));
-        // M07 has no context builder yet. The variable is present but deliberately empty so a
-        // prompt that references it is not rejected as malformed.
-        values.put(PromptVariable.CONTEXT.getName(), "");
+        // Present but possibly empty: the renderer distinguishes an explicit empty value from a
+        // missing variable, so a prompt that references the context is never called malformed.
+        values.put(PromptVariable.CONTEXT.getName(), context != null ? context : "");
 
         PromptRenderer.RenderResult rendered =
                 mPromptRenderer.render(mPromptProfile.getContent(), values);
 
         return rendered.isValid() ? rendered.getText() : null;
+    }
+
+    /**
+     * Reference history for one unit: only units that start strictly earlier on the same
+     * timeline, oldest first, each carrying its accepted final translation when one exists. A
+     * future unit that happened to finish first never becomes history.
+     */
+    private List<TranslationContextBuilder.Entry> historyFor(TranslationUnit unit) {
+        SourceTimeline timeline = mTimeline;
+        if (timeline == null) return Collections.emptyList();
+
+        int firstIndex = unit.getFirstSegmentId().getIndex();
+        List<TranslationContextBuilder.Entry> history = new ArrayList<>();
+
+        for (TranslationUnit candidate : timeline.getUnits()) {
+            if (candidate.getLastSegmentId().getIndex() >= firstIndex) continue;
+
+            history.add(new TranslationContextBuilder.Entry(
+                    candidate.getSourceText(), acceptedTranslationFor(candidate)));
+        }
+
+        return history;
+    }
+
+    private String acceptedTranslationFor(TranslationUnit unit) {
+        Work work = workForLookup(unit);
+        if (work == null || work.mCacheKey == null) return null;
+
+        TranslationResult result = mCache.get(work.mCacheKey);
+        return result != null ? result.getTranslatedText() : null;
+    }
+
+    /** SHA-256 of the exact instruction that will be sent; never the raw context text. */
+    private static String fingerprint(String renderedPrompt) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(renderedPrompt.getBytes(
+                    java.nio.charset.Charset.forName("UTF-8")));
+            StringBuilder hex = new StringBuilder(hash.length * 2);
+
+            for (byte value : hash) {
+                hex.append(Character.forDigit((value >> 4) & 0xF, 16));
+                hex.append(Character.forDigit(value & 0xF, 16));
+            }
+
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            // SHA-256 is required on every Android API level this app supports.
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
     }
 
     private long startTime(TranslationUnit unit) {
@@ -493,6 +672,15 @@ public final class TranslationScheduler {
             @Override
             public void run() {
                 if (mListener != null) mListener.onTranslationArrived();
+            }
+        });
+    }
+
+    private void queueTranslationDraft() {
+        mPendingEvents.add(new Runnable() {
+            @Override
+            public void run() {
+                if (mListener != null) mListener.onTranslationDraft();
             }
         });
     }
@@ -526,13 +714,21 @@ public final class TranslationScheduler {
         return System.nanoTime() / 1_000_000L;
     }
 
-    private final class SchedulerCallback implements TranslationCallback {
+    private class SchedulerCallback implements TranslationCallback {
         private final Work mWork;
         private final TranslationRequest mRequest;
 
         private SchedulerCallback(Work work, TranslationRequest request) {
             mWork = work;
             mRequest = request;
+        }
+
+        Work getWork() {
+            return mWork;
+        }
+
+        TranslationRequest getRequest() {
+            return mRequest;
         }
 
         @Override
@@ -583,9 +779,56 @@ public final class TranslationScheduler {
         }
     }
 
+    /**
+     * Streaming variant of the request callback. A draft only updates the unit that is still in
+     * flight; it never releases concurrency, never spends an attempt, and never reaches the
+     * cache or the context history.
+     */
+    private final class SchedulerStreamCallback extends SchedulerCallback
+            implements TranslationStream {
+        private SchedulerStreamCallback(Work work, TranslationRequest request) {
+            super(work, request);
+        }
+
+        @Override
+        public void onPartial(TranslationResult partialResult) {
+            boolean accepted = false;
+
+            synchronized (TranslationScheduler.this) {
+                if (acceptsPartial(partialResult)) {
+                    getWork().mDraft = partialResult.getTranslatedText();
+                    accepted = true;
+                }
+            }
+
+            if (accepted) {
+                synchronized (TranslationScheduler.this) {
+                    queueTranslationDraft();
+                }
+                drainEvents();
+            }
+        }
+
+        private boolean acceptsPartial(TranslationResult result) {
+            return result != null
+                    && result.isPartial()
+                    && getWork().mState == WorkState.IN_FLIGHT
+                    && getWork().mRequestId == result.getRequestId()
+                    && mSession.owns(getWork().mGeneration, getWork().mEpoch)
+                    && mSession.getSessionId().equals(result.getSessionId())
+                    && getWork().mUnit.getSegmentIds().equals(result.getSegmentIds());
+        }
+    }
+
     private static final class Work {
         private final TranslationUnit mUnit;
+        /** Context-free unit identity; the cache key below is what carries the context. */
         private final TranslationCacheKey mKey;
+        private TranslationCacheKey mCacheKey;
+        private String mRenderedPrompt;
+        private String mDraft;
+        private boolean mStreamed;
+        private boolean mStreamingDisabled;
         private WorkState mState = WorkState.PENDING;
         private int mAttempts;
         private long mRequestId;

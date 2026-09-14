@@ -12,10 +12,12 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.Translation
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailure;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailureCategory;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationRequest;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationStream;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationResult;
 
 import org.junit.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -338,6 +340,109 @@ public class OpenAiChatCompletionsAdapterTest {
                 .contains("规则：\\\"输出\\\"\\n第一行\\\\次行"));
     }
 
+    @Test
+    public void streamedDeltasBecomeCumulativeDraftsAndStopCompletesTheTranslation() {
+        FakeHttpExecutor executor = FakeHttpExecutor.deferred();
+        OpenAiChatCompletionsAdapter adapter = adapter(executor,
+                profile("https://api.example.com/v1", null, null),
+                new RecordingSecretStore(SECRET));
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        adapter.translate(request("Hello"), callback);
+
+        assertTrue("a streaming callback must ask for an event stream",
+                executor.getLastRequest().getHeaders().get("Accept").contains("text/event-stream"));
+        assertTrue(executor.getLastRequest().getBody().contains("\"stream\":true"));
+
+        // A role-only chunk and a usage-only chunk carry no subtitle text.
+        executor.emit("message", "{\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}");
+        executor.emit("message", "{\"choices\":[{\"delta\":{\"content\":\"你\"}}]}");
+        executor.emit("message", "{\"choices\":[],\"usage\":{\"total_tokens\":3}}");
+        executor.emit("message", "{\"choices\":[{\"delta\":{\"content\":\"好\"}}]}");
+        executor.emit("message", "{\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}");
+        executor.emit("message", "[DONE]");
+        executor.finishStream();
+
+        assertEquals("every draft must be the full text so far",
+                Arrays.asList("你", "你好"), callback.partials);
+        assertTrue("a stopped stream with a completion signal is a success",
+                callback.result != null && callback.result.isFinal());
+        assertEquals("你好", callback.result.getTranslatedText());
+    }
+
+    @Test
+    public void malformedChunksExtraChoicesAndEventsAfterTheEndSignalAreIgnored() {
+        FakeHttpExecutor executor = FakeHttpExecutor.deferred();
+        OpenAiChatCompletionsAdapter adapter = adapter(executor,
+                profile("https://api.example.com/v1", null, null),
+                new RecordingSecretStore(SECRET));
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        adapter.translate(request("Hello"), callback);
+
+        executor.emit("message", "{\"choices\":[{\"delta\":{\"content\":\"\u4f60\"}}]}");
+        executor.emit("message", "not json at all");
+        executor.emit("message", "{\"choices\":[{\"delta\":{\"content\":\"\u597d\"}},"
+                + "{\"delta\":{\"content\":\"IGNORED\"}}]}");
+        executor.emit("message", "[DONE]");
+        // A server repeating events after the end signal must not change the result.
+        executor.emit("message", "{\"choices\":[{\"delta\":{\"content\":\"TRAILING\"}}]}");
+        executor.emit("message", "{\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}");
+        executor.finishStream();
+
+        assertEquals("only the first choice of each chunk is the subtitle",
+                Arrays.asList("\u4f60", "\u4f60\u597d"), callback.partials);
+        assertEquals("\u4f60\u597d", callback.result.getTranslatedText());
+    }
+
+    @Test
+    public void aLengthStopIsNotASilentSuccess() {
+        FakeHttpExecutor executor = FakeHttpExecutor.deferred();
+        OpenAiChatCompletionsAdapter adapter = adapter(executor,
+                profile("https://api.example.com/v1", null, null),
+                new RecordingSecretStore(SECRET));
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        adapter.translate(request("Hello"), callback);
+        executor.emit("message", "{\"choices\":[{\"delta\":{\"content\":\"trunc\"}}]}");
+        executor.emit("message", "{\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}");
+        executor.emit("message", "[DONE]");
+        executor.finishStream();
+
+        assertEquals(TranslationFailureCategory.INVALID_OUTPUT, callback.failure.getCategory());
+        assertTrue(callback.result == null);
+    }
+
+    @Test
+    public void aStreamWithoutACompletionSignalIsNotASilentSuccess() {
+        FakeHttpExecutor executor = FakeHttpExecutor.deferred();
+        OpenAiChatCompletionsAdapter adapter = adapter(executor,
+                profile("https://api.example.com/v1", null, null),
+                new RecordingSecretStore(SECRET));
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        adapter.translate(request("Hello"), callback);
+        executor.emit("message", "{\"choices\":[{\"delta\":{\"content\":\"half\"}}]}");
+        executor.finishStream();
+
+        assertEquals(TranslationFailureCategory.PROTOCOL, callback.failure.getCategory());
+        assertTrue(callback.result == null);
+    }
+
+    @Test
+    public void aPlainCallbackKeepsTheSingleResponseContract() {
+        FakeHttpExecutor executor = FakeHttpExecutor.success(
+                "{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}", "req-plain");
+        OpenAiChatCompletionsAdapter adapter = adapter(executor,
+                profile("https://api.example.com/v1", null, null),
+                new RecordingSecretStore(SECRET));
+
+        adapter.translate(request("Hello"), new RecordingCallback());
+
+        assertEquals("application/json", executor.getLastRequest().getHeaders().get("Accept"));
+        assertTrue(executor.getLastRequest().getBody().contains("\"stream\":false"));
+    }
+
     private static void assertStatusFailure(int status,
                                             TranslationFailureCategory expected) {
         FakeHttpExecutor executor = FakeHttpExecutor.success(
@@ -402,6 +507,28 @@ public class OpenAiChatCompletionsAdapterTest {
         }
     }
 
+    /** Records cumulative drafts and the single terminal outcome. */
+    private static final class RecordingStreamCallback implements TranslationStream {
+        private final java.util.List<String> partials = new java.util.ArrayList<>();
+        private TranslationResult result;
+        private TranslationFailure failure;
+
+        @Override
+        public void onPartial(TranslationResult partial) {
+            partials.add(partial.getTranslatedText());
+        }
+
+        @Override
+        public void onSuccess(TranslationResult result) {
+            this.result = result;
+        }
+
+        @Override
+        public void onFailure(TranslationFailure failure) {
+            this.failure = failure;
+        }
+    }
+
     private static final class RecordingCallback implements TranslationCallback {
         private boolean success;
         private boolean completed;
@@ -437,6 +564,18 @@ public class OpenAiChatCompletionsAdapterTest {
             FakeHttpExecutor executor = new FakeHttpExecutor();
             executor.response = new HttpResponse(200, body, requestId);
             return executor;
+        }
+
+        boolean lastCallbackIsStreaming() {
+            return lastCallback instanceof HttpRequestExecutor.StreamCallback;
+        }
+
+        void emit(String eventType, String data) {
+            ((HttpRequestExecutor.StreamCallback) lastCallback).onEvent(eventType, data);
+        }
+
+        void finishStream() {
+            lastCallback.onSuccess(new HttpResponse(200, null, "req-stream"));
         }
 
         static FakeHttpExecutor failure(HttpFailure failure) {

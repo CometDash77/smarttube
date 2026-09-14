@@ -11,6 +11,7 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.Translation
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailureCategory;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationRequest;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationResult;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationStream;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -22,6 +23,9 @@ import java.util.Map;
  * Anthropic-compatible Messages adapter for complete, non-streaming responses.
  */
 public final class AnthropicMessagesAdapter implements ProtocolAdapter {
+    /** Upper bound on one streamed translation, in Unicode code points. */
+    public static final int MAX_STREAM_CODE_POINTS = 16 * 1024;
+
     public static final String DEFAULT_VERSION = "2023-06-01";
     public static final int DEFAULT_MAX_TOKENS = 4096;
     public static final String OPTION_AUTH_SCHEME = "anthropicAuthScheme";
@@ -91,9 +95,13 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
             return call;
         }
 
+        // The callback type is the streaming request: only a caller that can consume drafts
+        // gets an event stream, and everyone else keeps the single-response contract.
+        final boolean streaming = callback instanceof TranslationStream;
+
         final HttpRequestExecutor.HttpRequest httpRequest;
         try {
-            httpRequest = buildRequest(request, credential);
+            httpRequest = buildRequest(request, credential, streaming);
         } catch (RuntimeException e) {
             deliverFailure(call, callback, new TranslationFailure(
                     TranslationFailureCategory.PROTOCOL,
@@ -101,19 +109,22 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
             return call;
         }
 
-        try {
-            HttpRequestExecutor.HttpCall httpCall = mExecutor.execute(httpRequest,
-                    new HttpRequestExecutor.HttpCallback() {
-                        @Override
-                        public void onSuccess(HttpRequestExecutor.HttpResponse response) {
-                            handleResponse(call, callback, request, response);
-                        }
+        final HttpRequestExecutor.HttpCallback httpCallback = streaming
+                ? new StreamingHttpCallback(call, (TranslationStream) callback, request)
+                : new HttpRequestExecutor.HttpCallback() {
+                    @Override
+                    public void onSuccess(HttpRequestExecutor.HttpResponse response) {
+                        handleResponse(call, callback, request, response);
+                    }
 
-                        @Override
-                        public void onFailure(HttpRequestExecutor.HttpFailure failure) {
-                            handleTransportFailure(call, callback, failure);
-                        }
-                    });
+                    @Override
+                    public void onFailure(HttpRequestExecutor.HttpFailure failure) {
+                        handleTransportFailure(call, callback, failure);
+                    }
+                };
+
+        try {
+            HttpRequestExecutor.HttpCall httpCall = mExecutor.execute(httpRequest, httpCallback);
             call.setHttpCall(httpCall);
         } catch (RuntimeException e) {
             deliverFailure(call, callback, TranslationFailureMapper.fromTransport(
@@ -164,6 +175,12 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
 
     private HttpRequestExecutor.HttpRequest buildRequest(TranslationRequest request,
                                                           String credential) {
+        return buildRequest(request, credential, false);
+    }
+
+    private HttpRequestExecutor.HttpRequest buildRequest(TranslationRequest request,
+                                                          String credential,
+                                                          boolean streaming) {
         Map<String, String> headers = new LinkedHashMap<>(mProfile.getHeaders());
         removeHeader(headers, "Authorization");
         removeHeader(headers, "x-api-key");
@@ -172,7 +189,7 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
         removeHeader(headers, "Accept");
 
         headers.put("Content-Type", "application/json");
-        headers.put("Accept", "application/json");
+        headers.put("Accept", streaming ? "text/event-stream" : "application/json");
         headers.put("anthropic-version", resolveVersion());
         if (AUTH_BEARER.equalsIgnoreCase(resolveAuthScheme())) {
             headers.put("Authorization", "Bearer " + credential);
@@ -180,11 +197,15 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
             headers.put("x-api-key", credential);
         }
 
-        String body = buildBody(request);
+        String body = buildBody(request, streaming);
         return new HttpRequestExecutor.HttpRequest("POST", mMessagesUrl, headers, body, 30_000L);
     }
 
     private String buildBody(TranslationRequest request) {
+        return buildBody(request, false);
+    }
+
+    private String buildBody(TranslationRequest request, boolean streaming) {
         StringBuilder json = new StringBuilder(256);
         json.append('{');
         appendStringField(json, "model", mProfile.getModelId());
@@ -195,8 +216,141 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
         json.append(',');
         json.append("\"messages\":[");
         appendMessage(json, "user", request.getSourceText());
-        json.append("]}");
+        json.append("]");
+        if (streaming) json.append(",\"stream\":true");
+        json.append('}');
         return json.toString();
+    }
+
+    /**
+     * Accumulates one streamed translation from Anthropic's named events.
+     *
+     * <p>Only {@code text_delta} payloads become subtitle text; thinking and tool blocks are
+     * ignored rather than rendered. A completed translation requires {@code message_stop} with
+     * an accepted stop reason, so a truncated or interrupted stream is a failure rather than a
+     * silent success. Each delta publishes the full draft so far.</p>
+     */
+    private final class StreamingHttpCallback implements HttpRequestExecutor.StreamCallback {
+        private final Call mCall;
+        private final TranslationStream mCallback;
+        private final TranslationRequest mRequest;
+        private final StringBuilder mText = new StringBuilder();
+        private boolean mMessageStopped;
+        private String mStopReason;
+
+        StreamingHttpCallback(Call call, TranslationStream callback, TranslationRequest request) {
+            mCall = call;
+            mCallback = callback;
+            mRequest = request;
+        }
+
+        @Override
+        public void onEvent(String eventType, String data) {
+            if (mCall.isCancelled() || data == null || mMessageStopped) return;
+
+            final Map<String, Object> event;
+            try {
+                event = asMap(Helpers.convertToObj(data));
+            } catch (RuntimeException e) {
+                return;
+            }
+            if (event == null) return;
+
+            String type = event.get("type") instanceof String ? (String) event.get("type") : eventType;
+            if (type == null) return;
+
+            switch (type) {
+                case "content_block_delta":
+                    handleDelta(event);
+                    break;
+                case "message_delta":
+                    Map<String, Object> delta = asMap(event.get("delta"));
+                    Object stopReason = delta != null ? delta.get("stop_reason") : null;
+                    if (stopReason instanceof String) mStopReason = (String) stopReason;
+                    break;
+                case "message_stop":
+                    mMessageStopped = true;
+                    break;
+                case "error":
+                    deliverFailure(mCall, mCallback, new TranslationFailure(
+                            TranslationFailureCategory.PROTOCOL,
+                            "Provider reported a streaming error."));
+                    break;
+                default:
+                    // message_start, content_block_start/stop, ping and unknown events carry no
+                    // subtitle text.
+                    break;
+            }
+        }
+
+        private void handleDelta(Map<String, Object> event) {
+            Map<String, Object> delta = asMap(event.get("delta"));
+            if (delta == null) return;
+
+            // Only text deltas are subtitle content; thinking and tool JSON are not text.
+            if (!"text_delta".equals(delta.get("type"))) return;
+
+            Object text = delta.get("text");
+            if (!(text instanceof String) || ((String) text).isEmpty()) return;
+
+            mText.append((String) text);
+
+            if (mText.codePointCount(0, mText.length()) > MAX_STREAM_CODE_POINTS) {
+                deliverFailure(mCall, mCallback, new TranslationFailure(
+                        TranslationFailureCategory.INVALID_OUTPUT,
+                        "Provider streamed more text than a subtitle can hold."));
+                return;
+            }
+
+            mCallback.onPartial(TranslationResult.partialResult(
+                    mRequest.getSessionId(), mRequest.getRequestId(), mRequest.getUnit(),
+                    mText.toString()));
+        }
+
+        @Override
+        public void onSuccess(HttpRequestExecutor.HttpResponse response) {
+            if (mCall.isCancelled()) return;
+
+            mCall.setRequestId(response != null ? response.getRequestId() : null);
+
+            if (!mMessageStopped) {
+                deliverFailure(mCall, mCallback, new TranslationFailure(
+                        TranslationFailureCategory.PROTOCOL,
+                        "Provider stream ended without a completion signal."));
+                return;
+            }
+
+            if (!isAcceptedStopReason(mStopReason)) {
+                deliverFailure(mCall, mCallback, new TranslationFailure(
+                        TranslationFailureCategory.INVALID_OUTPUT,
+                        "Provider stopped before the translation was complete."));
+                return;
+            }
+
+            String translated = mText.toString().trim();
+
+            if (translated.isEmpty()) {
+                deliverFailure(mCall, mCallback, new TranslationFailure(
+                        TranslationFailureCategory.INVALID_OUTPUT,
+                        "Provider returned no translation text."));
+                return;
+            }
+
+            if (!mCall.markDelivered()) return;
+
+            mCallback.onSuccess(TranslationResult.finalResult(
+                    mRequest.getSessionId(), mRequest.getRequestId(), mRequest.getUnit(),
+                    translated));
+        }
+
+        @Override
+        public void onFailure(HttpRequestExecutor.HttpFailure failure) {
+            handleTransportFailure(mCall, mCallback, failure);
+        }
+
+        private boolean isAcceptedStopReason(String reason) {
+            return "end_turn".equals(reason) || "stop_sequence".equals(reason);
+        }
     }
 
     private static void appendMessage(StringBuilder json, String role, String content) {

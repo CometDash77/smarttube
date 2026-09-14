@@ -13,6 +13,7 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.FakeTransla
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCall;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCallback;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationProvider;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationStream;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationRequest;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationResult;
 
@@ -61,7 +62,7 @@ public class AiSubtitleCueBridgeSessionTest {
 
     @Test
     public void seekAdvancesEpochWithoutChangingSessionIdentity() {
-        mBridge.onNewVideo("video-1");
+        mBridge.onNewVideo("video-1", null, null);
         mBridge.process(cues("Hello"));
         TranslationSessionSnapshot before = mBridge.snapshotSession();
 
@@ -79,7 +80,7 @@ public class AiSubtitleCueBridgeSessionTest {
 
     @Test
     public void repeatedSeeksAdvanceTheEpochEachTime() {
-        mBridge.onNewVideo("video-1");
+        mBridge.onNewVideo("video-1", null, null);
         mBridge.process(cues("Hello"));
 
         mBridge.onSeek(1000);
@@ -91,7 +92,7 @@ public class AiSubtitleCueBridgeSessionTest {
 
     @Test
     public void trackChangeCreatesNewGenerationWithNewIdentity() {
-        mBridge.onNewVideo("video-1");
+        mBridge.onNewVideo("video-1", null, null);
         mBridge.onSubtitleTrackChanged("subtitle:en:asr-1");
         mBridge.process(cues("Hello"));
         TranslationSessionSnapshot first = mBridge.snapshotSession();
@@ -105,7 +106,7 @@ public class AiSubtitleCueBridgeSessionTest {
 
     @Test
     public void repeatedIdenticalTrackEventsDoNotCreateNewGenerations() {
-        mBridge.onNewVideo("video-1");
+        mBridge.onNewVideo("video-1", null, null);
         mBridge.onSubtitleTrackChanged("subtitle:en:asr-1");
         TranslationSessionSnapshot first = mBridge.snapshotSession();
 
@@ -119,7 +120,7 @@ public class AiSubtitleCueBridgeSessionTest {
 
     @Test
     public void subtitlesOffAndOnRestartFromCleanState() {
-        mBridge.onNewVideo("video-1");
+        mBridge.onNewVideo("video-1", null, null);
         mBridge.onSubtitleTrackChanged("subtitle:en:asr-1");
         mBridge.process(cues("Hello"));
         mBridge.snapshotSession();
@@ -135,11 +136,11 @@ public class AiSubtitleCueBridgeSessionTest {
 
     @Test
     public void newVideoStartsFreshSessionIdentity() {
-        mBridge.onNewVideo("video-1");
+        mBridge.onNewVideo("video-1", null, null);
         mBridge.process(cues("Hello"));
         TranslationSessionSnapshot first = mBridge.snapshotSession();
 
-        mBridge.onNewVideo("video-2");
+        mBridge.onNewVideo("video-2", null, null);
         TranslationSessionSnapshot second = mBridge.snapshotSession();
 
         assertNotEquals(first.getSessionId(), second.getSessionId());
@@ -150,7 +151,7 @@ public class AiSubtitleCueBridgeSessionTest {
     public void profileChangeCreatesNewGenerationAndRejectsStaleCallbacks() {
         StubbornProvider provider = new StubbornProvider();
         AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
-        bridge.onNewVideo("video-1");
+        bridge.onNewVideo("video-1", null, null);
 
         bridge.process(cues("Hello"));
         TranslationSessionSnapshot before = bridge.snapshotSession();
@@ -175,7 +176,7 @@ public class AiSubtitleCueBridgeSessionTest {
 
     @Test
     public void pauseAndPlayAreReflectedInTheSessionState() {
-        mBridge.onNewVideo("video-1");
+        mBridge.onNewVideo("video-1", null, null);
         mBridge.process(cues("Hello"));
 
         mBridge.onPause();
@@ -187,7 +188,7 @@ public class AiSubtitleCueBridgeSessionTest {
 
     @Test
     public void releaseClosesTheActiveSession() {
-        mBridge.onNewVideo("video-1");
+        mBridge.onNewVideo("video-1", null, null);
         mBridge.process(cues("Hello"));
 
         assertNotNull(mBridge.snapshotSession());
@@ -212,7 +213,7 @@ public class AiSubtitleCueBridgeSessionTest {
         };
 
         AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, mismatchedProvider, PROMPT);
-        bridge.onNewVideo("video-1");
+        bridge.onNewVideo("video-1", null, null);
 
         bridge.process(cues("Hello"));
         List<Cue> output = bridge.process(cues("Hello"));
@@ -236,7 +237,7 @@ public class AiSubtitleCueBridgeSessionTest {
         };
 
         AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, partialOnlyProvider, PROMPT);
-        bridge.onNewVideo("video-1");
+        bridge.onNewVideo("video-1", null, null);
 
         bridge.process(cues("Hello"));
         List<Cue> output = bridge.process(cues("Hello"));
@@ -265,7 +266,7 @@ public class AiSubtitleCueBridgeSessionTest {
         };
 
         AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, wrongCoverageProvider, PROMPT);
-        bridge.onNewVideo("video-1");
+        bridge.onNewVideo("video-1", null, null);
 
         bridge.process(cues("Hello"));
         List<Cue> output = bridge.process(cues("Hello"));
@@ -276,7 +277,7 @@ public class AiSubtitleCueBridgeSessionTest {
 
     @Test
     public void identicalSchedulingChangeIsIgnored() {
-        mBridge.onNewVideo("video-1");
+        mBridge.onNewVideo("video-1", null, null);
         mBridge.process(cues("Hello"));
 
         TranslationSessionSnapshot before = mBridge.snapshotSession();
@@ -289,7 +290,7 @@ public class AiSubtitleCueBridgeSessionTest {
 
     @Test
     public void schedulingChangeKeepsTheSessionAndItsCachedTranslations() {
-        mBridge.onNewVideo("video-1");
+        mBridge.onNewVideo("video-1", null, null);
         mBridge.process(cues("Hello"));
         mFakeProvider.flushPending();
 
@@ -307,7 +308,7 @@ public class AiSubtitleCueBridgeSessionTest {
 
     @Test
     public void schedulingChangeWhilePausedStartsNoWork() {
-        mBridge.onNewVideo("video-1");
+        mBridge.onNewVideo("video-1", null, null);
         mBridge.process(cues("Hello"));
         mFakeProvider.flushPending();
         mBridge.onPause();
@@ -320,7 +321,7 @@ public class AiSubtitleCueBridgeSessionTest {
 
     @Test
     public void segmentationChangeStartsANewGenerationAndKeepsThePausedState() {
-        mBridge.onNewVideo("video-1");
+        mBridge.onNewVideo("video-1", null, null);
         mBridge.process(cues("Hello"));
         TranslationSessionSnapshot before = mBridge.snapshotSession();
 
@@ -343,7 +344,7 @@ public class AiSubtitleCueBridgeSessionTest {
 
     @Test
     public void segmentationChangeIsIgnoredWhenItRepeatsTheCurrentValues() {
-        mBridge.onNewVideo("video-1");
+        mBridge.onNewVideo("video-1", null, null);
         mBridge.process(cues("Hello"));
 
         TranslationSessionSnapshot before = mBridge.snapshotSession();
@@ -356,7 +357,7 @@ public class AiSubtitleCueBridgeSessionTest {
     @Test
     public void anUnconfiguredProviderToleratesLifecycleAndSettingsChanges() {
         AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, null, PROMPT);
-        bridge.onNewVideo("video-1");
+        bridge.onNewVideo("video-1", null, null);
         bridge.onSubtitleTrackChanged("subtitle:en:1");
 
         // Every one of these used to fail constructing a scheduler for a null provider.
@@ -392,7 +393,7 @@ public class AiSubtitleCueBridgeSessionTest {
         AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
         ManualSource source = new ManualSource();
 
-        bridge.onNewVideo("video-1");
+        bridge.onNewVideo("video-1", null, null);
         bridge.setSourceAdapter(source.adapter());
         bridge.onSubtitleTrackChanged("subtitle:en:1");
         assertEquals("the track change must start a load", 1, source.loadCount());
@@ -415,7 +416,7 @@ public class AiSubtitleCueBridgeSessionTest {
 
     @Test
     public void bilingualOrderChangesPresentationWithoutNewRequests() {
-        mBridge.onNewVideo("video-1");
+        mBridge.onNewVideo("video-1", null, null);
         mBridge.process(cues("Hello"));
         mFakeProvider.flushPending();
 
@@ -432,6 +433,106 @@ public class AiSubtitleCueBridgeSessionTest {
                 mBridge.process(cues("Hello")).get(0).text.toString());
     }
 
+    @Test
+    public void aStreamedDraftDecoratesTheCurrentCueBeforeTheFinalArrives() {
+        StreamingProvider provider = new StreamingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        bridge.onStreamingEnabledChanged(true);
+        bridge.onNewVideo("video-1", null, null);
+
+        bridge.process(cues("Hello"));
+        provider.emitPartial("\u4f60\u597d");
+
+        assertEquals("a draft must reach the cue that is on screen",
+                "Hello\n\u4f60\u597d", bridge.process(cues("Hello")).get(0).text.toString());
+        assertEquals("a draft is not a finished translation",
+                AiSubtitleCueBridge.RuntimeStatus.TRANSLATING, bridge.getRuntimeStatus());
+
+        provider.complete("\u4f60\u597d\u4e16\u754c");
+
+        assertEquals("the final must replace the draft",
+                "Hello\n\u4f60\u597d\u4e16\u754c",
+                bridge.process(cues("Hello")).get(0).text.toString());
+        assertEquals(AiSubtitleCueBridge.RuntimeStatus.TRANSLATED, bridge.getRuntimeStatus());
+    }
+
+    @Test
+    public void aDraftOnlyDecoratesTheUnitItWasStreamedFor() {
+        StreamingProvider provider = new StreamingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        bridge.onStreamingEnabledChanged(true);
+        bridge.onNewVideo("video-1", null, null);
+
+        bridge.process(cues("Hello"));
+        StreamingProvider.StreamHandle first = provider.capture();
+        first.emitPartial("\u8349\u7a3f");
+
+        // A different displayed cue maps to a different unit, so the draft is not its translation.
+        assertEquals("Other", bridge.process(cues("Other")).get(0).text.toString());
+        assertTrue("moving to another unit cancels the stream in flight", first.isCancelled());
+        assertEquals("and clears the draft it had produced", "Hello",
+                bridge.process(cues("Hello")).get(0).text.toString());
+    }
+
+    @Test
+    public void draftRepaintsAreCoalescedWhileFinalsAlwaysRepaint() {
+        StreamingProvider provider = new StreamingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        bridge.onStreamingEnabledChanged(true);
+        bridge.onNewVideo("video-1", null, null);
+        bridge.setRefreshListener(() -> mRefreshCount.incrementAndGet());
+        bridge.setDraftRefreshIntervalForTesting(Long.MAX_VALUE);
+
+        bridge.process(cues("Hello"));
+
+        int before = mRefreshCount.get();
+        provider.emitPartial("a");
+        provider.emitPartial("ab");
+        provider.emitPartial("abc");
+
+        assertEquals("drafts must be coalesced into one repaint", before + 1, mRefreshCount.get());
+
+        provider.complete("abc");
+
+        assertEquals("a final must always repaint", before + 2, mRefreshCount.get());
+    }
+
+    @Test
+    public void everyDraftRepaintsWhenTheIntervalIsZero() {
+        StreamingProvider provider = new StreamingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        bridge.onStreamingEnabledChanged(true);
+        bridge.onNewVideo("video-1", null, null);
+        bridge.setRefreshListener(() -> mRefreshCount.incrementAndGet());
+        bridge.setDraftRefreshIntervalForTesting(0);
+
+        bridge.process(cues("Hello"));
+
+        int before = mRefreshCount.get();
+        provider.emitPartial("a");
+        provider.emitPartial("ab");
+
+        assertEquals(before + 2, mRefreshCount.get());
+    }
+
+    @Test
+    public void disablingStreamingClearsTheDraftAndCancelsTheStream() {
+        StreamingProvider provider = new StreamingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        bridge.onStreamingEnabledChanged(true);
+        bridge.onNewVideo("video-1", null, null);
+
+        bridge.process(cues("Hello"));
+        StreamingProvider.StreamHandle first = provider.capture();
+        first.emitPartial("\u8349\u7a3f");
+
+        bridge.onStreamingEnabledChanged(false);
+
+        assertTrue("turning streaming off must cancel the stream in flight", first.isCancelled());
+        assertEquals("the draft must be gone", "Hello",
+                bridge.process(cues("Hello")).get(0).text.toString());
+    }
+
     private static List<Cue> cues(String... texts) {
         List<Cue> list = new ArrayList<>();
 
@@ -440,6 +541,57 @@ public class AiSubtitleCueBridgeSessionTest {
         }
 
         return list;
+    }
+
+    /** Provider double that can emit streamed drafts and then complete. */
+    private static final class StreamingProvider implements TranslationProvider {
+        private int mCallCount;
+        private TranslationCallback mCallback;
+        private TranslationRequest mRequest;
+        private NopCall mCall;
+
+        @Override
+        public TranslationCall translate(TranslationRequest request, TranslationCallback callback) {
+            mCallCount++;
+            mRequest = request;
+            mCallback = callback;
+            mCall = new NopCall();
+            return mCall;
+        }
+
+        StreamHandle capture() {
+            return new StreamHandle(mCallback, mRequest, mCall);
+        }
+
+        void emitPartial(String text) {
+            capture().emitPartial(text);
+        }
+
+        void complete(String text) {
+            mCallback.onSuccess(TranslationResult.finalResult(mRequest.getSessionId(),
+                    mRequest.getRequestId(), mRequest.getUnit(), text));
+        }
+
+        static final class StreamHandle {
+            private final TranslationStream mCallback;
+            private final TranslationRequest mRequest;
+            private final NopCall mCall;
+
+            StreamHandle(TranslationCallback callback, TranslationRequest request, NopCall call) {
+                mCallback = (TranslationStream) callback;
+                mRequest = request;
+                mCall = call;
+            }
+
+            void emitPartial(String text) {
+                mCallback.onPartial(TranslationResult.partialResult(mRequest.getSessionId(),
+                        mRequest.getRequestId(), mRequest.getUnit(), text));
+            }
+
+            boolean isCancelled() {
+                return mCall.isCancelled();
+            }
+        }
     }
 
     /** Records requested unit texts; deliveries are released explicitly by the test. */
@@ -537,13 +689,16 @@ public class AiSubtitleCueBridgeSessionTest {
     }
 
     private static final class NopCall implements TranslationCall {
+        private boolean mCancelled;
+
         @Override
         public void cancel() {
+            mCancelled = true;
         }
 
         @Override
         public boolean isCancelled() {
-            return false;
+            return mCancelled;
         }
     }
 }

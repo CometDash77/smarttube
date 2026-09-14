@@ -180,7 +180,7 @@ public class AiSubtitleCueBridgeTest {
         enable();
         mBridge.process(cues("Hello"));
 
-        mBridge.onNewVideo("nextVideo");
+        mBridge.onNewVideo("nextVideo", null, null);
         mProvider.flushPending();
 
         List<Cue> output = mBridge.process(cues("Hello"));

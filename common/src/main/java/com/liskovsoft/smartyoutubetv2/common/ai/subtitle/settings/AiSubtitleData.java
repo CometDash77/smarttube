@@ -24,6 +24,8 @@ public class AiSubtitleData extends SharedPreferencesBase
     private static final String TARGET_LANGUAGE = "target_language";
     private static final String DISPLAY_MODE = "display_mode";
     private static final String TRANSLATION_FIRST = "translation_first";
+    private static final String CONTEXT_ENABLED = "context_enabled";
+    private static final String STREAMING_ENABLED = "streaming_enabled";
     private static final String LOOKAHEAD_SECONDS = "lookahead_seconds";
     private static final String SCHEDULE_THROTTLE_SECONDS = "schedule_throttle_seconds";
     private static final String SEGMENT_TARGET_CHARS = "segment_target_chars";
@@ -205,6 +207,24 @@ public class AiSubtitleData extends SharedPreferencesBase
 
     public void setTranslationFirst(boolean translationFirst) {
         putBoolean(TRANSLATION_FIRST, translationFirst);
+    }
+
+    /** Bounded reference context; off by default and off until the user asks for it. */
+    public boolean isContextEnabled() {
+        return getBoolean(CONTEXT_ENABLED, false);
+    }
+
+    public void setContextEnabled(boolean enabled) {
+        putBoolean(CONTEXT_ENABLED, enabled);
+    }
+
+    /** Streamed drafts; off by default because not every provider or model supports them. */
+    public boolean isStreamingEnabled() {
+        return getBoolean(STREAMING_ENABLED, false);
+    }
+
+    public void setStreamingEnabled(boolean enabled) {
+        putBoolean(STREAMING_ENABLED, enabled);
     }
 
     private void repairSegmentLimitsIfNeeded() {

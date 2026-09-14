@@ -51,7 +51,8 @@ public class AiSubtitleController extends BasePlayerController {
         disposeSourceFetch();
         mCurrentTrackIdentity = null;
         mSeekPositionMs = SEEK_POSITION_UNKNOWN;
-        getBridge().onNewVideo(item != null ? item.videoId : null);
+        getBridge().onNewVideo(item != null ? item.videoId : null,
+                item != null ? item.title : null, item != null ? item.description : null);
     }
 
     @Override

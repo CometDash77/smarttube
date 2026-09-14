@@ -13,12 +13,14 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.Translation
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailure;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailureCategory;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationRequest;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationStream;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationResult;
 
 import org.junit.Test;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -328,6 +330,115 @@ public class AnthropicMessagesAdapterTest {
         return "{\"id\":\"msg_1\",\"content\":[{\"type\":\"text\",\"text\":\"" + text + "\"}]}";
     }
 
+    @Test
+    public void namedTextDeltasBecomeCumulativeDraftsAndMessageStopCompletes() {
+        FakeHttpExecutor executor = FakeHttpExecutor.deferred();
+        AnthropicMessagesAdapter adapter = adapter(executor,
+                profile("https://api.anthropic.com", null, null),
+                new RecordingSecretStore(SECRET));
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        adapter.translate(request("Hello"), callback);
+
+        assertTrue("a streaming callback must ask for an event stream",
+                executor.getLastRequest().getHeaders().get("Accept").contains("text/event-stream"));
+        assertTrue(executor.getLastRequest().getBody().contains("\"stream\":true"));
+
+        executor.emit("message_start", "{\"type\":\"message_start\"}");
+        executor.emit("ping", "{\"type\":\"ping\"}");
+        executor.emit("content_block_start", "{\"type\":\"content_block_start\",\"index\":0}");
+        executor.emit("content_block_delta",
+                "{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"hmm\"}}");
+        executor.emit("content_block_delta",
+                "{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"你\"}}");
+        executor.emit("content_block_delta",
+                "{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"好\"}}");
+        executor.emit("content_block_stop", "{\"type\":\"content_block_stop\",\"index\":0}");
+        executor.emit("message_delta",
+                "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}");
+        executor.emit("message_stop", "{\"type\":\"message_stop\"}");
+        executor.finishStream();
+
+        assertEquals("thinking and unknown events must not become subtitles",
+                Arrays.asList("你", "你好"), callback.partials);
+        assertTrue(callback.result != null && callback.result.isFinal());
+        assertEquals("你好", callback.result.getTranslatedText());
+    }
+
+    @Test
+    public void eventsAfterMessageStopAreIgnored() {
+        FakeHttpExecutor executor = FakeHttpExecutor.deferred();
+        AnthropicMessagesAdapter adapter = adapter(executor,
+                profile("https://api.anthropic.com", null, null),
+                new RecordingSecretStore(SECRET));
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        adapter.translate(request("Hello"), callback);
+        executor.emit("content_block_delta",
+                "{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"\u4f60\u597d\"}}");
+        executor.emit("message_delta",
+                "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}");
+        executor.emit("message_stop", "{\"type\":\"message_stop\"}");
+        executor.emit("content_block_delta",
+                "{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"TRAILING\"}}");
+        executor.finishStream();
+
+        assertEquals("\u4f60\u597d", callback.result.getTranslatedText());
+    }
+
+    @Test
+    public void aMaxTokensStopIsNotASilentSuccess() {
+        FakeHttpExecutor executor = FakeHttpExecutor.deferred();
+        AnthropicMessagesAdapter adapter = adapter(executor,
+                profile("https://api.anthropic.com", null, null),
+                new RecordingSecretStore(SECRET));
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        adapter.translate(request("Hello"), callback);
+        executor.emit("content_block_delta",
+                "{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"trunc\"}}");
+        executor.emit("message_delta",
+                "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"max_tokens\"}}");
+        executor.emit("message_stop", "{\"type\":\"message_stop\"}");
+        executor.finishStream();
+
+        assertEquals(TranslationFailureCategory.INVALID_OUTPUT, callback.failure.getCategory());
+        assertTrue(callback.result == null);
+    }
+
+    @Test
+    public void aStreamWithoutMessageStopIsNotASilentSuccess() {
+        FakeHttpExecutor executor = FakeHttpExecutor.deferred();
+        AnthropicMessagesAdapter adapter = adapter(executor,
+                profile("https://api.anthropic.com", null, null),
+                new RecordingSecretStore(SECRET));
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        adapter.translate(request("Hello"), callback);
+        executor.emit("content_block_delta",
+                "{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"half\"}}");
+        executor.finishStream();
+
+        assertEquals(TranslationFailureCategory.PROTOCOL, callback.failure.getCategory());
+        assertTrue(callback.result == null);
+    }
+
+    @Test
+    public void aStreamingErrorEventBecomesAFailure() {
+        FakeHttpExecutor executor = FakeHttpExecutor.deferred();
+        AnthropicMessagesAdapter adapter = adapter(executor,
+                profile("https://api.anthropic.com", null, null),
+                new RecordingSecretStore(SECRET));
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        adapter.translate(request("Hello"), callback);
+        executor.emit("error",
+                "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}");
+        executor.finishStream();
+
+        assertEquals(TranslationFailureCategory.PROTOCOL, callback.failure.getCategory());
+    }
+
     private static void assertStatusFailure(int status,
                                             TranslationFailureCategory expected) {
         FakeHttpExecutor executor = FakeHttpExecutor.success(
@@ -391,6 +502,28 @@ public class AnthropicMessagesAdapterTest {
         }
     }
 
+    /** Records cumulative drafts and the single terminal outcome. */
+    private static final class RecordingStreamCallback implements TranslationStream {
+        private final java.util.List<String> partials = new java.util.ArrayList<>();
+        private TranslationResult result;
+        private TranslationFailure failure;
+
+        @Override
+        public void onPartial(TranslationResult partial) {
+            partials.add(partial.getTranslatedText());
+        }
+
+        @Override
+        public void onSuccess(TranslationResult result) {
+            this.result = result;
+        }
+
+        @Override
+        public void onFailure(TranslationFailure failure) {
+            this.failure = failure;
+        }
+    }
+
     private static final class RecordingCallback implements TranslationCallback {
         private boolean success;
         private boolean completed;
@@ -426,6 +559,18 @@ public class AnthropicMessagesAdapterTest {
             FakeHttpExecutor executor = new FakeHttpExecutor();
             executor.response = new HttpResponse(200, body, requestId);
             return executor;
+        }
+
+        boolean lastCallbackIsStreaming() {
+            return lastCallback instanceof HttpRequestExecutor.StreamCallback;
+        }
+
+        void emit(String eventType, String data) {
+            ((HttpRequestExecutor.StreamCallback) lastCallback).onEvent(eventType, data);
+        }
+
+        void finishStream() {
+            lastCallback.onSuccess(new HttpResponse(200, null, "req-stream"));
         }
 
         static FakeHttpExecutor failure(HttpFailure failure) {

@@ -39,6 +39,9 @@ public class AiSubtitleCueBridge {
     private static AiSubtitleCueBridge sInstance;
     private static Context sContext;
 
+    /** Minimum spacing between streamed-draft repaints; a final always repaints at once. */
+    private static final long DRAFT_REFRESH_INTERVAL_MS = 100;
+
     private static final String UNKNOWN_VIDEO_ID = "video:unknown";
     private static final String UNKNOWN_TRACK_ID = "track:unknown";
     private static final String UNKNOWN_LANGUAGE = "und";
@@ -70,6 +73,12 @@ public class AiSubtitleCueBridge {
     private PromptProfile mPromptProfile;
 
     private String mVideoId;
+    private String mVideoTitle = "";
+    private String mVideoDescription = "";
+    private boolean mContextEnabled;
+    private boolean mStreamingEnabled;
+    /** Wall clock of the last draft repaint; drafts are coalesced, finals never are. */
+    private long mLastDraftRefreshMs = Long.MIN_VALUE;
     private SourceTrackId mSourceTrackId;
     private TranslationSession mSession;
     private TranslationScheduler mScheduler;
@@ -83,6 +92,7 @@ public class AiSubtitleCueBridge {
     private boolean mTranslationFirst;
     /** Monotonic identity of the newest source load; older responses are discarded. */
     private long mLoadSequence;
+    private long mDraftRefreshIntervalMs = DRAFT_REFRESH_INTERVAL_MS;
 
     /** Full normalized timeline for the active track; null until the source adapter completes. */
     private SourceTimeline mTimeline;
@@ -128,6 +138,8 @@ public class AiSubtitleCueBridge {
         mSegmentMaxChars = data.getSegmentMaxChars();
         mLongSentenceChars = data.getLongSentenceChars();
         mTranslationFirst = data.isTranslationFirst();
+        mContextEnabled = data.isContextEnabled();
+        mStreamingEnabled = data.isStreamingEnabled();
     }
 
     @VisibleForTesting
@@ -211,9 +223,11 @@ public class AiSubtitleCueBridge {
         }
     }
 
-    void onNewVideo(String videoId) {
+    void onNewVideo(String videoId, String title, String description) {
         synchronized (this) {
             mVideoId = videoId;
+            mVideoTitle = title != null ? title : "";
+            mVideoDescription = description != null ? description : "";
             rebindSessionIfIdentityChanged();
         }
     }
@@ -298,6 +312,22 @@ public class AiSubtitleCueBridge {
         }
     }
 
+    /**
+     * Enables or disables the bounded context. Context changes the rendered instruction, so the
+     * identity changes: this drops the current session and its cache rather than reusing them
+     * under a key that no longer describes what was sent. The current cue is not re-requested
+     * here; the next render picks the new mode up.
+     */
+    public synchronized void onContextEnabledChanged(boolean enabled) {
+        if (mContextEnabled == enabled) return;
+
+        mContextEnabled = enabled;
+
+        if (mSession != null && !mSession.isClosed()) {
+            rebindSessionIfIdentityChanged();
+        }
+    }
+
     @VisibleForTesting
     synchronized TranslationSessionSnapshot snapshotSession() {
         return mSession != null ? mSession.snapshot() : null;
@@ -377,6 +407,22 @@ public class AiSubtitleCueBridge {
     @VisibleForTesting
     synchronized boolean isTranslationFirst() {
         return mTranslationFirst;
+    }
+
+    /**
+     * Enables or disables streamed drafts. Streaming only changes how a translation arrives, so
+     * the session identity and the compatible final cache are kept; the active work is cancelled
+     * and the current cue falls back to the original text until the next request completes.
+     */
+    public synchronized void onStreamingEnabledChanged(boolean enabled) {
+        if (mStreamingEnabled == enabled) return;
+
+        mStreamingEnabled = enabled;
+
+        if (mScheduler != null) {
+            mScheduler.setStreamingEnabled(enabled);
+            mScheduler.onStreamingChanged(mPositionMs, monotonicNowMs());
+        }
     }
 
     /** Manual retry entry; see {@link TranslationScheduler#retryFailed(long, long)}. */
@@ -459,9 +505,6 @@ public class AiSubtitleCueBridge {
             return cue;
         }
 
-        mStatus = RuntimeStatus.TRANSLATED;
-        mLastError = "";
-
         if (mDisplayMode == AiSubtitleDisplayMode.TRANSLATION_ONLY) return new Cue(translation);
         if (mTranslationFirst) return new Cue(translation + "\n" + source);
         return new Cue(source + "\n" + translation);
@@ -475,12 +518,31 @@ public class AiSubtitleCueBridge {
         if (unit == null) return null;
 
         String cached = mScheduler.getCachedTranslation(unit);
-        if (cached != null) return cached;
+        if (cached != null) {
+            mStatus = RuntimeStatus.TRANSLATED;
+            mLastError = "";
+            return cached;
+        }
+
+        // A streamed draft may only decorate the unit the player is showing right now; a draft
+        // for a future unit must never take over the current picture.
+        String draft = mScheduler.getDraftTranslation(unit);
+        if (draft != null) {
+            if (mStatus != RuntimeStatus.FAILED) mStatus = RuntimeStatus.TRANSLATING;
+            return draft;
+        }
 
         if (session.isPaused()) return null;
 
         mScheduler.requestCurrentUnit(unit, monotonicNowMs());
-        return mScheduler.getCachedTranslation(unit);
+
+        String resolved = mScheduler.getCachedTranslation(unit);
+        if (resolved != null) {
+            mStatus = RuntimeStatus.TRANSLATED;
+            mLastError = "";
+        }
+
+        return resolved;
     }
 
     private void triggerTimelineLoad() {
@@ -537,6 +599,11 @@ public class AiSubtitleCueBridge {
                     }
 
                     @Override
+                    public void onTranslationDraft() {
+                        onSchedulerDraftArrived();
+                    }
+
+                    @Override
                     public void onTranslationFailed(String reason) {
                         onSchedulerFailed(reason);
                     }
@@ -544,15 +611,43 @@ public class AiSubtitleCueBridge {
         mScheduler.setTimeline(mTimeline);
         mScheduler.setLookaheadMs(mLookaheadMs);
         mScheduler.setThrottleMs(mThrottleMs);
+        mScheduler.setContextEnabled(mContextEnabled);
+        mScheduler.setStreamingEnabled(mStreamingEnabled);
+        mScheduler.setVideoMetadata(mVideoTitle, mVideoDescription);
     }
 
     private void onSchedulerArrived() {
         synchronized (this) {
             mStatus = RuntimeStatus.TRANSLATED;
             mLastError = "";
+            mLastDraftRefreshMs = Long.MIN_VALUE;
         }
 
         notifyTranslationArrived();
+    }
+
+    /**
+     * Repaints a streamed draft at a bounded rate. A dropped intermediate repaint costs nothing
+     * because the draft is cumulative and the final result always repaints immediately.
+     */
+    private void onSchedulerDraftArrived() {
+        long nowMs = monotonicNowMs();
+
+        synchronized (this) {
+            if (mLastDraftRefreshMs != Long.MIN_VALUE
+                    && nowMs - mLastDraftRefreshMs < mDraftRefreshIntervalMs) {
+                return;
+            }
+
+            mLastDraftRefreshMs = nowMs;
+        }
+
+        notifyTranslationArrived();
+    }
+
+    @VisibleForTesting
+    synchronized void setDraftRefreshIntervalForTesting(long intervalMs) {
+        mDraftRefreshIntervalMs = intervalMs < 0 ? 0 : intervalMs;
     }
 
     private void onSchedulerFailed(String reason) {
@@ -590,6 +685,8 @@ public class AiSubtitleCueBridge {
     }
 
     private void cancelSessionState() {
+        mLastDraftRefreshMs = Long.MIN_VALUE;
+
         if (mSession != null) mSession.close();
 
         if (mScheduler != null) {

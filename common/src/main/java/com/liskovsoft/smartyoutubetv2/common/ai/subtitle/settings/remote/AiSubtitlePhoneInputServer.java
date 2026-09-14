@@ -93,6 +93,8 @@ public final class AiSubtitlePhoneInputServer {
         mDraft.segmentMaxChars = data.getSegmentMaxChars();
         mDraft.longSentenceChars = data.getLongSentenceChars();
         mDraft.translationFirst = data.isTranslationFirst();
+        mDraft.contextEnabled = data.isContextEnabled();
+        mDraft.streamingEnabled = data.isStreamingEnabled();
         startAcceptLoop();
     }
 
@@ -370,6 +372,8 @@ public final class AiSubtitlePhoneInputServer {
         mDraft.segmentMaxChars = maxChars;
         mDraft.longSentenceChars = longChars;
         mDraft.translationFirst = "translation".equals(form.get("bilingualOrder"));
+        mDraft.contextEnabled = "on".equals(form.get("contextEnabled"));
+        mDraft.streamingEnabled = "on".equals(form.get("streamingEnabled"));
         mDraft.secret = "replace".equals(form.get("secretAction"))
                 ? nonNull(form.get("secret")) : "";
         mDraft.secretAction = firstNonBlank(form.get("secretAction"), "keep");
@@ -441,6 +445,8 @@ public final class AiSubtitlePhoneInputServer {
                             mDraft.scheduleThrottleSeconds, mDraft.segmentTargetChars,
                             mDraft.segmentMaxChars, mDraft.longSentenceChars);
                     data.setTranslationFirst(mDraft.translationFirst);
+                    data.setContextEnabled(mDraft.contextEnabled);
+                    data.setStreamingEnabled(mDraft.streamingEnabled);
                     com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration.
                             AiSubtitleRuntime.applySchedulingToBridge(mContext);
                     com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration.AiSubtitleRuntime.applyToBridge(mContext);
@@ -671,6 +677,16 @@ public final class AiSubtitlePhoneInputServer {
                 + "<input id=\"segmentTargetChars\" type=\"number\" value=\"" + mDraft.segmentTargetChars + "\">"
                 + "<input id=\"segmentMaxChars\" type=\"number\" value=\"" + mDraft.segmentMaxChars + "\">"
                 + "<input id=\"longSentenceChars\" type=\"number\" value=\"" + mDraft.longSentenceChars + "\">"
+                + "<label>流式草稿</label><select id=\"streamingEnabled\">"
+                + "<option value=\"off\"" + (mDraft.streamingEnabled ? "" : " selected")
+                + ">关闭</option>"
+                + "<option value=\"on\"" + (mDraft.streamingEnabled ? " selected" : "")
+                + ">开启</option></select>"
+                + "<label>参考前文字幕</label><select id=\"contextEnabled\">"
+                + "<option value=\"off\"" + (mDraft.contextEnabled ? "" : " selected")
+                + ">关闭</option>"
+                + "<option value=\"on\"" + (mDraft.contextEnabled ? " selected" : "")
+                + ">开启</option></select>"
                 + "<label>双语顺序</label><select id=\"bilingualOrder\">"
                 + "<option value=\"source\"" + (mDraft.translationFirst ? "" : " selected")
                 + ">原文在上</option>"
@@ -696,7 +712,9 @@ public final class AiSubtitlePhoneInputServer {
                 + "scheduleThrottleSeconds:val('scheduleThrottleSeconds'),"
                 + "segmentTargetChars:val('segmentTargetChars'),segmentMaxChars:val('segmentMaxChars'),"
                 + "longSentenceChars:val('longSentenceChars'),"
-                + "bilingualOrder:val('bilingualOrder'),secretAction:val('secretAction'),"
+                + "bilingualOrder:val('bilingualOrder'),contextEnabled:val('contextEnabled'),"
+                + "streamingEnabled:val('streamingEnabled'),"
+                + "secretAction:val('secretAction'),"
                 + "secret:val('secret'),promptName:val('promptName'),prompt:val('prompt')};}"
                 + "function send(path,body,done){fetch('/'+path+'?k=" + mToken
                 + "',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},"
@@ -903,6 +921,8 @@ public final class AiSubtitlePhoneInputServer {
         public int segmentMaxChars = 200;
         public int longSentenceChars = 80;
         public boolean translationFirst;
+        public boolean contextEnabled;
+        public boolean streamingEnabled;
         public String promptProfileId = "";
         public String promptName = "";
         public String promptContent = "";
@@ -966,6 +986,8 @@ public final class AiSubtitlePhoneInputServer {
             copy.segmentMaxChars = segmentMaxChars;
             copy.longSentenceChars = longSentenceChars;
             copy.translationFirst = translationFirst;
+            copy.contextEnabled = contextEnabled;
+            copy.streamingEnabled = streamingEnabled;
             copy.promptProfileId = promptProfileId;
             copy.promptName = promptName;
             copy.promptContent = promptContent;

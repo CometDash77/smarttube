@@ -228,7 +228,7 @@ public class AiSubtitleControllerTest {
         }
 
         @Override
-        void onNewVideo(String videoId) {
+        void onNewVideo(String videoId, String title, String description) {
             mCalls.add("video:" + videoId);
         }
 

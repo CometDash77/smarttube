@@ -11,6 +11,7 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.Translation
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailureCategory;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationRequest;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationResult;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationStream;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -28,6 +29,8 @@ import java.util.Map;
 public final class OpenAiChatCompletionsAdapter implements ProtocolAdapter {
     public static final long DEFAULT_TIMEOUT_MS = 30_000L;
     public static final String OPTION_TIMEOUT_MS = "timeoutMs";
+    /** Upper bound on one streamed translation, in Unicode code points. */
+    public static final int MAX_STREAM_CODE_POINTS = 16 * 1024;
 
     private final HttpRequestExecutor mExecutor;
     private final ProviderProfile mProfile;
@@ -90,9 +93,13 @@ public final class OpenAiChatCompletionsAdapter implements ProtocolAdapter {
             return call;
         }
 
+        // The callback type is the streaming request: only a caller that can consume drafts
+        // gets an event stream, and everyone else keeps the single-response contract.
+        final boolean streaming = callback instanceof TranslationStream;
+
         final HttpRequestExecutor.HttpRequest httpRequest;
         try {
-            httpRequest = buildRequest(request, credential);
+            httpRequest = buildRequest(request, credential, streaming);
         } catch (RuntimeException e) {
             deliverFailure(call, callback, new TranslationFailure(
                     TranslationFailureCategory.PROTOCOL,
@@ -100,19 +107,22 @@ public final class OpenAiChatCompletionsAdapter implements ProtocolAdapter {
             return call;
         }
 
-        try {
-            HttpRequestExecutor.HttpCall httpCall = mExecutor.execute(httpRequest,
-                    new HttpRequestExecutor.HttpCallback() {
-                        @Override
-                        public void onSuccess(HttpRequestExecutor.HttpResponse response) {
-                            handleResponse(call, callback, request, response);
-                        }
+        final HttpRequestExecutor.HttpCallback httpCallback = streaming
+                ? new StreamingHttpCallback(call, (TranslationStream) callback, request)
+                : new HttpRequestExecutor.HttpCallback() {
+                    @Override
+                    public void onSuccess(HttpRequestExecutor.HttpResponse response) {
+                        handleResponse(call, callback, request, response);
+                    }
 
-                        @Override
-                        public void onFailure(HttpRequestExecutor.HttpFailure failure) {
-                            handleTransportFailure(call, callback, failure);
-                        }
-                    });
+                    @Override
+                    public void onFailure(HttpRequestExecutor.HttpFailure failure) {
+                        handleTransportFailure(call, callback, failure);
+                    }
+                };
+
+        try {
+            HttpRequestExecutor.HttpCall httpCall = mExecutor.execute(httpRequest, httpCallback);
             call.setHttpCall(httpCall);
         } catch (RuntimeException e) {
             deliverFailure(call, callback, TranslationFailureMapper.fromTransport(
@@ -172,20 +182,30 @@ public final class OpenAiChatCompletionsAdapter implements ProtocolAdapter {
 
     private HttpRequestExecutor.HttpRequest buildRequest(TranslationRequest request,
                                                           String credential) {
+        return buildRequest(request, credential, false);
+    }
+
+    private HttpRequestExecutor.HttpRequest buildRequest(TranslationRequest request,
+                                                          String credential,
+                                                          boolean streaming) {
         Map<String, String> headers = new LinkedHashMap<>(mProfile.getHeaders());
         removeHeader(headers, "Authorization");
         removeHeader(headers, "Content-Type");
         removeHeader(headers, "Accept");
         headers.put("Content-Type", "application/json");
-        headers.put("Accept", "application/json");
+        headers.put("Accept", streaming ? "text/event-stream" : "application/json");
         headers.put("Authorization", "Bearer " + credential);
 
-        String body = buildBody(request);
+        String body = buildBody(request, streaming);
         return new HttpRequestExecutor.HttpRequest("POST", mCompletionsUrl, headers,
                 body, resolveTimeout());
     }
 
     private String buildBody(TranslationRequest request) {
+        return buildBody(request, false);
+    }
+
+    private String buildBody(TranslationRequest request, boolean streaming) {
         StringBuilder json = new StringBuilder(256);
         json.append('{');
         appendStringField(json, "model", mProfile.getModelId());
@@ -196,9 +216,120 @@ public final class OpenAiChatCompletionsAdapter implements ProtocolAdapter {
         appendMessage(json, "user", request.getSourceText());
         json.append("],");
         json.append("\"temperature\":0,");
-        json.append("\"stream\":false");
+        json.append("\"stream\":").append(streaming);
         json.append('}');
         return json.toString();
+    }
+
+    /**
+     * Accumulates one streamed translation. Every valid text delta is published as the full
+     * draft so far, so a renderer never shows a fragment as if it were the whole subtitle. A
+     * completed translation requires the stream's own end signal; an interruption, a length
+     * stop, or an empty result is a failure, never a silent success.
+     */
+    private final class StreamingHttpCallback implements HttpRequestExecutor.StreamCallback {
+        private final Call mCall;
+        private final TranslationStream mCallback;
+        private final TranslationRequest mRequest;
+        private final StringBuilder mText = new StringBuilder();
+        private String mFinishReason;
+        private boolean mDone;
+
+        StreamingHttpCallback(Call call, TranslationStream callback, TranslationRequest request) {
+            mCall = call;
+            mCallback = callback;
+            mRequest = request;
+        }
+
+        @Override
+        public void onEvent(String eventType, String data) {
+            if (mCall.isCancelled() || data == null || mDone) return;
+
+            if ("[DONE]".equals(data.trim())) {
+                mDone = true;
+                return;
+            }
+
+            final Map<String, Object> chunk;
+            try {
+                chunk = asMap(Helpers.convertToObj(data));
+            } catch (RuntimeException e) {
+                return;
+            }
+            if (chunk == null) return;
+
+            Object choicesValue = chunk.get("choices");
+            if (!(choicesValue instanceof List)) return;
+
+            List<?> choices = (List<?>) choicesValue;
+            if (choices.isEmpty()) return;
+
+            Map<String, Object> choice = asMap(choices.get(0));
+            if (choice == null) return;
+
+            Object finish = choice.get("finish_reason");
+            if (finish instanceof String) mFinishReason = (String) finish;
+
+            Map<String, Object> delta = asMap(choice.get("delta"));
+            if (delta == null) return;
+
+            Object content = delta.get("content");
+            if (!(content instanceof String) || ((String) content).isEmpty()) return;
+
+            mText.append((String) content);
+
+            if (mText.codePointCount(0, mText.length()) > MAX_STREAM_CODE_POINTS) {
+                deliverFailure(mCall, mCallback, new TranslationFailure(
+                        TranslationFailureCategory.INVALID_OUTPUT,
+                        "Provider streamed more text than a subtitle can hold."));
+                return;
+            }
+
+            mCallback.onPartial(TranslationResult.partialResult(
+                    mRequest.getSessionId(), mRequest.getRequestId(), mRequest.getUnit(),
+                    mText.toString()));
+        }
+
+        @Override
+        public void onSuccess(HttpRequestExecutor.HttpResponse response) {
+            if (mCall.isCancelled()) return;
+
+            mCall.setRequestId(response != null ? response.getRequestId() : null);
+
+            if ("length".equals(mFinishReason) || "content_filter".equals(mFinishReason)) {
+                deliverFailure(mCall, mCallback, new TranslationFailure(
+                        TranslationFailureCategory.INVALID_OUTPUT,
+                        "Provider stopped before the translation was complete."));
+                return;
+            }
+
+            if (mFinishReason == null && !mDone) {
+                deliverFailure(mCall, mCallback, new TranslationFailure(
+                        TranslationFailureCategory.PROTOCOL,
+                        "Provider stream ended without a completion signal."));
+                return;
+            }
+
+            String translated = mText.toString().trim();
+
+            if (translated.isEmpty()) {
+                deliverFailure(mCall, mCallback, new TranslationFailure(
+                        TranslationFailureCategory.INVALID_OUTPUT,
+                        "Provider returned no translation text."));
+                return;
+            }
+
+            if (!mCall.markDelivered()) return;
+
+            mCallback.onSuccess(TranslationResult.finalResult(
+                    mRequest.getSessionId(), mRequest.getRequestId(), mRequest.getUnit(),
+                    translated));
+        }
+
+        @Override
+        public void onFailure(HttpRequestExecutor.HttpFailure failure) {
+            handleTransportFailure(mCall, mCallback, failure);
+        }
     }
 
     private static void appendMessage(StringBuilder json, String role, String content) {

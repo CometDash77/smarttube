@@ -41,7 +41,7 @@ public class AiSubtitleCueBridgeCacheTest {
     public void terminalFailureIsNotCachedAndKeepsSourceOnly() {
         CountingFailureProvider provider = new CountingFailureProvider();
         AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
-        bridge.onNewVideo("video-1");
+        bridge.onNewVideo("video-1", null, null);
 
         List<Cue> first = bridge.process(cues("Hello"));
 
@@ -57,7 +57,7 @@ public class AiSubtitleCueBridgeCacheTest {
     public void sameTextOnAnotherTrackIsReRequested() {
         FakeTranslationProvider provider = new FakeTranslationProvider(false);
         AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
-        bridge.onNewVideo("video-1");
+        bridge.onNewVideo("video-1", null, null);
         bridge.onSubtitleTrackChanged("subtitle:en:asr-1");
 
         bridge.process(cues("Hello"));
@@ -75,15 +75,15 @@ public class AiSubtitleCueBridgeCacheTest {
         FakeTranslationProvider provider = new FakeTranslationProvider(false);
         AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
 
-        bridge.onNewVideo("video-1");
+        bridge.onNewVideo("video-1", null, null);
         bridge.process(cues("Hello"));
         provider.flushPending();
 
-        bridge.onNewVideo("video-2");
+        bridge.onNewVideo("video-2", null, null);
         bridge.process(cues("Hello"));
         provider.flushPending();
 
-        bridge.onNewVideo("video-1");
+        bridge.onNewVideo("video-1", null, null);
         bridge.process(cues("Hello"));
 
         assertEquals("the cache is bounded to the active session scope",
@@ -94,7 +94,7 @@ public class AiSubtitleCueBridgeCacheTest {
     public void authFailureStillLeavesCueSourceOnly() {
         AuthFailureProvider provider = new AuthFailureProvider();
         AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
-        bridge.onNewVideo("video-1");
+        bridge.onNewVideo("video-1", null, null);
 
         List<Cue> result = bridge.process(cues("Hello"));
 

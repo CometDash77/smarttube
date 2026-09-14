@@ -93,6 +93,24 @@ public class AiSubtitleSettingsPresenter extends BasePresenter<Void> {
                 getContext().getString(R.string.ai_subtitle_bilingual_order),
                 option -> showBilingualOrder()));
 
+        settingsPresenter.appendSingleSwitch(UiOptionItem.from(
+                getContext().getString(R.string.ai_subtitle_context),
+                option -> {
+                    data.setContextEnabled(option.isSelected());
+                    AiSubtitleCueBridge.instance(getContext())
+                            .onContextEnabledChanged(option.isSelected());
+                },
+                data.isContextEnabled()));
+
+        settingsPresenter.appendSingleSwitch(UiOptionItem.from(
+                getContext().getString(R.string.ai_subtitle_streaming),
+                option -> {
+                    data.setStreamingEnabled(option.isSelected());
+                    AiSubtitleCueBridge.instance(getContext())
+                            .onStreamingEnabledChanged(option.isSelected());
+                },
+                data.isStreamingEnabled()));
+
         settingsPresenter.appendSingleButton(UiOptionItem.from(
                 getContext().getString(R.string.ai_subtitle_lookahead),
                 option -> showLookahead()));
