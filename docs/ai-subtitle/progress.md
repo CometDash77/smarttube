@@ -1,12 +1,26 @@
 # AI Subtitle Progress Ledger
 
-Last updated: 2026-09-13
+Last updated: 2026-09-14
 
 Authoritative branch: `feature/ai-bilingual-subtitles`
 
 Personal project remote: `origin` → `https://github.com/CometDash77/smartube.git` (GitHub reported public visibility during Phase 0)
 
 Official source: `upstream` → `https://github.com/yuliskov/SmartTube.git`
+
+## M07–M09 correction run — execution contract (2026-09-14)
+
+Recorded before execution starts so a fresh session can resume from this file alone.
+
+- Governing plan: `D:\obsidian\工程\VIBECODING项目\smartube\review-plans\M07-M09-code-correction-plan.md`, SHA-256 `a13a5687ce01ffe7b06504376e13a097e6b6e5776926fa02dd6813684fb130a7`, 54 840 bytes. The plan is deliberately kept outside this clone and is **not under version control** (the outer Obsidian repository tracks a single file). This path and hash are its only durable record. If the file and the hash disagree, the hash wins and the run stops until the user re-points it.
+- Base for this run: `a22e525df`. The plan is anchored at `10d6a18cf`; the only commit since is `a22e525df`, a one-line in-place edit to `SseEventReader.java:30` (BOM written as an escape) that changes no line count, so the plan's line anchors still hold. Method names remain the locator of record per plan §1.
+- Execution mode: **serial, no implementer subagents** — plan §1 `不派生代理` governs implementation.
+- Review mode: subagents are dispatched at the five phase gates and once at the end, on the **Standards and Spec axes only** — no test or build execution, no device. A review verdict is not a test result, and the AGENTS.md evidence rules still bind every "passes" claim.
+- Phase boundaries are the plan's five commit units: tasks 1–2, task 3, tasks 4–5, task 6, tasks 7–8. Each phase: implement → capture evidence → dispatch the review subagent → append here and to `worker-reports/M07-M09-correction-phase<N>-report.md` → commit code and ledger together.
+- Final review report: `reviews/M07-M09-correction-review.md`, carrying both axes plus the Minor-finding roll-up and its triage.
+- The local SDD ledger `.superpowers/sdd/` is ignored by its own `.gitignore` (`*`) and is therefore **not durable**. Conclusions must be mirrored into this file; never treat that directory as the record.
+- Unchanged prohibitions (AGENTS.md and plan §1): no push, no tag, no release, no artifact upload, no paid API calls; no changes to KissTranslator, SharedModules, MediaServiceCore, ExoPlayer, or Gradle dependency versions; no edits to upstream host files this round. Device acceptance stays with the user, so those items stay unchecked and marked `PENDING DEVICE`.
+- Workspace trap: the outer Obsidian `.claude/worktrees/*` checkouts are not to be restored or used; git operations belong to this clone only.
 
 ## Current state
 
