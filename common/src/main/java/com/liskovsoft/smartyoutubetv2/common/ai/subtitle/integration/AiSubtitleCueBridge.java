@@ -80,6 +80,14 @@ public class AiSubtitleCueBridge {
     private boolean mStreamingEnabled;
     /** Wall clock of the last draft repaint; drafts are coalesced, finals never are. */
     private long mLastDraftRefreshMs = Long.MIN_VALUE;
+    /**
+     * Set when a draft repaint was coalesced away instead of sent. The next position tick that
+     * finds the repaint interval elapsed sends exactly one repaint and clears it, so the newest
+     * draft cannot be stranded for more than one tick.
+     */
+    private boolean mDraftRefreshPending;
+    /** The unit the renderer last asked about; a status of TRANSLATED is only true of this one. */
+    private TranslationUnit mRenderedUnit;
     private SourceTrackId mSourceTrackId;
     private TranslationSession mSession;
     private TranslationScheduler mScheduler;
@@ -306,6 +314,7 @@ public class AiSubtitleCueBridge {
     void onSeekDrag(long positionMs) {
         synchronized (this) {
             if (positionMs >= 0) mPositionMs = positionMs;
+            mDraftRefreshPending = false;
             if (mScheduler != null) mScheduler.onSeekDrag(positionMs);
         }
     }
@@ -313,6 +322,11 @@ public class AiSubtitleCueBridge {
     void onSeek(long positionMs) {
         synchronized (this) {
             if (positionMs >= 0) mPositionMs = positionMs;
+            mDraftRefreshPending = false;
+
+            // The renderer has moved on; until it asks about a cue again, no unit is on screen and
+            // a final for the pre-seek one must not be reported as the current cue's translation.
+            mRenderedUnit = null;
             if (mSession != null && !mSession.isClosed()) mSession.advanceEpoch();
             if (mScheduler != null) mScheduler.onPositionChanged(positionMs, monotonicNowMs());
         }
@@ -354,8 +368,14 @@ public class AiSubtitleCueBridge {
 
     public synchronized void onEnabledChanged(boolean enabled) {
         if (!enabled) {
+            // Switching the feature off removes whatever the cue was showing, so the renderer is
+            // told once the state is already cleared: it re-reads the new state, not the old one.
+            boolean hadSession = mSession != null;
+
             dropSession();
             mWasEnabled = false;
+
+            if (hadSession) notifyTranslationArrived();
         }
     }
 
@@ -372,6 +392,10 @@ public class AiSubtitleCueBridge {
         if (mSession == null || mSession.isClosed()) return;
 
         rebuildLiveSession();
+
+        // The cache went with the session, so the translation the cue was showing is no longer
+        // backed by anything. The state is already cleared, so the renderer re-reads the new one.
+        notifyTranslationArrived();
     }
 
     @VisibleForTesting
@@ -424,6 +448,9 @@ public class AiSubtitleCueBridge {
 
         dropSession();
 
+        // Re-segmenting removes every cached translation, so the cue on screen is source-only now.
+        notifyTranslationArrived();
+
         // Only a runnable feature may start work again; the recorded playback pause state is
         // restored by the new session itself.
         if (!canStartWork()) return;
@@ -464,6 +491,10 @@ public class AiSubtitleCueBridge {
      * Enables or disables streamed drafts. Streaming only changes how a translation arrives, so
      * the session identity and the compatible final cache are kept; the active work is cancelled
      * and the current cue falls back to the original text until the next request completes.
+     *
+     * <p>Either direction clears the draft that is on screen — turning streaming off removes it,
+     * turning it on cancels the request that was filling it — so the renderer is told immediately
+     * rather than at the next cue, which for the last cue of a scene may never come.</p>
      */
     public synchronized void onStreamingEnabledChanged(boolean enabled) {
         if (mStreamingEnabled == enabled) return;
@@ -474,6 +505,9 @@ public class AiSubtitleCueBridge {
             mScheduler.setStreamingEnabled(enabled);
             mScheduler.onStreamingChanged(mPositionMs, monotonicNowMs());
         }
+
+        mDraftRefreshPending = false;
+        notifyTranslationArrived();
     }
 
     /** Manual retry entry; see {@link TranslationScheduler#retryFailed(long, long)}. */
@@ -514,11 +548,44 @@ public class AiSubtitleCueBridge {
 
     void onPositionUpdate(long positionMs) {
         synchronized (this) {
-            if (positionMs < 0) return;
-            mPositionMs = positionMs;
-            if (mScheduler != null && canStartWork()) {
-                mScheduler.onPositionUpdate(positionMs, monotonicNowMs());
+            if (positionMs >= 0) {
+                mPositionMs = positionMs;
+                if (mScheduler != null && canStartWork()) {
+                    mScheduler.onPositionUpdate(positionMs, monotonicNowMs());
+                }
             }
+        }
+
+        // The player's position tick is the only clock this bridge uses; no timer is added. A
+        // draft repaint that coalescing dropped is re-sent here so the newest text cannot be
+        // stranded on screen waiting for a delta that may never come.
+        if (flushPendingDraftRefresh(monotonicNowMs())) {
+            notifyTranslationArrived();
+        }
+    }
+
+    /**
+     * Reports that the draft repaint an earlier coalescing dropped is now due, and forgets that
+     * one was owed; the caller sends it. It stays pending while the repaint interval has not
+     * elapsed, so a tick that arrives too early changes nothing.
+     *
+     * <p>Production reaches this through the position tick; same-package tests call it directly
+     * to supply their own clock value instead of sleeping past a real interval.</p>
+     *
+     * @return whether a repaint is due
+     */
+    boolean flushPendingDraftRefresh(long nowMs) {
+        synchronized (this) {
+            if (!mDraftRefreshPending) return false;
+
+            if (mLastDraftRefreshMs != Long.MIN_VALUE
+                    && nowMs - mLastDraftRefreshMs < mDraftRefreshIntervalMs) {
+                return false;
+            }
+
+            mDraftRefreshPending = false;
+            mLastDraftRefreshMs = nowMs;
+            return true;
         }
     }
 
@@ -575,6 +642,10 @@ public class AiSubtitleCueBridge {
 
         TranslationUnit unit = timelineUnitFor(session, source);
         if (unit == null) return null;
+
+        // Remember which unit the screen is asking about: it is the only one a status of
+        // TRANSLATED may be claimed for.
+        mRenderedUnit = unit;
 
         String cached = mScheduler.getCachedTranslation(unit);
         if (cached != null) {
@@ -659,6 +730,10 @@ public class AiSubtitleCueBridge {
         if (isSessionIdentityCurrent()) return;
 
         rebuildLiveSession();
+
+        // A new provider, profile or prompt clears the cache and the in-flight request, so what
+        // the cue was showing is gone. The state is already cleared when the renderer is told.
+        notifyTranslationArrived();
     }
 
     /** Whether the live session already describes the identity the bridge would build now. */
@@ -749,19 +824,56 @@ public class AiSubtitleCueBridge {
         mScheduler.setVideoMetadata(mVideoTitle, mVideoDescription);
     }
 
+    /**
+     * Handles the scheduler's "the visible state moved" notification.
+     *
+     * <p>The scheduler reports this both when an accepted final arrives and when a transient
+     * failure clears the draft to make room for a retry. Only the first is a translation: the
+     * second would otherwise leave the status claiming a translation that does not exist, and
+     * nothing would correct it until some unrelated event changed the status again. So the status
+     * is set here only when the cue the renderer last asked about actually has a final.</p>
+     */
     private void onSchedulerArrived() {
         synchronized (this) {
-            mStatus = RuntimeStatus.TRANSLATED;
-            mLastError = "";
             mLastDraftRefreshMs = Long.MIN_VALUE;
+            mDraftRefreshPending = false;
+
+            if (hasAcceptedTranslationLocked()) {
+                mStatus = RuntimeStatus.TRANSLATED;
+                mLastError = "";
+            }
+        }
+
+        notifyTranslationArrived();
+    }
+
+    /** Whether the unit the renderer last asked about has an accepted final translation. */
+    private boolean hasAcceptedTranslationLocked() {
+        TranslationUnit unit = mRenderedUnit;
+
+        return unit != null && mScheduler != null
+                && mScheduler.getCachedTranslation(unit) != null;
+    }
+
+    private void onSchedulerFailed(String reason) {
+        synchronized (this) {
+            mStatus = RuntimeStatus.FAILED;
+            mLastError = reason != null ? reason : "";
+            mDraftRefreshPending = false;
         }
 
         notifyTranslationArrived();
     }
 
     /**
-     * Repaints a streamed draft at a bounded rate. A dropped intermediate repaint costs nothing
-     * because the draft is cumulative and the final result always repaints immediately.
+     * Repaints a streamed draft at a bounded rate.
+     *
+     * <p>A repaint that falls inside the interval is coalesced rather than queued, and the fact
+     * that one was dropped is remembered so the next tick can send exactly one more. The newest
+     * draft is therefore on screen within one tick of arriving, not merely by the time the final
+     * arrives: a cumulative draft that is never painted again would leave the screen showing
+     * older text for as long as the stream stayed open. A single flag is what makes that bounded
+     * — no queue grows with the number of deltas.</p>
      */
     private void onSchedulerDraftArrived() {
         long nowMs = monotonicNowMs();
@@ -769,10 +881,12 @@ public class AiSubtitleCueBridge {
         synchronized (this) {
             if (mLastDraftRefreshMs != Long.MIN_VALUE
                     && nowMs - mLastDraftRefreshMs < mDraftRefreshIntervalMs) {
+                mDraftRefreshPending = true;
                 return;
             }
 
             mLastDraftRefreshMs = nowMs;
+            mDraftRefreshPending = false;
         }
 
         notifyTranslationArrived();
@@ -781,15 +895,6 @@ public class AiSubtitleCueBridge {
     @VisibleForTesting
     synchronized void setDraftRefreshIntervalForTesting(long intervalMs) {
         mDraftRefreshIntervalMs = intervalMs < 0 ? 0 : intervalMs;
-    }
-
-    private void onSchedulerFailed(String reason) {
-        synchronized (this) {
-            mStatus = RuntimeStatus.FAILED;
-            mLastError = reason != null ? reason : "";
-        }
-
-        notifyTranslationArrived();
     }
 
     private void dropSession() {
@@ -804,6 +909,8 @@ public class AiSubtitleCueBridge {
 
     private void cancelSessionState() {
         mLastDraftRefreshMs = Long.MIN_VALUE;
+        mDraftRefreshPending = false;
+        mRenderedUnit = null;
 
         if (mSession != null) mSession.close();
 

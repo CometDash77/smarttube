@@ -118,7 +118,8 @@ need the index.
 - A Work holds at most one cumulative draft, stays IN_FLIGHT, does not release concurrency,
   does not spend an attempt, and never touches the final cache or the context history.
 - The Bridge only uses a draft for the unit the player is showing. Draft repaints are coalesced
-  to at most one per 100 ms; a final always repaints immediately; a seek, disable, or release
+  to at most one per 100 ms, with one bounded re-send on the next tick for the delta that
+  coalescing dropped; a final always repaints immediately; a seek, disable, or release
   clears drafts and cancels the stream. Late drafts from a superseded stream stay invisible.
 - A stream failure in a retryable category flips that unit to a plain request and spends the
   same attempt budget, so a unit still stops after three attempts and falls back to the
@@ -131,11 +132,26 @@ Evidence: `streamedDraftsReachTheListenerWithoutSpendingAnAttempt`,
 `aStreamedDraftDecoratesTheCurrentCueBeforeTheFinalArrives`,
 `aDraftOnlyDecoratesTheUnitItWasStreamedFor`, `draftRepaintsAreCoalescedWhileFinalsAlwaysRepaint`,
 `everyDraftRepaintsWhenTheIntervalIsZero`, `disablingStreamingClearsTheDraftAndCancelsTheStream`
-(bridge).
+(bridge); plus, added by the M07–M09 correction run task 6,
+`clearingTheVisibleDraftRepaintsImmediately`, `theNewestDraftIsRepaintedOnTheNextTick`,
+`aFinalRepaintsImmediatelyAndSupersedesThePendingDraft`, `turningStreamingOnRepaintsImmediatelyToo`,
+`switchingTheFeatureOffRepaintsBackToTheSourceLine`,
+`aRetryableFailureDoesNotClaimTheCueIsTranslated`, `seekingAwayDoesNotResurrectThePreviousDraft`,
+`thePendingRepaintWaitsUntilTheIntervalHasElapsed`, `switchingTheFeatureOffRepaintsBackToTheSourceLine`
+(mode combinations: `sourceModeNeverRequestsATranslationAndKeepsTheSourceLine`,
+`translationOnlyShowsTheDraftThenTheFinal`,
+`translationOnlyFallsBackToTheSourceLineWhenTheTranslationFails`,
+`bilingualShowsTheDraftThenTheFinalInTheConfiguredOrder`).
 
-**Deviation:** coalescing drops intermediate repaints instead of deferring them. A draft is
-cumulative and a final always repaints, so nothing is lost, and no pending-timer state has to
-be tracked or cancelled.
+**Deviation (originally recorded; superseded by the correction below):** coalescing drops
+intermediate repaints instead of deferring them. A draft is cumulative, so dropping an
+intermediate one loses no text, and no pending-timer state has to be tracked or cancelled.
+**Corrected by the M07–M09 correction run, task 6:** dropping without a re-send is not the same
+as coalescing, because the newest draft then waits for a delta that may never come — a stream
+that goes quiet before its final leaves the older text on screen. The bridge now keeps one
+pending flag and the existing position tick re-sends a single repaint, so the newest draft is on
+screen within one tick. Drafts are still never queued; the bound is one tick, not "the final
+always arrives".
 
 ## E. Settings and non-streaming regression
 

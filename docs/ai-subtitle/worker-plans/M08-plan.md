@@ -98,9 +98,9 @@ interface StreamCallback extends HttpCallback {
 - [x] `SchedulerStreamCallback extends SchedulerCallback implements TranslationStream`；final 检查（`validResponse` 要求 `isFinal`）未放宽，草稿只走 `onPartial`。
 - [x] Work 只保存一份累计草稿，状态保持 IN_FLIGHT，不释放并发、不消耗尝试、不写 cache 与 context history（`streamedDraftsReachTheListenerWithoutSpendingAnAttempt`）。
 - [x] `acceptsPartial` 校验 partial 标志、IN_FLIGHT、requestId、generation/epoch、sessionId 与 segment coverage；Bridge 只把草稿用于当前映射到的 unit（`aDraftOnlyDecoratesTheUnitItWasStreamedFor`）。
-- [x] 草稿重绘按 100ms 合并，final 立即重绘；seek/off/release 清草稿。沿用既有 refresh 通道，未引入 Timer 或 Handler。**偏差**：合并方式是“到期前的中间重绘直接丢弃”而非排队延后——草稿是累计的，被丢弃的中间态没有信息损失，且无需维护待执行刷新。
+- [x] 草稿重绘按 100ms 合并，final 立即重绘；seek/off/release 清草稿。沿用既有 refresh 通道，未引入 Timer 或 Handler。**偏差**：合并方式是“到期前的中间重绘直接丢弃”而非排队延后，且被丢弃的中间态不再补发（原记录，已被下方更正取代）。**后续更正（M07–M09 修正任务 6）**：丢弃而不补发会让界面停留在较旧的草稿上直到 final 到来——若流不再有下一个 delta，最新草稿就永远不上屏。现在记录一个 pending 标志，由既有 position tick 在下一个 tick 补发一次重绘；草稿仍然不排队，上界是“一个 tick 内”，不是“只要 final 会来就没有损失”。
 - [x] final 替换草稿并进入缓存；中断/失败清草稿回原文。可重试类别下的流式失败会把该 unit 切换为非流式并占用同一尝试预算（`aStreamInterruptionFallsBackToAPlainRequest`、`theStreamingFallbackStillStopsAfterTheAttemptBudget`）；鉴权失败仍为终态。
-- [x] 断流→非流式回退断言总请求 2；预算耗尽为 3 后终态；seek 后迟到的 partial 不改变状态（`seekingClearsTheDraftAndCancelsTheStream`）。**未覆盖**：双语顺序与三种显示模式×流式的组合断言；既有 M07 模式套件在关闭流式下全部通过，覆盖矩阵记为 M09 的输入。
+- [x] 断流→非流式回退断言总请求 2；预算耗尽为 3 后终态；seek 后迟到的 partial 不改变状态（`seekingClearsTheDraftAndCancelsTheStream`）。**未覆盖**：双语顺序与三种显示模式×流式的组合断言；既有 M07 模式套件在关闭流式下全部通过，覆盖矩阵记为 M09 的输入。**后续更正（M07–M09 修正任务 6）**：该未覆盖项已补齐——`sourceModeNeverRequestsATranslationAndKeepsTheSourceLine`、`translationOnlyShowsTheDraftThenTheFinal`、`translationOnlyFallsBackToTheSourceLineWhenTheTranslationFails`、`bilingualShowsTheDraftThenTheFinalInTheConfiguredOrder` 断言了精确 `cue.text` 与请求次数，未做语言×品牌×模式全排列。
 - [x] 该模式在生产路径上没有触发形态（见 `M07-report.md` §R5-2 的范围修订）：没有 Prompt 会要求 `v2|start-end|text` 线格式，也没有任何路径解析它，因此不存在把半条协议展示给用户的实现路径。保留为 M09 输入，未伪造通过。
 
 ## E. 设置与非流式回归（随 A、B–D 一起交付）

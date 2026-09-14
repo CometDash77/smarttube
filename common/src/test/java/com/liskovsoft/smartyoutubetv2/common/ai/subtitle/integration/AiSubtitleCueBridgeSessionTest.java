@@ -12,6 +12,8 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.source.SmartTubeSubtitl
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.FakeTranslationProvider;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCall;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCallback;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailure;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationFailureCategory;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationProvider;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationStream;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationRequest;
@@ -538,6 +540,199 @@ public class AiSubtitleCueBridgeSessionTest {
                 bridge.process(cues("Hello")).get(0).text.toString());
     }
 
+    /** The audit's counterexample for C10: clearing the draft must repaint, not wait for a cue. */
+    @Test
+    public void clearingTheVisibleDraftRepaintsImmediately() {
+        StreamingProvider provider = new StreamingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        bridge.setRefreshListener(() -> mRefreshCount.incrementAndGet());
+        bridge.onStreamingEnabledChanged(true);
+        bridge.onNewVideo("video-1", null, null);
+        bridge.process(cues("Hello"));
+        provider.emitPartial("draft");
+
+        int before = mRefreshCount.get();
+        bridge.onStreamingEnabledChanged(false);
+
+        assertEquals("clearing the visible draft must repaint", before + 1, mRefreshCount.get());
+        assertEquals("and the cue must be back to the source line", "Hello",
+                bridge.process(cues("Hello")).get(0).text.toString());
+    }
+
+    @Test
+    public void theNewestDraftIsRepaintedOnTheNextTick() {
+        StreamingProvider provider = new StreamingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        bridge.onStreamingEnabledChanged(true);
+        bridge.onNewVideo("video-1", null, null);
+        bridge.setRefreshListener(() -> mRefreshCount.incrementAndGet());
+        // Long enough that a second delta inside the same instant cannot repaint on its own.
+        bridge.setDraftRefreshIntervalForTesting(3_600_000);
+
+        bridge.process(cues("Hello"));
+
+        int before = mRefreshCount.get();
+        provider.emitPartial("a");
+        provider.emitPartial("ab");
+
+        assertEquals("the first draft repaints and the second is coalesced",
+                before + 1, mRefreshCount.get());
+
+        // The tick that follows is short enough to send the one repaint that was dropped. The
+        // interval is the controllable clock here; no test sleeps.
+        bridge.setDraftRefreshIntervalForTesting(0);
+        bridge.onPositionUpdate(1_000);
+
+        assertEquals("the newest draft must reach the screen on the next tick",
+                before + 2, mRefreshCount.get());
+        assertEquals("Hello\nab", bridge.process(cues("Hello")).get(0).text.toString());
+
+        bridge.onPositionUpdate(2_000);
+
+        assertEquals("one dropped repaint is re-sent once, not once per tick",
+                before + 2, mRefreshCount.get());
+    }
+
+    @Test
+    public void aFinalRepaintsImmediatelyAndSupersedesThePendingDraft() {
+        StreamingProvider provider = new StreamingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        bridge.onStreamingEnabledChanged(true);
+        bridge.onNewVideo("video-1", null, null);
+        bridge.setRefreshListener(() -> mRefreshCount.incrementAndGet());
+        bridge.setDraftRefreshIntervalForTesting(3_600_000);
+
+        bridge.process(cues("Hello"));
+
+        int before = mRefreshCount.get();
+        provider.emitPartial("a");
+        provider.emitPartial("ab");
+        provider.complete("ab");
+
+        assertEquals("a final always repaints", before + 2, mRefreshCount.get());
+        assertEquals(AiSubtitleCueBridge.RuntimeStatus.TRANSLATED, bridge.getRuntimeStatus());
+
+        bridge.setDraftRefreshIntervalForTesting(0);
+        bridge.onPositionUpdate(1_000);
+
+        assertEquals("a superseded draft must not be re-sent after the final",
+                before + 2, mRefreshCount.get());
+        assertEquals("the final must be what the cue shows", "Hello\nab",
+                bridge.process(cues("Hello")).get(0).text.toString());
+        assertEquals("one request per unit", 1, provider.getCallCount());
+    }
+
+    @Test
+    public void turningStreamingOnRepaintsImmediatelyToo() {
+        StreamingProvider provider = new StreamingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        bridge.onNewVideo("video-1", null, null);
+        bridge.setRefreshListener(() -> mRefreshCount.incrementAndGet());
+
+        bridge.process(cues("Hello"));
+
+        int before = mRefreshCount.get();
+        bridge.onStreamingEnabledChanged(true);
+
+        assertEquals("turning streaming on cancels the request that was filling the cue",
+                before + 1, mRefreshCount.get());
+    }
+
+    @Test
+    public void switchingTheFeatureOffRepaintsBackToTheSourceLine() {
+        StreamingProvider provider = new StreamingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        bridge.onStreamingEnabledChanged(true);
+        bridge.onNewVideo("video-1", null, null);
+        bridge.setRefreshListener(() -> mRefreshCount.incrementAndGet());
+
+        bridge.process(cues("Hello"));
+        provider.emitPartial("draft");
+        assertEquals("Hello\ndraft", bridge.process(cues("Hello")).get(0).text.toString());
+
+        int before = mRefreshCount.get();
+        mEnabled.set(false);
+        bridge.onEnabledChanged(false);
+
+        assertEquals("dropping the session removes what the cue was showing", before + 1,
+                mRefreshCount.get());
+        assertEquals("Hello", bridge.process(cues("Hello")).get(0).text.toString());
+    }
+
+    @Test
+    public void aRetryableFailureDoesNotClaimTheCueIsTranslated() {
+        StreamingProvider provider = new StreamingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        bridge.onStreamingEnabledChanged(true);
+        bridge.setRefreshListener(() -> mRefreshCount.incrementAndGet());
+
+        bridge.process(cues("Hello"));
+        provider.emitPartial("draft");
+        assertEquals("Hello\ndraft", bridge.process(cues("Hello")).get(0).text.toString());
+        assertEquals(AiSubtitleCueBridge.RuntimeStatus.TRANSLATING, bridge.getRuntimeStatus());
+
+        // A transient failure clears the draft and leaves the unit queued for a retry. The
+        // scheduler reports that as "the visible state moved", which is not a translation.
+        provider.fail(TranslationFailureCategory.NETWORK);
+
+        assertEquals("a retry that is still coming is not a completed translation",
+                AiSubtitleCueBridge.RuntimeStatus.TRANSLATING, bridge.getRuntimeStatus());
+        assertEquals("and the draft must be gone with no residue", "Hello",
+                bridge.process(cues("Hello")).get(0).text.toString());
+    }
+
+    @Test
+    public void thePendingRepaintWaitsUntilTheIntervalHasElapsed() {
+        StreamingProvider provider = new StreamingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        bridge.onStreamingEnabledChanged(true);
+        bridge.onNewVideo("video-1", null, null);
+        bridge.setRefreshListener(() -> mRefreshCount.incrementAndGet());
+        bridge.setDraftRefreshIntervalForTesting(Long.MAX_VALUE);
+
+        bridge.process(cues("Hello"));
+
+        int before = mRefreshCount.get();
+        provider.emitPartial("a");
+        provider.emitPartial("ab");
+
+        // The test supplies the clock value rather than sleeping past a real interval. The
+        // repaint is owed, but a tick inside the interval must neither send it nor forget it.
+        long nowMs = System.nanoTime() / 1_000_000L;
+
+        assertFalse("the repaint is not due inside the interval",
+                bridge.flushPendingDraftRefresh(nowMs));
+        assertEquals(before + 1, mRefreshCount.get());
+
+        bridge.setDraftRefreshIntervalForTesting(0);
+
+        assertTrue("and it is due once the interval has elapsed",
+                bridge.flushPendingDraftRefresh(nowMs));
+    }
+
+    @Test
+    public void seekingAwayDoesNotResurrectThePreviousDraft() {
+        StreamingProvider provider = new StreamingProvider();
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
+        bridge.onStreamingEnabledChanged(true);
+        bridge.onNewVideo("video-1", null, null);
+        bridge.setRefreshListener(() -> mRefreshCount.incrementAndGet());
+        bridge.setDraftRefreshIntervalForTesting(3_600_000);
+
+        bridge.process(cues("Hello"));
+        provider.emitPartial("a");
+        provider.emitPartial("ab");
+
+        bridge.onSeek(30_000);
+
+        int before = mRefreshCount.get();
+        bridge.setDraftRefreshIntervalForTesting(0);
+        bridge.onPositionUpdate(30_000);
+
+        assertEquals("a seek must drop the pending repaint", before, mRefreshCount.get());
+        assertEquals("Other", bridge.process(cues("Other")).get(0).text.toString());
+    }
+
     /**
      * A track switch invalidates the timeline that belonged to the previous track. Until the new
      * track's source arrives the bridge must stay source-only rather than answer from units that
@@ -858,6 +1053,14 @@ public class AiSubtitleCueBridgeSessionTest {
         void complete(String text) {
             mCallback.onSuccess(TranslationResult.finalResult(mRequest.getSessionId(),
                     mRequest.getRequestId(), mRequest.getUnit(), text));
+        }
+
+        void fail(TranslationFailureCategory category) {
+            mCallback.onFailure(new TranslationFailure(category, "synthetic " + category));
+        }
+
+        int getCallCount() {
+            return mCallCount;
         }
 
         static final class StreamHandle {
