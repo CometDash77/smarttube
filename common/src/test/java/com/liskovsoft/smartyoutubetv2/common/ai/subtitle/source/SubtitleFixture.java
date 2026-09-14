@@ -33,7 +33,9 @@ public final class SubtitleFixture {
                 new FixtureEvent("overlap-001", 4_900, 5_600, "Overlapping event", "asr", "en", "synthetic-overlap"),
                 new FixtureEvent("gap-001", 6_000, 6_700, "After a gap", "manual", "en", "synthetic-gap"),
                 new FixtureEvent("duplicate-001", 6_700, 7_100, "After a gap", "asr", "en", "synthetic-duplicate"),
-                new FixtureEvent("long-001", 7_100, 8_900, "A deliberately long subtitle segment for deterministic splitting.", "manual", "en", "synthetic-long"));
+                new FixtureEvent("long-001", 7_100, 8_900, "A deliberately long subtitle segment for deterministic splitting.", "manual", "en", "synthetic-long"),
+                new FixtureEvent("zh-manual-001", 8_900, 10_100, "这是人工中文字幕。", "manual", "zh", "synthetic-zh-manual"),
+                new FixtureEvent("zh-asr-001", 10_100, 11_400, "这是自动生成的中文字幕", "asr", "zh", "synthetic-zh-asr"));
     }
 
     public static final class FixtureEvent {

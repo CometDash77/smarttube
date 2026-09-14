@@ -9,9 +9,8 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.playback.BasePlayerContr
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 
-import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.Charset;
@@ -29,7 +28,8 @@ public class AiSubtitleController extends BasePlayerController {
 
     private static final long SEEK_POSITION_UNKNOWN = -1;
     private static final int DOWNLOAD_TIMEOUT_MS = 10_000;
-    private static final int MAX_DOWNLOAD_CHARS = 8 * 1024 * 1024;
+    /** Hard byte limit for one timed-text download; over it the timeline is refused. */
+    private static final int MAX_DOWNLOAD_BYTES = 8 * 1024 * 1024;
     private static final long SCHEDULER_TICK_MS = 1_000;
 
     private String mCurrentTrackIdentity;
@@ -216,18 +216,20 @@ public class AiSubtitleController extends BasePlayerController {
             if (responseCode < 200 || responseCode >= 300) return null;
 
             InputStream input = connection.getInputStream();
-            BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(input, Charset.forName("UTF-8")));
-            StringBuilder content = new StringBuilder();
-            char[] buffer = new char[8_192];
+            ByteArrayOutputStream content = new ByteArrayOutputStream(64 * 1024);
+            byte[] buffer = new byte[8_192];
             int length;
 
-            while ((length = reader.read(buffer)) >= 0) {
-                content.append(buffer, 0, length);
-                if (content.length() > MAX_DOWNLOAD_CHARS) return null;
+            while ((length = input.read(buffer)) >= 0) {
+                if (content.size() + length > MAX_DOWNLOAD_BYTES) {
+                    // Over the limit the timeline is refused rather than truncated, so the
+                    // adapter can never claim a complete timeline it does not have.
+                    return null;
+                }
+                content.write(buffer, 0, length);
             }
 
-            return content.length() > 0 ? content.toString() : null;
+            return content.size() > 0 ? new String(content.toByteArray(), Charset.forName("UTF-8")) : null;
         } catch (Exception e) {
             return null;
         } finally {

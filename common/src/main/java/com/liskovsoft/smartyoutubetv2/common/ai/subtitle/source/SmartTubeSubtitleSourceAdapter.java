@@ -23,6 +23,12 @@ import java.util.List;
  * {@link TranslationChunker}; no second timeline model is created.</p>
  */
 public final class SmartTubeSubtitleSourceAdapter {
+    /**
+     * Hard cue limit for one track. A longer timeline is refused instead of truncated, so the
+     * rest of the feature never treats a partial timeline as the complete one.
+     */
+    public static final int MAX_CUES = 100_000;
+
     /** Maximum characters per translation unit; conservative single-sentence default. */
     private int mTargetChars = 60;
     private int mMaxChars = 200;
@@ -128,6 +134,10 @@ public final class SmartTubeSubtitleSourceAdapter {
         }
 
         List<SourceCue> cues = new VttParser().parse(content);
+        if (cues.size() > MAX_CUES) {
+            return null;
+        }
+
         List<SourceCue> normalized = new SubtitleNormalizer().normalize(cues);
         if (normalized.isEmpty()) {
             return null;

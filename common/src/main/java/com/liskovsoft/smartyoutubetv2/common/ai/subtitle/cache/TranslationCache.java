@@ -13,6 +13,13 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.Translation
 public interface TranslationCache {
     TranslationResult get(TranslationCacheKey key);
 
+    /**
+     * Existence check that, unlike {@link #get}, does not count as an access. Callers that only
+     * want to know whether eviction already happened must use this, otherwise the check itself
+     * keeps every entry alive.
+     */
+    boolean contains(TranslationCacheKey key);
+
     void put(TranslationCacheKey key, TranslationResult result);
 
     void clear();

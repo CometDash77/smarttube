@@ -98,6 +98,71 @@ public class InMemoryTranslationCacheTest {
     }
 
     @Test
+    public void theEntryCountLimitEvictsTheLeastRecentlyUsedEntry() {
+        InMemoryTranslationCache cache = new InMemoryTranslationCache(3, Long.MAX_VALUE);
+        for (int i = 0; i < 3; i++) cache.put(keyFor("u" + i), finalFor("u" + i, i + 1));
+
+        // Touching the oldest entry makes the second one the least recently used.
+        cache.get(keyFor("u0"));
+        cache.put(keyFor("u3"), finalFor("u3", 4));
+
+        assertEquals(3, cache.size());
+        assertEquals("the recently used entry must survive", finalFor("u0", 1),
+                cache.get(keyFor("u0")));
+        assertNull("the least recently used entry must be evicted", cache.get(keyFor("u1")));
+    }
+
+    @Test
+    public void theByteLimitEvictsUntilTheStoredTextFits() {
+        // Every value is 6 UTF-8 bytes ("[ZH] x"); the budget holds two of them.
+        InMemoryTranslationCache cache = new InMemoryTranslationCache(100, 16);
+
+        cache.put(keyFor("a"), finalFor("a", 1));
+        cache.put(keyFor("b"), finalFor("b", 2));
+        cache.put(keyFor("c"), finalFor("c", 3));
+
+        assertEquals(2, cache.size());
+        assertEquals(12L, cache.byteSize());
+        assertNull(cache.get(keyFor("a")));
+    }
+
+    @Test
+    public void replacingAnEntryCorrectsTheStoredSizeInsteadOfDoubleCounting() {
+        InMemoryTranslationCache cache = new InMemoryTranslationCache(100, 1_000);
+        cache.put(keyFor("a"), finalFor("a", 1));
+        assertEquals(6L, cache.byteSize());
+
+        cache.put(keyFor("a"), finalFor("longer text", 2));
+
+        assertEquals(1, cache.size());
+        assertEquals("the replaced value's bytes must be subtracted",
+                "[ZH] longer text".getBytes(java.nio.charset.Charset.forName("UTF-8")).length,
+                cache.byteSize());
+    }
+
+    @Test
+    public void clearingResetsBothTheEntriesAndTheStoredSize() {
+        mCache.put(keyFor("a"), finalFor("a", 1));
+        mCache.clear();
+
+        assertEquals(0, mCache.size());
+        assertEquals(0, mCache.byteSize());
+    }
+
+    @Test
+    public void aSingleValueLargerThanTheWholeBudgetIsNotKept() {
+        InMemoryTranslationCache cache = new InMemoryTranslationCache(100, 4);
+        StringBuilder huge = new StringBuilder();
+        for (int i = 0; i < 64; i++) huge.append('x');
+
+        cache.put(keyFor("a"), finalFor(huge.toString(), 1));
+
+        assertEquals("an entry that cannot fit the budget must not be stored",
+                0, cache.size());
+        assertEquals(0, cache.byteSize());
+    }
+
+    @Test
     public void clearRemovesEveryEntry() {
         mCache.put(keyFor("Hello"), finalFor("Hello", 1));
         mCache.put(keyFor("World"), finalFor("World", 2));

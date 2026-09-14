@@ -53,6 +53,11 @@ public final class TranslationScheduler {
             com.liskovsoft.smartyoutubetv2.common.ai.subtitle.segmentation.BoundaryProtocol.VERSION;
     private static final String CONTEXT_FINGERPRINT_NONE = "";
     private static final long[] BACKOFF_MS = {1_000, 2_000};
+    /**
+     * Trailing margin kept behind the playhead regardless of the lookahead, so the bounded
+     * context still finds the last few translated units after a forward jump.
+     */
+    private static final long MIN_HISTORY_MARGIN_MS = 30_000;
 
     private final TranslationSession mSession;
     private final TranslationProvider mProvider;
@@ -63,7 +68,11 @@ public final class TranslationScheduler {
     private final TranslationContextBuilder mContextBuilder = new TranslationContextBuilder();
     /** Keyed by the context-free unit identity; each Work freezes its context-bearing key. */
     private final Map<TranslationCacheKey, Work> mWork = new HashMap<>();
-    private final TreeMap<Long, TranslationUnit> mUnitsByStart = new TreeMap<>();
+    /**
+     * Units by start time. A list per start keeps every unit when two share a start time; a
+     * plain map would silently drop one of them.
+     */
+    private final TreeMap<Long, List<TranslationUnit>> mUnitsByStart = new TreeMap<>();
     private final Map<Integer, long[]> mSegmentTimes = new HashMap<>();
     private final Random mJitter = new Random();
     private final List<Runnable> mPendingEvents = new ArrayList<>();
@@ -78,6 +87,9 @@ public final class TranslationScheduler {
     private long mThrottleMs = 30_000;
     private long mLastWindowDispatchMs = Long.MIN_VALUE;
     private long mRequestIdSeed;
+    private int mFirstAttempts;
+    private int mRetryAttempts;
+    private int mFallbackAttempts;
     private int mMaxAttempts = 3;
     private int mJitterRangeMs = 250;
     private boolean mStreamingEnabled;
@@ -304,6 +316,26 @@ public final class TranslationScheduler {
         return work != null ? work.mFailureMessage : "";
     }
 
+    /** Total first attempts issued; a diagnostic and test seam only. */
+    public synchronized int getFirstAttemptCount() {
+        return mFirstAttempts;
+    }
+
+    /** Attempts that followed a transient failure of the same unit; test seam only. */
+    public synchronized int getRetryAttemptCount() {
+        return mRetryAttempts;
+    }
+
+    /** Attempts that followed a streamed attempt falling back to a plain request. */
+    public synchronized int getFallbackAttemptCount() {
+        return mFallbackAttempts;
+    }
+
+    /** Number of live work records; a diagnostic for the long-video bound. */
+    public synchronized int getWorkCount() {
+        return mWork.size();
+    }
+
     public synchronized long getRetryDueAtMsForTesting(TranslationUnit unit) {
         Work work = workForLookup(unit);
         return work != null ? work.mDueAtMs : -1;
@@ -337,8 +369,16 @@ public final class TranslationScheduler {
 
         for (TranslationUnit unit : timeline.getUnits()) {
             long start = startTime(unit);
+            if (start < 0) continue;
 
-            if (start >= 0) mUnitsByStart.put(start, unit);
+            List<TranslationUnit> atStart = mUnitsByStart.get(start);
+
+            if (atStart == null) {
+                atStart = new ArrayList<>(2);
+                mUnitsByStart.put(start, atStart);
+            }
+
+            atStart.add(unit);
         }
     }
 
@@ -373,6 +413,7 @@ public final class TranslationScheduler {
                 || nowMs - mLastWindowDispatchMs >= mThrottleMs;
 
         if (windowAllowed) {
+            pruneWorkLocked(windowEnd);
             fillFutureWindow(windowEnd, nowMs);
             mLastWindowDispatchMs = nowMs;
         }
@@ -381,12 +422,54 @@ public final class TranslationScheduler {
     }
 
     private void fillFutureWindow(long windowEnd, long nowMs) {
-        for (TranslationUnit unit : mUnitsByStart.subMap(mPositionMs, true, windowEnd, true).values()) {
+        for (List<TranslationUnit> atStart :
+                mUnitsByStart.subMap(mPositionMs, true, windowEnd, true).values()) {
             if (mActive != null) return;
 
-            Work work = workFor(unit);
+            for (TranslationUnit unit : atStart) {
+                if (mActive != null) return;
 
-            if (work.mState == WorkState.PENDING) submitLocked(work, nowMs);
+                Work work = workFor(unit);
+
+                if (work.mState == WorkState.PENDING) submitLocked(work, nowMs);
+            }
+        }
+    }
+
+    /**
+     * Drops terminal work whose unit has left the window, so a long video does not accumulate
+     * one record per translated cue. Active, pending and retrying work is never touched.
+     *
+     * <p>A record whose result is still in the cache is kept: the frozen cache key lives on the
+     * record, so dropping it early would make a cached translation unreachable and force a
+     * needless re-request. That also bounds the map by the cache's own entry bound.</p>
+     */
+    private void pruneWorkLocked(long windowEnd) {
+        long earliestKept = mPositionMs - Math.max(mLookaheadMs, MIN_HISTORY_MARGIN_MS);
+
+        List<TranslationCacheKey> expired = new ArrayList<>();
+
+        for (Map.Entry<TranslationCacheKey, Work> entry : mWork.entrySet()) {
+            Work work = entry.getValue();
+
+            // Only the request in flight is untouchable. A pending or retrying unit that has
+            // scrolled out of the window is dead weight; dropping it only means it can be
+            // requested again if playback reaches it.
+            if (work == mActive || work.mState == WorkState.IN_FLIGHT) {
+                continue;
+            }
+
+            long start = startTime(work.mUnit);
+            if (start < 0) continue;
+            if (start <= windowEnd && start >= earliestKept) continue;
+
+            if (work.mCacheKey != null && mCache.contains(work.mCacheKey)) continue;
+
+            expired.add(entry.getKey());
+        }
+
+        for (TranslationCacheKey key : expired) {
+            mWork.remove(key);
         }
     }
 
@@ -426,6 +509,15 @@ public final class TranslationScheduler {
 
         work.mAttempts++;
         work.mStreamed = isStreamingAllowed(work);
+
+        if (work.mAttempts == 1) {
+            mFirstAttempts++;
+        } else if (!work.mStreamed && work.mStreamingDisabled) {
+            mFallbackAttempts++;
+        } else {
+            mRetryAttempts++;
+        }
+
         work.mGeneration = mSession.getGeneration();
         work.mEpoch = mSession.getEpoch();
         work.mRequestId = ++mRequestIdSeed;
