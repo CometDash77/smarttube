@@ -22,6 +22,22 @@ Recorded before execution starts so a fresh session can resume from this file al
 - Unchanged prohibitions (AGENTS.md and plan §1): no push, no tag, no release, no artifact upload, no paid API calls; no changes to KissTranslator, SharedModules, MediaServiceCore, ExoPlayer, or Gradle dependency versions; no edits to upstream host files this round. Device acceptance stays with the user, so those items stay unchecked and marked `PENDING DEVICE`.
 - Workspace trap: the outer Obsidian `.claude/worktrees/*` checkouts are not to be restored or used; git operations belong to this clone only.
 
+## M07–M09 correction run — phase status (2026-09-14)
+
+| Phase | Plan tasks | Commit | State |
+|---|---|---|---|
+| 1 | 1–2 | `fccf8d9ca` | Implemented, both lanes green, phase report written; the Standards/Spec review gate was dispatched and is **still in flight** as this entry is written |
+
+- Correction-run commits so far: `28d8311e0` (execution contract), `fccf8d9ca` (phase 1: tasks 1–2).
+- Phase 1 closes C1, C2, C3 and C4. The counterexample-to-test mapping, the red-run evidence and the full tables are in `worker-reports/M07-M09-correction-phase1-report.md`.
+- Phase 1 evidence (fresh ASCII copy `C:\tmp\smartube-code-fix`; raw XML kept at `C:\tmp\ev-jdk17` and `C:\tmp\ev-jdk11`):
+  - JDK 17 full `:common:testStbetaDebugUnitTest` → 51 suites, **tests=475, failures=0, errors=0, skipped=21** (`BUILD SUCCESSFUL in 1m`).
+  - JDK 11 `:common:testStbetaDebugUnitTest --tests '….ai.subtitle.settings.*'` → 11 suites, **tests=79, failures=0, errors=0, skipped=0** (`BUILD SUCCESSFUL in 1m 9s`).
+  - The skip count rose 20 → 21 for one reason only: the new phone test joins the ten `AiSubtitlePhoneInputServerTest` methods that `JdkAwareRobolectricRunner` skips above JDK 16, and it runs for real in the JDK 11 lane (0 skipped there).
+- Open PARTIAL from phase 1: the plan's task 2 asks the JDK 11 phone test to observe the live bridge's request over real HTTP. That observation could not be reproduced in the Robolectric lane. Real HTTP from that lane is proven to work by a direct `OkHttpRequestExecutor` probe against a local socket, and the bridge is proven fully configured at dispatch time (`session`, `provider`, `prompt`, `scheduler`, `enabled` all true), yet neither a request nor a failure is ever observed. The delivered test asserts the wiring up to that point and the gap is recorded in the phase report rather than papered over. C3/C4's bridge-level behaviour is covered by the integration suite, which does observe the requests.
+- Remaining phases (plan §1 commit units): phase 2 = task 3, phase 3 = tasks 4–5, phase 4 = task 6, phase 5 = tasks 7–8.
+- Continuation state for the remaining phases: `worker-plans/M07-M09-correction-continuation.md`.
+
 ## Current state
 
 - Current milestone: **M09 — implementation and automatic checks complete; final acceptance pending.** M09 commit `2f98945e3`; report `worker-reports/M09-report.md`. M09 is **not** marked complete and the roadmap milestone is not marked complete: the exact-SHA CI and the whole device matrix are still outstanding.
