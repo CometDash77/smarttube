@@ -32,6 +32,8 @@ import static org.junit.Assert.fail;
  */
 public class OpenAiChatCompletionsAdapterTest {
     private static final String SECRET = "synthetic-provider-key";
+    private static final String RENDERED_PROMPT =
+            "Translate the subtitle from ja to zh and return only the translation.";
 
     @Test
     public void successBuildsExpectedRequestAndMapsTranslationResult() {
@@ -267,9 +269,73 @@ public class OpenAiChatCompletionsAdapterTest {
                 "model-1", "prompt-1", 1, "zh");
         TranslationSessionId session = new TranslationSessionId(
                 "video-1", track, profile, TranslationSessionId.ENGINE_SCHEMA_VERSION);
+        return request(sourceText, RENDERED_PROMPT);
+    }
+
+    private static TranslationRequest request(String sourceText, String renderedPrompt) {
+        SourceTrackId track = new SourceTrackId("video-1", "track-1", "ja");
+        TranslationProfile profile = new TranslationProfile("profile-1",
+                "openai-chat-completions", "https://api.example.com/v1",
+                "model-1", "prompt-1", 1, "zh");
+        TranslationSessionId session = new TranslationSessionId(
+                "video-1", track, profile, TranslationSessionId.ENGINE_SCHEMA_VERSION);
         TranslationUnit unit = new TranslationUnit(
                 Collections.singletonList(new SubtitleSegmentId(track, 0)), sourceText);
-        return new TranslationRequest(session, 42, unit);
+        return new TranslationRequest(session, 42, unit, renderedPrompt);
+    }
+
+    @Test
+    public void renderedPromptBecomesTheSystemMessageAndSourceTextStaysTheUserMessage() {
+        FakeHttpExecutor executor = FakeHttpExecutor.success(
+                "{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}", "req-prompt");
+        OpenAiChatCompletionsAdapter adapter = adapter(executor,
+                profile("https://api.example.com/v1", null, null),
+                new RecordingSecretStore(SECRET));
+        String prompt = "PROMPT-A translate faithfully";
+        String source = "Subtitle line.";
+
+        adapter.translate(request(source, prompt), new RecordingCallback());
+
+        String body = executor.getLastRequest().getBody();
+        assertTrue("the selected prompt must be the system message",
+                body.contains("{\"role\":\"system\",\"content\":\"" + prompt + "\"}"));
+        assertTrue("the unit text must stay the user message",
+                body.contains("{\"role\":\"user\",\"content\":\"" + source + "\"}"));
+    }
+
+    @Test
+    public void differentPromptsProduceDifferentRequestBodies() {
+        FakeHttpExecutor first = FakeHttpExecutor.success(
+                "{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}", "req-a");
+        FakeHttpExecutor second = FakeHttpExecutor.success(
+                "{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}", "req-b");
+        OpenAiChatCompletionsAdapter adapter = adapter(first,
+                profile("https://api.example.com/v1", null, null),
+                new RecordingSecretStore(SECRET));
+        OpenAiChatCompletionsAdapter other = adapter(second,
+                profile("https://api.example.com/v1", null, null),
+                new RecordingSecretStore(SECRET));
+
+        adapter.translate(request("Hello", "PROMPT-A"), new RecordingCallback());
+        other.translate(request("Hello", "PROMPT-B"), new RecordingCallback());
+
+        assertFalse("a different Prompt Profile must change the actual request",
+                first.getLastRequest().getBody().equals(second.getLastRequest().getBody()));
+    }
+
+    @Test
+    public void renderedPromptIsJsonEscaped() {
+        FakeHttpExecutor executor = FakeHttpExecutor.success(
+                "{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}", "req-prompt-escape");
+        OpenAiChatCompletionsAdapter adapter = adapter(executor,
+                profile("https://api.example.com/v1", null, null),
+                new RecordingSecretStore(SECRET));
+
+        adapter.translate(request("Hello", "规则：\"输出\"\n第一行\\次行"),
+                new RecordingCallback());
+
+        assertTrue(executor.getLastRequest().getBody()
+                .contains("规则：\\\"输出\\\"\\n第一行\\\\次行"));
     }
 
     private static void assertStatusFailure(int status,

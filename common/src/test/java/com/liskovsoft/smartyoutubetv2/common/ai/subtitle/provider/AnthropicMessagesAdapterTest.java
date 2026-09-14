@@ -33,6 +33,8 @@ import static org.junit.Assert.fail;
  */
 public class AnthropicMessagesAdapterTest {
     private static final String SECRET = "synthetic-anthropic-credential";
+    private static final String RENDERED_PROMPT =
+            "Translate the subtitle from ja to zh and return only the translation.";
 
     @Test
     public void successUsesTopLevelSystemAndMapsTextBlocks() {
@@ -252,9 +254,52 @@ public class AnthropicMessagesAdapterTest {
                 "prompt-1", 1, "zh");
         TranslationSessionId session = new TranslationSessionId(
                 "video-1", track, profile, TranslationSessionId.ENGINE_SCHEMA_VERSION);
+        return request(sourceText, RENDERED_PROMPT);
+    }
+
+    private static TranslationRequest request(String sourceText, String renderedPrompt) {
+        SourceTrackId track = new SourceTrackId("video-1", "track-1", "ja");
+        TranslationProfile profile = new TranslationProfile("profile-anthropic",
+                "anthropic-messages", "https://api.anthropic.com", "claude-test",
+                "prompt-1", 1, "zh");
+        TranslationSessionId session = new TranslationSessionId(
+                "video-1", track, profile, TranslationSessionId.ENGINE_SCHEMA_VERSION);
         TranslationUnit unit = new TranslationUnit(
                 Collections.singletonList(new SubtitleSegmentId(track, 0)), sourceText);
-        return new TranslationRequest(session, 43, unit);
+        return new TranslationRequest(session, 43, unit, renderedPrompt);
+    }
+
+    @Test
+    public void renderedPromptBecomesTheTopLevelSystemField() {
+        FakeHttpExecutor executor = FakeHttpExecutor.success(
+                successBody("ok"), "req-prompt");
+        AnthropicMessagesAdapter adapter = adapter(executor,
+                profile("https://api.anthropic.com", null, null),
+                new RecordingSecretStore(SECRET));
+        String prompt = "PROMPT-A translate faithfully";
+
+        adapter.translate(request("Subtitle line.", prompt), new RecordingCallback());
+
+        Map<String, Object> body = parseBody(executor);
+        assertEquals(prompt, body.get("system"));
+        assertEquals(1, ((List<?>) body.get("messages")).size());
+    }
+
+    @Test
+    public void differentPromptsProduceDifferentRequestBodies() {
+        Map<String, Object> first = bodyFor("PROMPT-A");
+        Map<String, Object> second = bodyFor("PROMPT-B");
+
+        assertFalse("a different Prompt Profile must change the actual request",
+                first.equals(second));
+    }
+
+    private static Map<String, Object> bodyFor(String prompt) {
+        FakeHttpExecutor executor = FakeHttpExecutor.success(successBody("ok"), "req-prompt");
+        adapter(executor, profile("https://api.anthropic.com", null, null),
+                new RecordingSecretStore(SECRET))
+                .translate(request("Hello", prompt), new RecordingCallback());
+        return parseBody(executor);
     }
 
     @SuppressWarnings("unchecked")

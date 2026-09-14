@@ -7,6 +7,7 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SubtitleSegment;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SubtitleSegmentId;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationProfile;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationUnit;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.prompt.PromptProfile;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSession;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.source.SourceTimeline;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.FakeTranslationProvider;
@@ -38,6 +39,9 @@ public class TranslationSchedulerTest {
     private static final TranslationProfile PROFILE =
             new TranslationProfile("profile", "protocol", "https://example.test",
                     "model", "prompt", 1, "zh");
+    private static final PromptProfile PROMPT = new PromptProfile(
+            "prompt-1", "Test prompt",
+            "Translate {{source_text}} into {{target_language}}.", 1, false);
     private static final long NOW = 10_000L;
 
     private TranslationSession mSession;
@@ -54,7 +58,7 @@ public class TranslationSchedulerTest {
         mProvider = new RecordingProvider();
         mArrived = new ArrayList<>();
         mFailed = new ArrayList<>();
-        mScheduler = new TranslationScheduler(mSession, mProvider, new InMemoryTranslationCache(),
+        mScheduler = new TranslationScheduler(mSession, mProvider, PROMPT, new InMemoryTranslationCache(),
                 new TranslationScheduler.Listener() {
                     @Override
                     public void onTranslationArrived() {
@@ -155,7 +159,7 @@ public class TranslationSchedulerTest {
     @Test
     public void cacheHitDoesNotIssueANewRequest() {
         FakeTranslationProvider immediate = new FakeTranslationProvider();
-        TranslationScheduler scheduler = new TranslationScheduler(mSession, immediate,
+        TranslationScheduler scheduler = new TranslationScheduler(mSession, immediate, PROMPT,
                 new InMemoryTranslationCache(), null);
         scheduler.setThrottleMs(0);
         scheduler.setTimeline(singleUnitTimeline());
@@ -212,7 +216,7 @@ public class TranslationSchedulerTest {
             session.markReady();
             session.markActive();
             CategoryFailingProvider provider = new CategoryFailingProvider(category);
-            TranslationScheduler scheduler = new TranslationScheduler(session, provider,
+            TranslationScheduler scheduler = new TranslationScheduler(session, provider, PROMPT,
                     new InMemoryTranslationCache(), null);
             scheduler.setThrottleMs(0);
             scheduler.setTimeline(singleUnitTimeline());
@@ -237,7 +241,7 @@ public class TranslationSchedulerTest {
             session.markReady();
             session.markActive();
             CategoryFailingProvider provider = new CategoryFailingProvider(category);
-            TranslationScheduler scheduler = new TranslationScheduler(session, provider,
+            TranslationScheduler scheduler = new TranslationScheduler(session, provider, PROMPT,
                     new InMemoryTranslationCache(), null);
             scheduler.setThrottleMs(0);
             scheduler.setTimeline(singleUnitTimeline());
@@ -268,7 +272,7 @@ public class TranslationSchedulerTest {
         session.markReady();
         session.markActive();
         RecordingProvider provider = new RecordingProvider();
-        TranslationScheduler scheduler = new TranslationScheduler(session, provider,
+        TranslationScheduler scheduler = new TranslationScheduler(session, provider, PROMPT,
                 new InMemoryTranslationCache(), null);
         scheduler.setThrottleMs(0);
         scheduler.setTimeline(singleUnitTimeline());
@@ -294,6 +298,191 @@ public class TranslationSchedulerTest {
 
         assertEquals(Arrays.asList("0-20", "20-40", "20-40"), mProvider.unitTexts());
     }
+    @Test
+    public void settingsChangeNeverResumesAPausedScheduler() {
+        mScheduler.onPositionUpdate(10_000, NOW);
+        mScheduler.pause();
+
+        int before = mProvider.getCallCount();
+        mScheduler.setLookaheadMs(30_000);
+        mScheduler.onSettingsChanged(10_000, NOW);
+
+        assertEquals("a settings change must not start work while playback is paused",
+                before, mProvider.getCallCount());
+
+        mScheduler.resume(10_000, NOW);
+        assertEquals(before + 1, mProvider.getCallCount());
+    }
+
+    @Test
+    public void settingsChangeImmediatelyReshapesTheWindowWhenActive() {
+        mScheduler.setLookaheadMs(0);
+        mScheduler.onPositionUpdate(10_000, NOW);
+        mProvider.completeLast();
+
+        mScheduler.setLookaheadMs(30_000);
+        mScheduler.onSettingsChanged(10_000, NOW);
+
+        assertEquals("a widened window must dispatch the newly covered unit",
+                Arrays.asList("0-20", "20-40"), mProvider.unitTexts());
+    }
+
+    @Test
+    public void manualRetryRequeuesTerminalFailuresWithAFreshBudget() {
+        mScheduler.setTimeline(singleUnitTimeline());
+        mScheduler.onPositionUpdate(10_000, NOW);
+        mProvider.failLast(TranslationFailureCategory.AUTH);
+
+        assertTrue(mScheduler.hasFailed(unit(0, 0, "0-20")));
+
+        // Ordinary ticks must not reset a terminal failure.
+        mScheduler.onPositionUpdate(10_000, NOW + 60_000);
+        assertEquals(1, mProvider.getCallCount());
+
+        mScheduler.retryFailed(10_000, NOW + 60_000);
+
+        assertEquals("a manual retry must issue the request again",
+                2, mProvider.getCallCount());
+        assertFalse(mScheduler.hasFailed(unit(0, 0, "0-20")));
+    }
+
+    @Test
+    public void manualRetryLeavesUnitsOutsideTheWindowFailed() {
+        mScheduler.setLookaheadMs(0);
+        mScheduler.onPositionUpdate(10_000, NOW);
+        mProvider.completeLast();
+
+        mScheduler.onPositionChanged(80_000, NOW);
+        mProvider.failLast(TranslationFailureCategory.AUTH);
+        assertEquals("80-100", mProvider.unitTexts().get(mProvider.unitTexts().size() - 1));
+
+        int before = mProvider.getCallCount();
+        mScheduler.retryFailed(10_000, NOW);
+
+        assertEquals("a retry request for another position must not dispatch the old unit",
+                before, mProvider.getCallCount());
+    }
+
+    @Test
+    public void anUnrenderablePromptIsTerminalWithoutTouchingTheNetwork() {
+        PromptProfile broken = new PromptProfile("prompt-broken", "Broken",
+                "Translate {{source_text}} using {{unknown_variable}}.", 1, false);
+        RecordingProvider provider = new RecordingProvider();
+        TranslationScheduler scheduler = new TranslationScheduler(mSession, provider, broken,
+                new InMemoryTranslationCache(), null);
+        scheduler.setThrottleMs(0);
+        scheduler.setTimeline(singleUnitTimeline());
+
+        scheduler.onPositionUpdate(10_000, NOW);
+
+        assertEquals("a malformed prompt must never reach the provider",
+                0, provider.getCallCount());
+        assertTrue(scheduler.hasFailed(unit(0, 0, "0-20")));
+    }
+
+    @Test
+    public void aPromptThatReferencesTheEmptyContextStillRenders() {
+        PromptProfile withContext = new PromptProfile("prompt-context", "With context",
+                "Context:{{context}}|{{source_text}}", 1, false);
+        RecordingProvider provider = new RecordingProvider();
+        TranslationScheduler scheduler = new TranslationScheduler(mSession, provider, withContext,
+                new InMemoryTranslationCache(), null);
+        scheduler.setThrottleMs(0);
+        scheduler.setTimeline(singleUnitTimeline());
+
+        scheduler.onPositionUpdate(10_000, NOW);
+
+        assertEquals(1, provider.getCallCount());
+        assertEquals("Context:|0-20", provider.lastRequest.getRenderedPrompt());
+    }
+
+    @Test
+    public void lookaheadWindowSelectsExactlyTheSpecifiedUnits() {
+        assertEquals(Arrays.asList("10", "25", "40"),
+                dispatchedUnits(30_000, 10_000));
+        assertEquals(Arrays.asList("10", "25", "40", "70", "100"),
+                dispatchedUnits(90_000, 10_000));
+    }
+
+    @Test
+    public void shrinkingTheWindowStopsFurtherDispatchBeyondIt() {
+        TranslationSession session = new TranslationSession(sessionId(), 7);
+        session.markReady();
+        session.markActive();
+        RecordingProvider provider = new RecordingProvider();
+        TranslationScheduler scheduler = new TranslationScheduler(session, provider, PROMPT,
+                new InMemoryTranslationCache(), null);
+        scheduler.setThrottleMs(0);
+        scheduler.setLookaheadMs(90_000);
+        scheduler.setTimeline(subSecondTimeline());
+
+        scheduler.onPositionUpdate(10_000, NOW);
+        provider.completeLast();
+
+        scheduler.setLookaheadMs(30_000);
+        scheduler.onSettingsChanged(10_000, NOW);
+
+        for (int i = 0; i < 6; i++) {
+            provider.completeLast();
+        }
+
+        assertEquals("a narrowed window must not keep dispatching beyond it",
+                Arrays.asList("10", "25", "40"), provider.unitTexts());
+    }
+
+    @Test
+    public void throttlingNeverDelaysSeek() {
+        mScheduler.setThrottleMs(30_000);
+        mScheduler.setLookaheadMs(0);
+        mScheduler.onPositionUpdate(10_000, NOW);
+        mProvider.completeLast();
+
+        mSession.advanceEpoch();
+        mScheduler.onPositionChanged(90_000, NOW + 100);
+
+        assertEquals("a seek must dispatch immediately even inside the throttle interval",
+                "80-100", mProvider.unitTexts().get(mProvider.unitTexts().size() - 1));
+    }
+
+    /**
+     * Drives one lookahead window to completion with a single in-flight request at a time.
+     * Units start at 10/25/40/70/100/101 seconds and are shorter than one second.
+     */
+    private List<String> dispatchedUnits(long lookaheadMs, long positionMs) {
+        TranslationSession session = new TranslationSession(sessionId(), 6);
+        session.markReady();
+        session.markActive();
+        RecordingProvider provider = new RecordingProvider();
+        TranslationScheduler scheduler = new TranslationScheduler(session, provider, PROMPT,
+                new InMemoryTranslationCache(), null);
+        scheduler.setThrottleMs(0);
+        scheduler.setLookaheadMs(lookaheadMs);
+        scheduler.setTimeline(subSecondTimeline());
+
+        scheduler.onPositionUpdate(positionMs, NOW);
+
+        for (int i = 0; i < 8; i++) {
+            provider.completeLast();
+        }
+
+        return provider.unitTexts();
+    }
+
+    private static SourceTimeline subSecondTimeline() {
+        long[] starts = {10_000, 25_000, 40_000, 70_000, 100_000, 101_000};
+        List<SubtitleSegment> segments = new ArrayList<>();
+        List<TranslationUnit> units = new ArrayList<>();
+
+        for (int i = 0; i < starts.length; i++) {
+            String text = String.valueOf(starts[i] / 1_000);
+            segments.add(new SubtitleSegment(new SubtitleSegmentId(TRACK, i), starts[i],
+                    starts[i] + 400, text));
+            units.add(unit(i, i, text));
+        }
+
+        return SourceTimeline.from(segments, units);
+    }
+
     private static SourceTimeline singleUnitTimeline() {
         return SourceTimeline.from(
                 Collections.singletonList(segment(0, 0, 20_000, "0-20")),

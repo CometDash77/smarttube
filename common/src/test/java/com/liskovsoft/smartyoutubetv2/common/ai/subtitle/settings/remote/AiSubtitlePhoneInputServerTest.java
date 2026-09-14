@@ -115,18 +115,14 @@ public class AiSubtitlePhoneInputServerTest {
         Draft draft = mServer.getDraft();
         assertEquals(2, draft.version);
 
-        HttpResponse stale = request("POST", "/save", "version=1&name=Stale"
-                + "&baseUrl=" + BASE_URL + "&modelId=model-original"
-                + "&providerType=OPENAI_COMPATIBLE&protocol=OPENAI_CHAT_COMPLETIONS"
-                + "&secretAction=keep&targetLanguage=zh&save=true", true, false);
+        HttpResponse stale = request("POST", "/save",
+                saveForm("&name=Stale").replace("version=2", "version=1"), true, false);
 
         assertEquals(409, stale.code);
         assertEquals("Original", mServer.getDraft().name);
 
-        HttpResponse current = request("POST", "/save", "version=2&name=Edited"
-                + "&baseUrl=" + BASE_URL + "&modelId=model-original"
-                + "&providerType=OPENAI_COMPATIBLE&protocol=OPENAI_CHAT_COMPLETIONS"
-                + "&secretAction=keep&targetLanguage=zh&save=true", true, false);
+        HttpResponse current = request("POST", "/save",
+                saveForm("&name=Edited"), true, false);
 
         assertEquals(200, current.code);
         assertTrue(current.body.contains("\"saveSucceeded\":true"));
@@ -136,11 +132,8 @@ public class AiSubtitlePhoneInputServerTest {
 
     @Test
     public void failedProviderSaveRollsBackPrompt() throws Exception {
-        HttpResponse response = request("POST", "/save", "version=2&name=Edited"
-                + "&baseUrl=" + BASE_URL + "&modelId="
-                + "&providerType=OPENAI_COMPATIBLE&protocol=OPENAI_CHAT_COMPLETIONS"
-                + "&secretAction=keep&targetLanguage=zh"
-                + "&promptName=Edited&prompt=Edited%20prompt&save=true", true, false);
+        HttpResponse response = request("POST", "/save",
+                saveForm("&modelId=&promptName=Edited&prompt=Edited%20prompt"), true, false);
 
         assertEquals(200, response.code);
         assertTrue(response.body.contains("\"saveFailed\":true"));
@@ -162,6 +155,82 @@ public class AiSubtitlePhoneInputServerTest {
         assertTrue(page.body.contains("confirm"));
         assertFalse(page.body.contains("'/update'"));
         assertFalse(page.body.contains("setInterval"));
+    }
+
+    @Test
+    public void outOfRangeSchedulingValuesAreRejectedWithoutChangingTheDraft() throws Exception {
+        String before = mServer.getDraft().name;
+        int lookaheadBefore = mServer.getDraft().lookaheadSeconds;
+
+        // 4294967296 truncates to 0, which is itself a valid preset: the long must be range
+        // checked before narrowing, otherwise the rejection becomes a silent acceptance.
+        HttpResponse response = request("POST", "/save",
+                saveForm("&lookaheadSeconds=4294967296"), true, false);
+
+        assertEquals(409, response.code);
+        assertTrue(response.body.contains("\"invalid\":true"));
+        assertEquals("a rejected form must not touch the draft", before, mServer.getDraft().name);
+        assertEquals(lookaheadBefore, mServer.getDraft().lookaheadSeconds);
+    }
+
+    @Test
+    public void invalidSegmentationIsRejectedWithoutChangingTheDraft() throws Exception {
+        int targetBefore = mServer.getDraft().segmentTargetChars;
+
+        HttpResponse response = request("POST", "/save",
+                saveForm("&segmentTargetChars=300&segmentMaxChars=200"), true, false);
+
+        assertEquals("maxChars below targetChars must be rejected", 409, response.code);
+        assertTrue(response.body.contains("\"invalid\":true"));
+        assertEquals(targetBefore, mServer.getDraft().segmentTargetChars);
+    }
+
+    @Test
+    public void anEmptyTargetLanguageStillSavesTheOtherSettings() throws Exception {
+        HttpResponse response = request("POST", "/save",
+                saveForm("&targetLanguage=&lookaheadSeconds=30"), true, false);
+
+        assertEquals(200, response.code);
+        assertTrue(response.body.contains("\"saveSucceeded\":true"));
+
+        AiSubtitleData data = AiSubtitleData.instance(RuntimeEnvironment.getApplication());
+        assertEquals("the empty language must fall back to the stored one",
+                AiSubtitleData.DEFAULT_TARGET_LANGUAGE, data.getTargetLanguage());
+        assertEquals("the remaining settings must still be saved",
+                30, data.getLookaheadSeconds());
+    }
+
+    @Test
+    public void savedSchedulingValuesAreSharedWithTheTvSide() throws Exception {
+        HttpResponse response = request("POST", "/save",
+                saveForm("&lookaheadSeconds=30&scheduleThrottleSeconds=15"
+                        + "&segmentTargetChars=100&segmentMaxChars=320&longSentenceChars=100"
+                        + "&bilingualOrder=translation"), true, false);
+
+        assertEquals(200, response.code);
+        assertTrue(response.body.contains("\"saveSucceeded\":true"));
+
+        AiSubtitleData data = AiSubtitleData.instance(RuntimeEnvironment.getApplication());
+        assertEquals(30, data.getLookaheadSeconds());
+        assertEquals(15, data.getScheduleThrottleSeconds());
+        assertEquals(100, data.getSegmentTargetChars());
+        assertEquals(320, data.getSegmentMaxChars());
+        assertEquals(100, data.getLongSentenceChars());
+        assertTrue("the bilingual order must round-trip", data.isTranslationFirst());
+
+        HttpResponse reloaded = request("GET", "/", "", true, true);
+        assertTrue("the page must render the saved values",
+                reloaded.body.contains("id=\"lookaheadSeconds\" type=\"number\" value=\"30\""));
+        assertTrue(reloaded.body.contains("value=\"translation\" selected"));
+    }
+
+    private static String saveForm(String extra) {
+        return "version=2&name=Edited&baseUrl=" + BASE_URL
+                + "&modelId=model-original&providerType=OPENAI_COMPATIBLE"
+                + "&protocol=OPENAI_CHAT_COMPLETIONS&secretAction=keep&targetLanguage=zh"
+                + "&lookaheadSeconds=90&scheduleThrottleSeconds=30"
+                + "&segmentTargetChars=60&segmentMaxChars=200&longSentenceChars=80"
+                + "&bilingualOrder=source&save=true" + extra;
     }
 
     private URL parseUrl(String value) {

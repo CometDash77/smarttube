@@ -1,6 +1,7 @@
 package com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration;
 
 import com.google.android.exoplayer2.text.Cue;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.prompt.PromptProfile;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.settings.AiSubtitleDisplayMode;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.FakeTranslationProvider;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCall;
@@ -20,6 +21,10 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 
 public class AiSubtitleCueBridgeModeTest {
+    /** Test-only Prompt Profile; independent of any built-in or reference content. */
+    private static final PromptProfile PROMPT = new PromptProfile(
+            "test.prompt", "Test prompt",
+            "Translate {{source_text}} into {{target_language}}.", 1, false);
     private AtomicBoolean mEnabled;
     private FakeTranslationProvider mProvider;
     private AiSubtitleCueBridge mBridge;
@@ -29,7 +34,7 @@ public class AiSubtitleCueBridgeModeTest {
     public void setUp() {
         mEnabled = new AtomicBoolean(true);
         mProvider = new FakeTranslationProvider(false);
-        mBridge = new AiSubtitleCueBridge(mEnabled::get, mProvider);
+        mBridge = new AiSubtitleCueBridge(mEnabled::get, mProvider, PROMPT);
         mRefreshCount = new AtomicInteger();
 
         mBridge.setRefreshListener(() -> mRefreshCount.incrementAndGet());
@@ -103,7 +108,7 @@ public class AiSubtitleCueBridgeModeTest {
                 @Override public boolean isCancelled() { return false; }
             };
         };
-        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, failingProvider);
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, failingProvider, PROMPT);
 
         bridge.process(cues("Hello"));
 

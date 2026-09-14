@@ -88,6 +88,26 @@ public class AiSubtitleSettingsPresenter extends BasePresenter<Void> {
         settingsPresenter.appendSingleButton(UiOptionItem.from(
                 getContext().getString(R.string.ai_subtitle_display_mode),
                 option -> showDisplayMode()));
+
+        settingsPresenter.appendSingleButton(UiOptionItem.from(
+                getContext().getString(R.string.ai_subtitle_bilingual_order),
+                option -> showBilingualOrder()));
+
+        settingsPresenter.appendSingleButton(UiOptionItem.from(
+                getContext().getString(R.string.ai_subtitle_lookahead),
+                option -> showLookahead()));
+
+        settingsPresenter.appendSingleButton(UiOptionItem.from(
+                getContext().getString(R.string.ai_subtitle_throttle),
+                option -> showScheduleThrottle()));
+
+        settingsPresenter.appendSingleButton(UiOptionItem.from(
+                getContext().getString(R.string.ai_subtitle_segmentation),
+                option -> showSegmentation()));
+
+        settingsPresenter.appendSingleButton(UiOptionItem.from(
+                getContext().getString(R.string.ai_subtitle_retry),
+                option -> AiSubtitleCueBridge.instance(getContext()).retryFailed()));
     }
 
     private void showProviderProfiles() {
@@ -593,6 +613,118 @@ public class AiSubtitleSettingsPresenter extends BasePresenter<Void> {
             default:
                 return getContext().getString(R.string.ai_subtitle_display_mode_bilingual);
         }
+    }
+
+    private void showLookahead() {
+        AppDialogPresenter presenter = AppDialogPresenter.instance(getContext());
+        presenter.closeDialog();
+        AiSubtitleData data = AiSubtitleData.instance(getContext());
+        List<OptionItem> options = new ArrayList<>();
+        for (final int seconds : new int[] {0, 30, 60, 90, 120}) {
+            options.add(UiOptionItem.from(seconds + " s", option -> {
+                data.setLookaheadSeconds(seconds);
+                AiSubtitleCueBridge.instance(getContext()).onSchedulingChanged(
+                        seconds * 1_000L, data.getScheduleThrottleSeconds() * 1_000L);
+                showLookahead();
+            }, seconds == data.getLookaheadSeconds()));
+        }
+        presenter.appendRadioCategory(
+                getContext().getString(R.string.ai_subtitle_lookahead), options);
+        presenter.showDialog(getContext().getString(R.string.ai_subtitle_lookahead));
+    }
+
+    private void showScheduleThrottle() {
+        AppDialogPresenter presenter = AppDialogPresenter.instance(getContext());
+        presenter.closeDialog();
+        AiSubtitleData data = AiSubtitleData.instance(getContext());
+        List<OptionItem> options = new ArrayList<>();
+        for (final int seconds : new int[] {5, 15, 30}) {
+            options.add(UiOptionItem.from(seconds + " s", option -> {
+                data.setScheduleThrottleSeconds(seconds);
+                AiSubtitleCueBridge.instance(getContext()).onSchedulingChanged(
+                        data.getLookaheadSeconds() * 1_000L, seconds * 1_000L);
+                showScheduleThrottle();
+            }, seconds == data.getScheduleThrottleSeconds()));
+        }
+        presenter.appendRadioCategory(
+                getContext().getString(R.string.ai_subtitle_throttle), options);
+        presenter.showDialog(getContext().getString(R.string.ai_subtitle_throttle));
+    }
+
+    private void showSegmentation() {
+        AppDialogPresenter presenter = AppDialogPresenter.instance(getContext());
+        presenter.closeDialog();
+        final AiSubtitleData data = AiSubtitleData.instance(getContext());
+        int[][] presets = {{40, 120, 60}, {60, 200, 80}, {100, 320, 100}};
+        List<OptionItem> options = new ArrayList<>();
+        for (final int[] preset : presets) {
+            options.add(UiOptionItem.from(
+                    preset[0] + "/" + preset[1] + ", long " + preset[2], option -> {
+                        data.setSegmentLimits(preset[0], preset[1], preset[2]);
+                        AiSubtitleCueBridge.instance(getContext()).onSegmentationChanged(
+                                preset[0], preset[1], preset[2]);
+                        showSegmentation();
+                    }, preset[0] == data.getSegmentTargetChars()
+                            && preset[1] == data.getSegmentMaxChars()
+                            && preset[2] == data.getLongSentenceChars()));
+        }
+
+        // A custom limit set from the phone stays visible instead of being rewritten to a preset.
+        if (!isSegmentationPreset(data, presets)) {
+            options.add(UiOptionItem.from(
+                    getContext().getString(R.string.ai_subtitle_segmentation_custom)
+                            + " (" + data.getSegmentTargetChars() + "/" + data.getSegmentMaxChars()
+                            + ", " + data.getLongSentenceChars() + ")",
+                    option -> showSegmentation(), true));
+        }
+
+        presenter.appendRadioCategory(
+                getContext().getString(R.string.ai_subtitle_segmentation), options);
+        presenter.showDialog(getContext().getString(R.string.ai_subtitle_segmentation));
+    }
+
+    private static boolean isSegmentationPreset(AiSubtitleData data, int[][] presets) {
+        for (int[] preset : presets) {
+            if (preset[0] == data.getSegmentTargetChars()
+                    && preset[1] == data.getSegmentMaxChars()
+                    && preset[2] == data.getLongSentenceChars()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Bilingual order is presentation only: it repaints the current cue list without issuing a
+     * request or dropping cached translations.
+     */
+    private void showBilingualOrder() {
+        AppDialogPresenter presenter = AppDialogPresenter.instance(getContext());
+        presenter.closeDialog();
+        final AiSubtitleData data = AiSubtitleData.instance(getContext());
+
+        List<OptionItem> options = new ArrayList<>();
+        options.add(UiOptionItem.from(
+                getContext().getString(R.string.ai_subtitle_order_source_first),
+                option -> {
+                    applyBilingualOrder(false);
+                    showBilingualOrder();
+                }, !data.isTranslationFirst()));
+        options.add(UiOptionItem.from(
+                getContext().getString(R.string.ai_subtitle_order_translation_first),
+                option -> {
+                    applyBilingualOrder(true);
+                    showBilingualOrder();
+                }, data.isTranslationFirst()));
+
+        presenter.appendRadioCategory(
+                getContext().getString(R.string.ai_subtitle_bilingual_order), options);
+        presenter.showDialog(getContext().getString(R.string.ai_subtitle_bilingual_order));
+    }
+
+    private void applyBilingualOrder(boolean translationFirst) {
+        AiSubtitleData.instance(getContext()).setTranslationFirst(translationFirst);
+        AiSubtitleCueBridge.instance(getContext()).setTranslationFirst(translationFirst);
     }
 
     private void showPromptProfiles() {

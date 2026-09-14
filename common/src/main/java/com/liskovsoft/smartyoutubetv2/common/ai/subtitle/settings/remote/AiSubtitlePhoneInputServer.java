@@ -86,6 +86,13 @@ public final class AiSubtitlePhoneInputServer {
         mVersion.set(2);
         mDraft.from(profile, prompt);
         mDraft.version = mVersion.get();
+        AiSubtitleData data = AiSubtitleData.instance(mContext);
+        mDraft.lookaheadSeconds = data.getLookaheadSeconds();
+        mDraft.scheduleThrottleSeconds = data.getScheduleThrottleSeconds();
+        mDraft.segmentTargetChars = data.getSegmentTargetChars();
+        mDraft.segmentMaxChars = data.getSegmentMaxChars();
+        mDraft.longSentenceChars = data.getLongSentenceChars();
+        mDraft.translationFirst = data.isTranslationFirst();
         startAcceptLoop();
     }
 
@@ -267,9 +274,12 @@ public final class AiSubtitlePhoneInputServer {
         } else if ("/save".equals(path)) {
             boolean save = "/save".equals(path);
             if (save) {
-                if (!applyForm(form)) {
+                int applied = applyForm(form);
+
+                if (applied != FORM_APPLIED) {
                     writeResponse(socket, 409, "application/json; charset=utf-8",
-                            conflictState().toString());
+                            (applied == FORM_INVALID ? invalidState() : conflictState())
+                                    .toString());
                     return;
                 }
                 saveDraft();
@@ -310,10 +320,42 @@ public final class AiSubtitlePhoneInputServer {
         return state;
     }
 
-    private boolean applyForm(Map<String, String> form) {
+    private JSONObject invalidState() {
+        JSONObject state = new JSONObject();
+        try {
+            state.put("version", mDraft.version);
+            state.put("invalid", true);
+            state.put("connected", isClientConnected());
+        } catch (Exception ignored) {
+        }
+        return state;
+    }
+
+    /** Outcome of applying a phone form; a rejected form must leave the draft untouched. */
+    private static final int FORM_APPLIED = 0;
+    private static final int FORM_STALE = 1;
+    private static final int FORM_INVALID = 2;
+
+    private int applyForm(Map<String, String> form) {
         long incoming = parseLong(form.get("version"), -1);
         if (incoming != mDraft.version) {
-            return false;
+            return FORM_STALE;
+        }
+
+        // Parse and validate every field before writing any of them, so a rejected form cannot
+        // leave the draft half-updated. Values are range-checked as long before narrowing,
+        // otherwise an out-of-range integer could truncate into a valid-looking preset.
+        int lookahead = parseBoundedInt(form.get("lookaheadSeconds"), -1);
+        int throttle = parseBoundedInt(form.get("scheduleThrottleSeconds"), -1);
+        int targetChars = parseBoundedInt(form.get("segmentTargetChars"), -1);
+        int maxChars = parseBoundedInt(form.get("segmentMaxChars"), -1);
+        int longChars = parseBoundedInt(form.get("longSentenceChars"), -1);
+        boolean lookaheadValid = isPreset(lookahead, AiSubtitleData.LOOKAHEAD_SECONDS_PRESETS);
+        boolean throttleValid =
+                isPreset(throttle, AiSubtitleData.SCHEDULE_THROTTLE_SECONDS_PRESETS);
+        boolean segmentValid = targetChars >= 1 && maxChars >= targetChars && longChars > 0;
+        if (!lookaheadValid || !throttleValid || !segmentValid) {
+            return FORM_INVALID;
         }
 
         mDraft.name = nonNull(form.get("name")).trim();
@@ -322,6 +364,12 @@ public final class AiSubtitlePhoneInputServer {
         mDraft.promptName = nonNull(form.get("promptName")).trim();
         mDraft.promptContent = nonNull(form.get("prompt"));
         mDraft.targetLanguage = nonNull(form.get("targetLanguage")).trim();
+        mDraft.lookaheadSeconds = lookahead;
+        mDraft.scheduleThrottleSeconds = throttle;
+        mDraft.segmentTargetChars = targetChars;
+        mDraft.segmentMaxChars = maxChars;
+        mDraft.longSentenceChars = longChars;
+        mDraft.translationFirst = "translation".equals(form.get("bilingualOrder"));
         mDraft.secret = "replace".equals(form.get("secretAction"))
                 ? nonNull(form.get("secret")) : "";
         mDraft.secretAction = firstNonBlank(form.get("secretAction"), "keep");
@@ -330,7 +378,7 @@ public final class AiSubtitlePhoneInputServer {
         mDraft.protocol = firstNonBlank(form.get("protocol"),
                 ProviderProtocol.OPENAI_CHAT_COMPLETIONS.name());
         mDraft.version = mVersion.incrementAndGet();
-        return true;
+        return FORM_APPLIED;
     }
 
     private void saveDraft() {
@@ -389,6 +437,12 @@ public final class AiSubtitlePhoneInputServer {
                     if (!TextUtils.isEmpty(mDraft.targetLanguage)) {
                         data.setTargetLanguage(mDraft.targetLanguage);
                     }
+                    data.setSchedulingLimits(mDraft.lookaheadSeconds,
+                            mDraft.scheduleThrottleSeconds, mDraft.segmentTargetChars,
+                            mDraft.segmentMaxChars, mDraft.longSentenceChars);
+                    data.setTranslationFirst(mDraft.translationFirst);
+                    com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration.
+                            AiSubtitleRuntime.applySchedulingToBridge(mContext);
                     com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration.AiSubtitleRuntime.applyToBridge(mContext);
                 } else {
                     rollbackFailed = !rollbackPrompt(prompts, originalPrompt, promptResult);
@@ -609,6 +663,19 @@ public final class AiSubtitlePhoneInputServer {
                 + htmlEscape(mDraft.modelId) + "\">"
                 + "<label>目标语言</label><input id=\"targetLanguage\" value=\""
                 + htmlEscape(mDraft.targetLanguage) + "\">"
+                + "<label>提前翻译秒</label><input id=\"lookaheadSeconds\" type=\"number\" value=\""
+                + mDraft.lookaheadSeconds + "\">"
+                + "<label>后台间隔秒</label><input id=\"scheduleThrottleSeconds\" type=\"number\" value=\""
+                + mDraft.scheduleThrottleSeconds + "\">"
+                + "<label>分块目标/最大/长句字符</label>"
+                + "<input id=\"segmentTargetChars\" type=\"number\" value=\"" + mDraft.segmentTargetChars + "\">"
+                + "<input id=\"segmentMaxChars\" type=\"number\" value=\"" + mDraft.segmentMaxChars + "\">"
+                + "<input id=\"longSentenceChars\" type=\"number\" value=\"" + mDraft.longSentenceChars + "\">"
+                + "<label>双语顺序</label><select id=\"bilingualOrder\">"
+                + "<option value=\"source\"" + (mDraft.translationFirst ? "" : " selected")
+                + ">原文在上</option>"
+                + "<option value=\"translation\"" + (mDraft.translationFirst ? " selected" : "")
+                + ">译文在上</option></select>"
                 + "<label>API 密钥动作</label><select id=\"secretAction\">"
                 + "<option value=\"keep\">保留</option><option value=\"replace\">替换</option>"
                 + "<option value=\"clear\">清除</option></select>"
@@ -625,7 +692,11 @@ public final class AiSubtitlePhoneInputServer {
                 + "function data(){return {version:v.version,name:val('name'),"
                 + "providerType:val('providerType'),protocol:val('protocol'),"
                 + "baseUrl:val('baseUrl'),modelId:val('modelId'),"
-                + "targetLanguage:val('targetLanguage'),secretAction:val('secretAction'),"
+                + "targetLanguage:val('targetLanguage'),lookaheadSeconds:val('lookaheadSeconds'),"
+                + "scheduleThrottleSeconds:val('scheduleThrottleSeconds'),"
+                + "segmentTargetChars:val('segmentTargetChars'),segmentMaxChars:val('segmentMaxChars'),"
+                + "longSentenceChars:val('longSentenceChars'),"
+                + "bilingualOrder:val('bilingualOrder'),secretAction:val('secretAction'),"
                 + "secret:val('secret'),promptName:val('promptName'),prompt:val('prompt')};}"
                 + "function send(path,body,done){fetch('/'+path+'?k=" + mToken
                 + "',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},"
@@ -636,6 +707,7 @@ public final class AiSubtitlePhoneInputServer {
                 + ".catch(function(){status('断线，请检查局域网');});}"
                 + "function status(text){document.getElementById('status').textContent=text;}"
                 + "function saveState(x){v.version=x.body.version||v.version;"
+                + "if(x.body.invalid){status('输入无效：请检查数值范围。');return;}"
                 + "if(x.body.conflict){status('保存冲突：页面已过期，请手动重载。');return;}"
                 + "let text=x.body.saveSucceeded?'已保存':'保存失败：请检查必填项和密钥。';"
                 + "if(x.body.testSucceeded){text+='\\n测试成功。';}"
@@ -766,6 +838,21 @@ public final class AiSubtitlePhoneInputServer {
         }
     }
 
+    /** Parses an int without ever truncating: out-of-range values fall back instead. */
+    private static int parseBoundedInt(String value, int fallback) {
+        long parsed = parseLong(value, fallback);
+
+        if (parsed < Integer.MIN_VALUE || parsed > Integer.MAX_VALUE) return fallback;
+        return (int) parsed;
+    }
+
+    private static boolean isPreset(int value, int[] presets) {
+        for (int preset : presets) {
+            if (value == preset) return true;
+        }
+        return false;
+    }
+
     private static String valueOrEmpty(String value) {
         return value == null ? "" : value;
     }
@@ -810,6 +897,12 @@ public final class AiSubtitlePhoneInputServer {
         public String providerType = ProviderType.OPENAI_COMPATIBLE.name();
         public String protocol = ProviderProtocol.OPENAI_CHAT_COMPLETIONS.name();
         public String targetLanguage = "";
+        public int lookaheadSeconds = 90;
+        public int scheduleThrottleSeconds = 30;
+        public int segmentTargetChars = 60;
+        public int segmentMaxChars = 200;
+        public int longSentenceChars = 80;
+        public boolean translationFirst;
         public String promptProfileId = "";
         public String promptName = "";
         public String promptContent = "";
@@ -867,6 +960,12 @@ public final class AiSubtitlePhoneInputServer {
             copy.providerType = providerType;
             copy.protocol = protocol;
             copy.targetLanguage = targetLanguage;
+            copy.lookaheadSeconds = lookaheadSeconds;
+            copy.scheduleThrottleSeconds = scheduleThrottleSeconds;
+            copy.segmentTargetChars = segmentTargetChars;
+            copy.segmentMaxChars = segmentMaxChars;
+            copy.longSentenceChars = longSentenceChars;
+            copy.translationFirst = translationFirst;
             copy.promptProfileId = promptProfileId;
             copy.promptName = promptName;
             copy.promptContent = promptContent;

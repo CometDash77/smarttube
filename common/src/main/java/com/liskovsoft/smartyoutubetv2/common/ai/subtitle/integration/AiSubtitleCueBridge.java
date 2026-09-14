@@ -12,6 +12,7 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SourceTrackId;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SubtitleSegmentId;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationProfile;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationUnit;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.prompt.PromptProfile;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.scheduler.TranslationScheduler;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSession;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionId;
@@ -65,6 +66,8 @@ public class AiSubtitleCueBridge {
     private RefreshListener mRefreshListener;
     private TranslationProvider mProvider;
     private TranslationProfile mProfile = DEFAULT_PROFILE;
+    /** Selected Prompt Profile content; frozen into each request when it is submitted. */
+    private PromptProfile mPromptProfile;
 
     private String mVideoId;
     private SourceTrackId mSourceTrackId;
@@ -72,6 +75,14 @@ public class AiSubtitleCueBridge {
     private TranslationScheduler mScheduler;
     private long mGenerationSeed;
     private boolean mWasEnabled;
+    private long mLookaheadMs = 90_000;
+    private long mThrottleMs = 30_000;
+    private int mSegmentTargetChars = 60;
+    private int mSegmentMaxChars = 200;
+    private int mLongSentenceChars = 80;
+    private boolean mTranslationFirst;
+    /** Monotonic identity of the newest source load; older responses are discarded. */
+    private long mLoadSequence;
 
     /** Full normalized timeline for the active track; null until the source adapter completes. */
     private SourceTimeline mTimeline;
@@ -107,20 +118,31 @@ public class AiSubtitleCueBridge {
 
     AiSubtitleCueBridge(Context context, TranslationProvider provider,
                         TranslationProfile profile) {
-        this(() -> AiSubtitleData.instance(context).isEnabled(), provider, profile);
-    }
-
-    @VisibleForTesting
-    AiSubtitleCueBridge(EnableState enabledState, TranslationProvider provider) {
-        this(enabledState, provider, DEFAULT_PROFILE);
+        // The selected Prompt Profile is applied through onProviderChanged, together with the
+        // provider, so the two can never disagree.
+        this(() -> AiSubtitleData.instance(context).isEnabled(), provider, profile, null);
+        AiSubtitleData data = AiSubtitleData.instance(context);
+        mLookaheadMs = data.getLookaheadSeconds() * 1_000L;
+        mThrottleMs = data.getScheduleThrottleSeconds() * 1_000L;
+        mSegmentTargetChars = data.getSegmentTargetChars();
+        mSegmentMaxChars = data.getSegmentMaxChars();
+        mLongSentenceChars = data.getLongSentenceChars();
+        mTranslationFirst = data.isTranslationFirst();
     }
 
     @VisibleForTesting
     AiSubtitleCueBridge(EnableState enabledState, TranslationProvider provider,
-                        TranslationProfile profile) {
+                        PromptProfile promptProfile) {
+        this(enabledState, provider, DEFAULT_PROFILE, promptProfile);
+    }
+
+    @VisibleForTesting
+    AiSubtitleCueBridge(EnableState enabledState, TranslationProvider provider,
+                        TranslationProfile profile, PromptProfile promptProfile) {
         mEnabledState = enabledState;
         mProvider = provider;
         mProfile = profile != null ? profile : DEFAULT_PROFILE;
+        mPromptProfile = promptProfile;
     }
 
     public static synchronized AiSubtitleCueBridge instance(Context context) {
@@ -131,6 +153,8 @@ public class AiSubtitleCueBridge {
                     AiSubtitleRuntime.resolve(appContext);
             AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(appContext,
                     resolved.getProvider(), resolved.getProfile());
+            bridge.onProviderChanged(resolved.getProvider(), resolved.getProfile(),
+                    resolved.getPrompt());
             bridge.setDisplayMode(AiSubtitleData.instance(appContext).getDisplayMode());
             sInstance = bridge;
             sContext = appContext;
@@ -210,17 +234,20 @@ public class AiSubtitleCueBridge {
         }
     }
 
-    void onProviderChanged(TranslationProvider provider, TranslationProfile profile) {
+    void onProviderChanged(TranslationProvider provider, TranslationProfile profile,
+                           PromptProfile promptProfile) {
         synchronized (this) {
-            if (profile == null) {
+            if (profile == null || promptProfile == null) {
                 mProvider = null;
                 mProfile = DEFAULT_PROFILE;
+                mPromptProfile = null;
                 dropSession();
                 return;
             }
 
             mProvider = provider;
             mProfile = profile;
+            mPromptProfile = promptProfile;
             rebindSessionIfIdentityChanged();
         }
     }
@@ -276,14 +303,93 @@ public class AiSubtitleCueBridge {
         return mSession != null ? mSession.snapshot() : null;
     }
 
+    /**
+     * Applies a lookahead/throttle change. These only reshape the request window, so the
+     * session, its cache, and any in-flight request are left alone.
+     */
+    public synchronized void onSchedulingChanged(long lookaheadMs, long throttleMs) {
+        if (lookaheadMs < 0 || throttleMs < 0) return;
+        if (lookaheadMs == mLookaheadMs && throttleMs == mThrottleMs) return;
+
+        mLookaheadMs = lookaheadMs;
+        mThrottleMs = throttleMs;
+
+        if (mScheduler != null) {
+            mScheduler.setLookaheadMs(lookaheadMs);
+            mScheduler.setThrottleMs(throttleMs);
+            mScheduler.onSettingsChanged(mPositionMs, monotonicNowMs());
+        }
+    }
+
+    /**
+     * Applies a segmentation change. The translated units, and therefore every cached
+     * translation, are invalidated, so this cancels the old work, clears the cache and
+     * reloads the source once with one parameter snapshot. The previous paused state is
+     * restored instead of turning playback-active work back on.
+     */
+    public synchronized void onSegmentationChanged(int targetChars, int maxChars,
+                                                   int longSentenceChars) {
+        if (targetChars < 1 || maxChars < targetChars || longSentenceChars <= 0) return;
+        if (targetChars == mSegmentTargetChars && maxChars == mSegmentMaxChars
+                && longSentenceChars == mLongSentenceChars) {
+            return;
+        }
+
+        boolean wasPaused = mSession != null && mSession.isPaused();
+
+        mSegmentTargetChars = targetChars;
+        mSegmentMaxChars = maxChars;
+        mLongSentenceChars = longSentenceChars;
+
+        dropSession();
+
+        // Only an enabled feature with a usable provider may start work again.
+        if (mProvider == null || !mEnabledState.isEnabled()) return;
+
+        ensureActiveSession();
+        if (wasPaused) mSession.pause();
+        triggerTimelineLoad();
+    }
+
     public synchronized void setSourceAdapter(SmartTubeSubtitleSourceAdapter adapter) {
         mSourceAdapter = adapter;
+
+        if (adapter != null) {
+            adapter.configureSegmentation(mSegmentTargetChars, mSegmentMaxChars,
+                    mLongSentenceChars);
+        }
+
         mTimeline = null;
         triggerTimelineLoad();
     }
 
-    void onTimelineReady(SourceTrackId trackId, SourceTimeline timeline) {
+    /**
+     * Bilingual order for {@link AiSubtitleDisplayMode#BILINGUAL}. Order is presentation only:
+     * the cached translation, the session identity, and any in-flight request are untouched.
+     */
+    public synchronized void setTranslationFirst(boolean translationFirst) {
+        if (mTranslationFirst == translationFirst) return;
+
+        mTranslationFirst = translationFirst;
+        notifyTranslationArrived();
+    }
+
+    @VisibleForTesting
+    synchronized boolean isTranslationFirst() {
+        return mTranslationFirst;
+    }
+
+    /** Manual retry entry; see {@link TranslationScheduler#retryFailed(long, long)}. */
+    public synchronized void retryFailed() {
+        if (mScheduler == null) return;
+
+        mScheduler.retryFailed(mPositionMs, monotonicNowMs());
+    }
+
+    void onTimelineReady(long loadSequence, SourceTrackId trackId, SourceTimeline timeline) {
         synchronized (this) {
+            if (loadSequence != mLoadSequence) return;
+
             if (trackId == null || timeline == null || mSourceTrackId == null
                     || !trackId.equals(mSourceTrackId)) {
                 return;
@@ -299,7 +405,7 @@ public class AiSubtitleCueBridge {
         notifyTranslationArrived();
     }
 
-    void onTimelineFailed(SourceTrackId trackId, String reason) {
+    void onTimelineFailed(long loadSequence, SourceTrackId trackId, String reason) {
         // Timeline stays null; the bridge continues with displayed-cue fallback.
     }
 
@@ -357,6 +463,7 @@ public class AiSubtitleCueBridge {
         mLastError = "";
 
         if (mDisplayMode == AiSubtitleDisplayMode.TRANSLATION_ONLY) return new Cue(translation);
+        if (mTranslationFirst) return new Cue(translation + "\n" + source);
         return new Cue(source + "\n" + translation);
     }
 
@@ -383,15 +490,17 @@ public class AiSubtitleCueBridge {
 
         if (adapter == null || trackId == null || isBlank(videoId)) return;
 
+        final long loadSequence = ++mLoadSequence;
+
         adapter.load(videoId, trackId, new SmartTubeSubtitleSourceAdapter.Callback() {
             @Override
             public void onTimelineReady(SourceTrackId tid, SourceTimeline timeline) {
-                AiSubtitleCueBridge.this.onTimelineReady(tid, timeline);
+                AiSubtitleCueBridge.this.onTimelineReady(loadSequence, tid, timeline);
             }
 
             @Override
             public void onTimelineFailed(SourceTrackId tid, String reason) {
-                AiSubtitleCueBridge.this.onTimelineFailed(tid, reason);
+                AiSubtitleCueBridge.this.onTimelineFailed(loadSequence, tid, reason);
             }
         });
     }
@@ -411,8 +520,16 @@ public class AiSubtitleCueBridge {
     }
 
     private void recreateScheduler() {
-        if (mScheduler != null) mScheduler.close();
-        mScheduler = new TranslationScheduler(mSession, mProvider, mCache,
+        if (mScheduler != null) {
+            mScheduler.close();
+            mScheduler = null;
+        }
+
+        // Without a resolvable provider and prompt there is nothing to schedule; the bridge
+        // stays in source-only mode instead of failing inside the scheduler constructor.
+        if (mProvider == null || mPromptProfile == null) return;
+
+        mScheduler = new TranslationScheduler(mSession, mProvider, mPromptProfile, mCache,
                 new TranslationScheduler.Listener() {
                     @Override
                     public void onTranslationArrived() {
@@ -425,6 +542,8 @@ public class AiSubtitleCueBridge {
                     }
                 });
         mScheduler.setTimeline(mTimeline);
+        mScheduler.setLookaheadMs(mLookaheadMs);
+        mScheduler.setThrottleMs(mThrottleMs);
     }
 
     private void onSchedulerArrived() {
@@ -455,6 +574,7 @@ public class AiSubtitleCueBridge {
 
         cancelSessionState();
         mCache.clear();
+        mLoadSequence++;
         mSession = newSession(nextId);
         recreateScheduler();
     }
@@ -465,6 +585,7 @@ public class AiSubtitleCueBridge {
 
         cancelSessionState();
         mCache.clear();
+        mLoadSequence++;
         mSession = null;
     }
 

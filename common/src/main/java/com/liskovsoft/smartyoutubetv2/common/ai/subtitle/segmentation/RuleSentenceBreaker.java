@@ -10,7 +10,16 @@ import java.util.List;
 /** Deterministic punctuation/pause/duration sentence splitter. */
 public final class RuleSentenceBreaker {
     public static final int VERSION = 1;
-    private static final int MAX_CHARS = 80;
+    private final int mMaxChars;
+
+    public RuleSentenceBreaker() {
+        this(80);
+    }
+
+    public RuleSentenceBreaker(int maxChars) {
+        if (maxChars <= 0) throw new IllegalArgumentException("maxChars must be positive");
+        mMaxChars = maxChars;
+    }
 
     public List<SubtitleSegment> breakSentences(List<SubtitleSegment> input) {
         if (input == null || input.isEmpty()) return Collections.emptyList();
@@ -31,7 +40,7 @@ public final class RuleSentenceBreaker {
         return Collections.unmodifiableList(result);
     }
 
-    private static List<String> splitText(String text) {
+    private List<String> splitText(String text) {
         String normalized = text.trim();
         String[] punctuation = normalized.split("(?<=[.!?。！？])\\s+");
         List<String> pieces = new ArrayList<>();
@@ -40,7 +49,7 @@ public final class RuleSentenceBreaker {
             String value = piece.trim();
             if (!pieces.isEmpty() && shouldJoin(pieces.get(pieces.size() - 1))) {
                 pieces.set(pieces.size() - 1, pieces.get(pieces.size() - 1) + " " + value);
-            } else if (value.length() <= MAX_CHARS) pieces.add(value);
+            } else if (value.length() <= mMaxChars) pieces.add(value);
             else splitOversize(value, pieces);
         }
         return pieces.isEmpty() ? Collections.singletonList(normalized) : pieces;
@@ -51,12 +60,12 @@ public final class RuleSentenceBreaker {
                 || previous.matches(".*\\b\\d+$");
     }
 
-    private static void splitOversize(String text, List<String> pieces) {
+    private void splitOversize(String text, List<String> pieces) {
         String[] words = text.split("\\s+");
         if (words.length > 1) {
             StringBuilder current = new StringBuilder();
             for (String word : words) {
-                if (current.length() > 0 && current.length() + word.length() + 1 > MAX_CHARS) {
+                if (current.length() > 0 && current.length() + word.length() + 1 > mMaxChars) {
                     pieces.add(current.toString()); current.setLength(0);
                 }
                 if (current.length() > 0) current.append(' ');
@@ -64,8 +73,8 @@ public final class RuleSentenceBreaker {
             }
             if (current.length() > 0) pieces.add(current.toString());
         } else {
-            for (int start = 0; start < text.length(); start += MAX_CHARS) {
-                pieces.add(text.substring(start, Math.min(text.length(), start + MAX_CHARS)));
+            for (int start = 0; start < text.length(); start += mMaxChars) {
+                pieces.add(text.substring(start, Math.min(text.length(), start + mMaxChars)));
             }
         }
     }

@@ -46,13 +46,11 @@ public final class PromptRenderer {
                 PromptVariable variable = PromptVariable.fromName(name);
                 if (variable == null) {
                     diagnostics.add("unknown variable: " + name);
+                } else if (!values.containsKey(variable.getName())) {
+                    diagnostics.add("missing value: " + variable.getName());
                 } else {
-                    String value = values.get(variable.getName());
-                    if (value == null || value.trim().isEmpty()) {
-                        diagnostics.add("missing value: " + variable.getName());
-                    } else {
-                        output.append(value);
-                    }
+                    // A present-but-empty value is a deliberate empty section, not a missing one.
+                    output.append(values.get(variable.getName()));
                 }
                 i = end + 2;
             } else if (template.startsWith("}}", i)) {

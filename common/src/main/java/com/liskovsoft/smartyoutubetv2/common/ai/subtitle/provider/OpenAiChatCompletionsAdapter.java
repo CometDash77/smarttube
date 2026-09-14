@@ -191,7 +191,7 @@ public final class OpenAiChatCompletionsAdapter implements ProtocolAdapter {
         appendStringField(json, "model", mProfile.getModelId());
         json.append(',');
         json.append("\"messages\":[");
-        appendMessage(json, "system", systemPrompt(request));
+        appendMessage(json, "system", request.getRenderedPrompt());
         json.append(',');
         appendMessage(json, "user", request.getSourceText());
         json.append("],");
@@ -199,11 +199,6 @@ public final class OpenAiChatCompletionsAdapter implements ProtocolAdapter {
         json.append("\"stream\":false");
         json.append('}');
         return json.toString();
-    }
-
-    private static String systemPrompt(TranslationRequest request) {
-        return "Translate the user's subtitle text into " + request.getTargetLanguage()
-                + " and return only the translation.";
     }
 
     private static void appendMessage(StringBuilder json, String role, String content) {

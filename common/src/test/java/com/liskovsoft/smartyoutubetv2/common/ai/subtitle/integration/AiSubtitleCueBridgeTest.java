@@ -1,6 +1,7 @@
 package com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration;
 
 import com.google.android.exoplayer2.text.Cue;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.prompt.PromptProfile;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.FakeTranslationProvider;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCall;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCallback;
@@ -30,6 +31,10 @@ import static org.junit.Assert.assertTrue;
  * the deviation is recorded in the M02 worker report.</p>
  */
 public class AiSubtitleCueBridgeTest {
+    /** Test-only Prompt Profile; independent of any built-in or reference content. */
+    private static final PromptProfile PROMPT = new PromptProfile(
+            "test.prompt", "Test prompt",
+            "Translate {{source_text}} into {{target_language}}.", 1, false);
     private AtomicBoolean mEnabled;
     private FakeTranslationProvider mProvider;
     private AiSubtitleCueBridge mBridge;
@@ -38,7 +43,7 @@ public class AiSubtitleCueBridgeTest {
     public void setUp() {
         mEnabled = new AtomicBoolean(false);
         mProvider = new FakeTranslationProvider(false);
-        mBridge = new AiSubtitleCueBridge(mEnabled::get, mProvider);
+        mBridge = new AiSubtitleCueBridge(mEnabled::get, mProvider, PROMPT);
     }
 
     @Test
@@ -61,7 +66,7 @@ public class AiSubtitleCueBridgeTest {
 
     @Test
     public void nullProviderStaysSourceOnlyWhenEnabled() {
-        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, null);
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, null, PROMPT);
         enable();
         List<Cue> input = cues("Hello");
 
@@ -96,7 +101,7 @@ public class AiSubtitleCueBridgeTest {
     public void immediateFakeDecoratesOnTheFirstAndOnlyProcessCall() {
         enable();
         FakeTranslationProvider immediateProvider = new FakeTranslationProvider();
-        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, immediateProvider);
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, immediateProvider, PROMPT);
 
         List<Cue> output = bridge.process(cues("Hello"));
 
@@ -136,7 +141,7 @@ public class AiSubtitleCueBridgeTest {
 
     @Test
     public void failedRequestsKeepSourceOnly() {
-        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, new AlwaysFailingProvider());
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, new AlwaysFailingProvider(), PROMPT);
         enable();
 
         bridge.process(cues("Hello"));
@@ -149,7 +154,7 @@ public class AiSubtitleCueBridgeTest {
     public void everyProviderFailureCategoryKeepsSourceOnly() {
         for (TranslationFailureCategory category : TranslationFailureCategory.values()) {
             AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get,
-                    new CategoryFailingProvider(category));
+                    new CategoryFailingProvider(category), PROMPT);
             enable();
 
             bridge.process(cues("Hello"));
@@ -161,7 +166,7 @@ public class AiSubtitleCueBridgeTest {
 
     @Test
     public void providerExceptionIsIsolatedToSourceOnlyOutput() {
-        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, new ThrowingProvider());
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, new ThrowingProvider(), PROMPT);
         enable();
         List<Cue> input = cues("Hello");
 
@@ -201,7 +206,7 @@ public class AiSubtitleCueBridgeTest {
     @Test
     public void lateResultAfterSeekIsRejected() {
         StubbornProvider provider = new StubbornProvider();
-        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider);
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
         enable();
 
         bridge.process(cues("Hello"));
@@ -259,7 +264,7 @@ public class AiSubtitleCueBridgeTest {
     @Test
     public void disablingImmediatelyCancelsInFlightWork() {
         CancelTrackingProvider provider = new CancelTrackingProvider();
-        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider);
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
         enable();
 
         bridge.process(cues("Hello"));
@@ -274,7 +279,7 @@ public class AiSubtitleCueBridgeTest {
     @Test
     public void stubbornLateCallbackAfterDisableIsRejected() {
         StubbornProvider provider = new StubbornProvider();
-        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider);
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
         enable();
 
         bridge.process(cues("Hello"));

@@ -191,17 +191,12 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
         json.append(',');
         json.append("\"max_tokens\":").append(resolveMaxTokens());
         json.append(',');
-        appendStringField(json, "system", systemPrompt(request));
+        appendStringField(json, "system", request.getRenderedPrompt());
         json.append(',');
         json.append("\"messages\":[");
         appendMessage(json, "user", request.getSourceText());
         json.append("]}");
         return json.toString();
-    }
-
-    private static String systemPrompt(TranslationRequest request) {
-        return "Translate the user's subtitle text into " + request.getTargetLanguage()
-                + " and return only the translation.";
     }
 
     private static void appendMessage(StringBuilder json, String role, String content) {

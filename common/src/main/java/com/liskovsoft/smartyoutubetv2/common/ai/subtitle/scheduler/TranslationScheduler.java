@@ -4,6 +4,9 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.cache.TranslationCache;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.cache.TranslationCacheKey;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SubtitleSegment;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationUnit;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.prompt.PromptProfile;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.prompt.PromptRenderer;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.prompt.PromptVariable;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSession;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionId;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.source.SourceTimeline;
@@ -17,6 +20,7 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.Translation
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -47,6 +51,8 @@ public final class TranslationScheduler {
     private final TranslationProvider mProvider;
     private final TranslationCache mCache;
     private final Listener mListener;
+    private final PromptProfile mPromptProfile;
+    private final PromptRenderer mPromptRenderer = new PromptRenderer();
     private final Map<TranslationCacheKey, Work> mWork = new HashMap<>();
     private final TreeMap<Long, TranslationUnit> mUnitsByStart = new TreeMap<>();
     private final Map<Integer, long[]> mSegmentTimes = new HashMap<>();
@@ -66,13 +72,18 @@ public final class TranslationScheduler {
     private boolean mPaused;
 
     public TranslationScheduler(TranslationSession session, TranslationProvider provider,
-                                TranslationCache cache, Listener listener) {
+                                PromptProfile promptProfile, TranslationCache cache,
+                                Listener listener) {
         if (session == null) throw new IllegalArgumentException("session must not be null");
         if (provider == null) throw new IllegalArgumentException("provider must not be null");
+        if (promptProfile == null) {
+            throw new IllegalArgumentException("promptProfile must not be null");
+        }
         if (cache == null) throw new IllegalArgumentException("cache must not be null");
 
         mSession = session;
         mProvider = provider;
+        mPromptProfile = promptProfile;
         mCache = cache;
         mListener = listener;
     }
@@ -147,6 +158,45 @@ public final class TranslationScheduler {
         synchronized (this) {
             mPaused = false;
             if (positionMs >= 0) mPositionMs = positionMs;
+            dispatch(nowMs, true);
+        }
+
+        drainEvents();
+    }
+
+    /**
+     * Re-evaluates the request window after a settings-only change. Unlike {@link #resume} this
+     * never clears the paused state, so changing a limit while playback is paused cannot start
+     * new work.
+     */
+    public void onSettingsChanged(long positionMs, long nowMs) {
+        synchronized (this) {
+            if (positionMs >= 0) mPositionMs = positionMs;
+            dispatch(nowMs, true);
+        }
+
+        drainEvents();
+    }
+
+    /**
+     * Manual retry entry. Only terminal failures inside the current window are re-queued, and
+     * they get a fresh attempt budget because the user asked explicitly; ordinary redraws never
+     * reset the budget.
+     */
+    public void retryFailed(long positionMs, long nowMs) {
+        synchronized (this) {
+            if (positionMs >= 0) mPositionMs = positionMs;
+
+            long windowEnd = windowEnd(mPositionMs, mLookaheadMs);
+
+            for (Work work : mWork.values()) {
+                if (work.mState == WorkState.FAILED && startTime(work.mUnit) <= windowEnd) {
+                    work.mState = WorkState.PENDING;
+                    work.mAttempts = 0;
+                    work.mFailureMessage = "";
+                }
+            }
+
             dispatch(nowMs, true);
         }
 
@@ -292,6 +342,16 @@ public final class TranslationScheduler {
             return;
         }
 
+        // The selected Prompt Profile is rendered before anything can reach the network, so an
+        // unusable prompt is terminal and falls back to the original subtitles.
+        String renderedPrompt = renderPrompt(work.mUnit);
+        if (renderedPrompt == null) {
+            work.mState = WorkState.FAILED;
+            work.mFailureMessage = "Prompt could not be rendered.";
+            queueTranslationFailed(work.mFailureMessage);
+            return;
+        }
+
         work.mAttempts++;
         work.mGeneration = mSession.getGeneration();
         work.mEpoch = mSession.getEpoch();
@@ -300,7 +360,7 @@ public final class TranslationScheduler {
         mActive = work;
 
         TranslationRequest request = new TranslationRequest(
-                mSession.getSessionId(), work.mRequestId, work.mUnit);
+                mSession.getSessionId(), work.mRequestId, work.mUnit, renderedPrompt);
 
         try {
             work.mCall = mProvider.translate(request, new SchedulerCallback(work, request));
@@ -391,6 +451,28 @@ public final class TranslationScheduler {
     private TranslationCacheKey keyFor(TranslationUnit unit) {
         return TranslationCacheKey.from(mSession.getSessionId(), unit,
                 CONTEXT_FINGERPRINT_NONE, SEGMENTATION_VERSION, BOUNDARY_VERSION);
+    }
+
+    /** Renders the frozen Prompt Profile for one unit; null means the prompt is unusable. */
+    private String renderPrompt(TranslationUnit unit) {
+        Map<String, String> values = new LinkedHashMap<>();
+        TranslationSessionId sessionId = mSession.getSessionId();
+
+        values.put(PromptVariable.SOURCE_TEXT.getName(), unit.getSourceText());
+        values.put(PromptVariable.SOURCE_LANGUAGE.getName(),
+                sessionId.getSourceTrackId().getLanguage());
+        values.put(PromptVariable.TARGET_LANGUAGE.getName(),
+                sessionId.getProfile().getTargetLanguage());
+        values.put(PromptVariable.UNIT_INDEX.getName(),
+                String.valueOf(unit.getFirstSegmentId().getIndex()));
+        // M07 has no context builder yet. The variable is present but deliberately empty so a
+        // prompt that references it is not rejected as malformed.
+        values.put(PromptVariable.CONTEXT.getName(), "");
+
+        PromptRenderer.RenderResult rendered =
+                mPromptRenderer.render(mPromptProfile.getContent(), values);
+
+        return rendered.isValid() ? rendered.getText() : null;
     }
 
     private long startTime(TranslationUnit unit) {

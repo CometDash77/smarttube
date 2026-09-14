@@ -37,6 +37,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * {@link SecretStore.Masking}.</p>
  */
 public final class ProviderProfilesPresenter {
+    /** Fixed probe instruction; the connection test must not depend on the user's prompt. */
+    private static final String CONNECTION_TEST_PROMPT =
+            "Translate the following subtitle text and return only the translation.";
+
     private final ProviderProfileRepository mRepository;
     private final SecretStore mSecrets;
     private final ProviderProfileResolver mResolver;
@@ -294,7 +298,8 @@ public final class ProviderProfilesPresenter {
                     Collections.singletonList(new SubtitleSegmentId(track, 0)), "Hello.");
             TranslationRequest request = new TranslationRequest(
                     new TranslationSessionId("connection-test", track, testProfile,
-                            TranslationSessionId.ENGINE_SCHEMA_VERSION), 1, unit);
+                            TranslationSessionId.ENGINE_SCHEMA_VERSION), 1, unit,
+                    CONNECTION_TEST_PROMPT);
 
             handle.setTranslationCall(resolution.getAdapter().translate(request,
                     new TranslationCallback() {

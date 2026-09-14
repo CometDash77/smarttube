@@ -1,6 +1,7 @@
 package com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration;
 
 import com.google.android.exoplayer2.text.Cue;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.prompt.PromptProfile;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.FakeTranslationProvider;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCall;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.TranslationCallback;
@@ -25,6 +26,10 @@ import static org.junit.Assert.assertEquals;
  * stays bounded to the active session scope.
  */
 public class AiSubtitleCueBridgeCacheTest {
+    /** Test-only Prompt Profile; independent of any built-in or reference content. */
+    private static final PromptProfile PROMPT = new PromptProfile(
+            "test.prompt", "Test prompt",
+            "Translate {{source_text}} into {{target_language}}.", 1, false);
     private AtomicBoolean mEnabled;
 
     @Before
@@ -35,7 +40,7 @@ public class AiSubtitleCueBridgeCacheTest {
     @Test
     public void terminalFailureIsNotCachedAndKeepsSourceOnly() {
         CountingFailureProvider provider = new CountingFailureProvider();
-        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider);
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
         bridge.onNewVideo("video-1");
 
         List<Cue> first = bridge.process(cues("Hello"));
@@ -51,7 +56,7 @@ public class AiSubtitleCueBridgeCacheTest {
     @Test
     public void sameTextOnAnotherTrackIsReRequested() {
         FakeTranslationProvider provider = new FakeTranslationProvider(false);
-        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider);
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
         bridge.onNewVideo("video-1");
         bridge.onSubtitleTrackChanged("subtitle:en:asr-1");
 
@@ -68,7 +73,7 @@ public class AiSubtitleCueBridgeCacheTest {
     @Test
     public void cacheIsClearedWhenSessionIdentityChanges() {
         FakeTranslationProvider provider = new FakeTranslationProvider(false);
-        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider);
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
 
         bridge.onNewVideo("video-1");
         bridge.process(cues("Hello"));
@@ -88,7 +93,7 @@ public class AiSubtitleCueBridgeCacheTest {
     @Test
     public void authFailureStillLeavesCueSourceOnly() {
         AuthFailureProvider provider = new AuthFailureProvider();
-        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider);
+        AiSubtitleCueBridge bridge = new AiSubtitleCueBridge(mEnabled::get, provider, PROMPT);
         bridge.onNewVideo("video-1");
 
         List<Cue> result = bridge.process(cues("Hello"));

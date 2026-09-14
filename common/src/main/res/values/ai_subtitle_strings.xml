@@ -50,4 +50,12 @@
     <string name="ai_subtitle_phone_secret_set">Secret set</string>
     <string name="ai_subtitle_phone_secret_missing">Secret missing</string>
     <string name="ai_subtitle_phone_start_failed">Could not start the temporary LAN editor.</string>
+    <string name="ai_subtitle_lookahead">Translation lookahead</string>
+    <string name="ai_subtitle_throttle">Background schedule interval</string>
+    <string name="ai_subtitle_segmentation">Segmentation size</string>
+    <string name="ai_subtitle_segmentation_custom">Custom</string>
+    <string name="ai_subtitle_bilingual_order">Bilingual order</string>
+    <string name="ai_subtitle_order_source_first">Original first</string>
+    <string name="ai_subtitle_order_translation_first">Translation first</string>
+    <string name="ai_subtitle_retry">Retry failed translations</string>
 </resources>

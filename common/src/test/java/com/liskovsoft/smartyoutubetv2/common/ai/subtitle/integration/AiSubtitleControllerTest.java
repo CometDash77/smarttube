@@ -1,5 +1,6 @@
 package com.liskovsoft.smartyoutubetv2.common.ai.subtitle.integration;
 
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.prompt.PromptProfile;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.translation.FakeTranslationProvider;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
@@ -221,7 +222,9 @@ public class AiSubtitleControllerTest {
         private final List<String> mCalls = new ArrayList<>();
 
         private RecordingBridge() {
-            super(() -> true, new FakeTranslationProvider());
+            super(() -> true, new FakeTranslationProvider(),
+                    new PromptProfile("test.prompt", "Test prompt",
+                            "Translate {{source_text}} into {{target_language}}.", 1, false));
         }
 
         @Override

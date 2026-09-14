@@ -27,10 +27,11 @@ public class TranslationRequestTest {
             new TranslationSessionId("video-1", TRACK, PROFILE, TranslationSessionId.ENGINE_SCHEMA_VERSION);
     private static final TranslationUnit UNIT = new TranslationUnit(
             Collections.singletonList(new SubtitleSegmentId(TRACK, 0)), "こんにちは");
+    private static final String PROMPT = "Translate {{source_text}} into {{target_language}}.";
 
     @Test
     public void derivedAccessorsComeFromSessionAndUnit() {
-        TranslationRequest request = new TranslationRequest(SESSION, 3, UNIT);
+        TranslationRequest request = new TranslationRequest(SESSION, 3, UNIT, PROMPT);
 
         assertEquals(SESSION, request.getSessionId());
         assertEquals(3, request.getRequestId());
@@ -38,30 +39,58 @@ public class TranslationRequestTest {
         assertEquals("こんにちは", request.getSourceText());
         assertEquals("ja", request.getSourceLanguage());
         assertEquals("zh", request.getTargetLanguage());
+        assertEquals(PROMPT, request.getRenderedPrompt());
+    }
+
+    @Test
+    public void blankRenderedPromptIsRejected() {
+        for (String prompt : new String[] {null, "", "   "}) {
+            try {
+                new TranslationRequest(SESSION, 3, UNIT, prompt);
+                fail("a blank rendered prompt must be rejected");
+            } catch (IllegalArgumentException expected) {
+                // expected
+            }
+        }
+    }
+
+    @Test
+    public void equalityCoversTheRenderedPrompt() {
+        assertFalse(new TranslationRequest(SESSION, 3, UNIT, PROMPT)
+                .equals(new TranslationRequest(SESSION, 3, UNIT, PROMPT + " ")));
+    }
+
+    @Test
+    public void theRenderedPromptIsNotPrintedInFull() {
+        String rendered = "SECRET-SOURCE-TEXT-MARKER";
+
+        assertFalse("a request may reach a log, so its prompt is reduced to a length",
+                new TranslationRequest(SESSION, 3, UNIT, rendered).toString()
+                        .contains(rendered));
     }
 
     @Test
     public void equalityCoversSessionRequestIdAndUnit() {
-        TranslationRequest base = new TranslationRequest(SESSION, 3, UNIT);
+        TranslationRequest base = new TranslationRequest(SESSION, 3, UNIT, PROMPT);
 
-        assertTrue(base.equals(new TranslationRequest(SESSION, 3, UNIT)));
-        assertFalse(base.equals(new TranslationRequest(SESSION, 4, UNIT)));
+        assertTrue(base.equals(new TranslationRequest(SESSION, 3, UNIT, PROMPT)));
+        assertFalse(base.equals(new TranslationRequest(SESSION, 4, UNIT, PROMPT)));
         assertFalse(base.equals(new TranslationRequest(
                 new TranslationSessionId("video-2", TRACK, PROFILE, TranslationSessionId.ENGINE_SCHEMA_VERSION),
-                3, UNIT)));
+                3, UNIT, PROMPT)));
     }
 
     @Test
     public void nullSessionOrUnitIsRejected() {
         try {
-            new TranslationRequest(null, 3, UNIT);
+            new TranslationRequest(null, 3, UNIT, PROMPT);
             fail("null session must be rejected");
         } catch (IllegalArgumentException expected) {
             // expected
         }
 
         try {
-            new TranslationRequest(SESSION, 3, null);
+            new TranslationRequest(SESSION, 3, null, PROMPT);
             fail("null unit must be rejected");
         } catch (IllegalArgumentException expected) {
             // expected
@@ -72,7 +101,7 @@ public class TranslationRequestTest {
     public void nonPositiveRequestIdIsRejected() {
         for (long requestId : new long[] {0, -1}) {
             try {
-                new TranslationRequest(SESSION, requestId, UNIT);
+                new TranslationRequest(SESSION, requestId, UNIT, PROMPT);
                 fail("non-positive request id must be rejected: " + requestId);
             } catch (IllegalArgumentException expected) {
                 // expected

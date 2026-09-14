@@ -41,7 +41,8 @@ public class FakeTranslationProviderTest {
         TranslationUnit unit = new TranslationUnit(
                 Collections.singletonList(new SubtitleSegmentId(TRACK, 0)), source);
 
-        return new TranslationRequest(SESSION, requestId, unit);
+        return new TranslationRequest(SESSION, requestId, unit,
+                "Translate the subtitle text.");
     }
 
     @Test

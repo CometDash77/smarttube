@@ -28,9 +28,20 @@ public final class AiSubtitleRuntime {
                 data.prompts(), secrets).resolve(data.getTargetLanguage());
     }
 
+    public static void applySchedulingToBridge(Context context) {
+        AiSubtitleData data = AiSubtitleData.instance(context);
+        AiSubtitleCueBridge bridge = AiSubtitleCueBridge.instance(context);
+        bridge.onSchedulingChanged(
+                data.getLookaheadSeconds() * 1_000L,
+                data.getScheduleThrottleSeconds() * 1_000L);
+        bridge.onSegmentationChanged(
+                data.getSegmentTargetChars(),
+                data.getSegmentMaxChars(),
+                data.getLongSentenceChars());
+    }
     public static void applyToBridge(Context context) {
         TranslationProfileResolver.Resolution resolved = resolve(context);
         AiSubtitleCueBridge.instance(context).onProviderChanged(
-                resolved.getProvider(), resolved.getProfile());
+                resolved.getProvider(), resolved.getProfile(), resolved.getPrompt());
     }
 }
