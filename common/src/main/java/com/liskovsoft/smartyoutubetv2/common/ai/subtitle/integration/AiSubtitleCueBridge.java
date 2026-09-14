@@ -14,6 +14,7 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationProfi
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationUnit;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.prompt.PromptProfile;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.scheduler.TranslationScheduler;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.segmentation.SegmentationLimits;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSession;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionId;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.session.TranslationSessionSnapshot;
@@ -104,6 +105,11 @@ public class AiSubtitleCueBridge {
      * rebuild; a session created while playback is paused must not dispatch work.
      */
     private boolean mPlaybackPaused;
+    /**
+     * Whether the player has reported a track selection yet. Before the first event the bridge
+     * cannot distinguish "subtitles switched off" from "no track event has arrived".
+     */
+    private boolean mTrackStateKnown;
     /** Optional source adapter; when null the bridge falls back to displayed-cue-only mapping. */
     private SmartTubeSubtitleSourceAdapter mSourceAdapter;
 
@@ -247,6 +253,8 @@ public class AiSubtitleCueBridge {
 
     void onSubtitleTrackChanged(String trackIdentity) {
         synchronized (this) {
+            mTrackStateKnown = true;
+
             SourceTrackId nextTrackId = toSourceTrackId(mVideoId, trackIdentity);
 
             if (nextTrackId == null) {
@@ -363,7 +371,7 @@ public class AiSubtitleCueBridge {
 
         if (mSession == null || mSession.isClosed()) return;
 
-        rebuildTranslationSession();
+        rebuildLiveSession();
     }
 
     @VisibleForTesting
@@ -397,7 +405,7 @@ public class AiSubtitleCueBridge {
      */
     public synchronized void onSegmentationChanged(int targetChars, int maxChars,
                                                    int longSentenceChars) {
-        if (targetChars < 1 || maxChars < targetChars || longSentenceChars <= 0) return;
+        if (!SegmentationLimits.isValid(targetChars, maxChars, longSentenceChars)) return;
         if (targetChars == mSegmentTargetChars && maxChars == mSegmentMaxChars
                 && longSentenceChars == mLongSentenceChars) {
             return;
@@ -628,70 +636,56 @@ public class AiSubtitleCueBridge {
     /**
      * Rebuilds the session for a changed source identity: a new video, a new track, or subtitles
      * switched off. The timeline of the previous source has already been discarded, so nothing
-     * can dispatch from it, and the in-flight source load for the old identity is invalidated
-     * before the next load starts.
+     * can dispatch from it, and any source load still in flight for the old identity is
+     * invalidated before the next load starts.
      */
     private void rebindSourceIdentity() {
-        TranslationSessionId nextId = buildSessionId();
-        TranslationSession current = mSession;
+        if (isSessionIdentityCurrent()) return;
 
-        if (current != null && !current.isClosed() && current.getSessionId().equals(nextId)) {
-            return;
-        }
-
-        cancelSessionState();
-        mCache.clear();
         mLoadSequence++;
-
-        if (!canStartWork()) {
-            mSession = null;
-            return;
-        }
-
-        mSession = newSession(nextId);
-        recreateScheduler();
+        rebuildLiveSession();
     }
 
     /**
-     * Rebuilds the session for a changed translation identity: the profile, the provider, the
-     * prompt, or the bounded context. The source is unchanged, so the timeline and any in-flight
-     * source load are kept; only translation work that was derived from the old identity is
-     * discarded.
+     * Rebuilds the session for a changed translation identity: the profile, the provider, or the
+     * prompt. The bounded context is deliberately not in that list — it changes what a request
+     * carries without changing the identity, so it goes through {@link #rebuildLiveSession}
+     * directly rather than through this guard.
+     *
+     * <p>The source is unchanged, so the timeline and any in-flight source load are kept; only
+     * translation work derived from the old identity is discarded.</p>
      */
     private void rebindTranslationIdentity() {
-        TranslationSessionId nextId = buildSessionId();
+        if (isSessionIdentityCurrent()) return;
+
+        rebuildLiveSession();
+    }
+
+    /** Whether the live session already describes the identity the bridge would build now. */
+    private boolean isSessionIdentityCurrent() {
         TranslationSession current = mSession;
 
-        if (current != null && !current.isClosed() && current.getSessionId().equals(nextId)) {
-            return;
-        }
-
-        rebuildTranslationSession();
+        return current != null && !current.isClosed()
+                && current.getSessionId().equals(buildSessionId());
     }
 
     /**
      * Rebuilds the live session even when its identity is unchanged.
      *
-     * <p>The bounded context changes what a request carries without changing the session
-     * identity, so comparing identities is not enough to decide whether the current session
-     * still describes what will be sent. A new generation cancels the requests that were frozen
-     * under the old configuration; the cache is cleared with it, because every entry is keyed
-     * by the instruction that produced it. The source timeline is untouched and any in-flight
-     * source load stays valid.
+     * <p>Not every change to what a request carries changes the session identity, so comparing
+     * identities is not a sufficient test on its own. A new generation cancels the requests that
+     * were frozen under the old configuration; the cache is cleared with it, because every entry
+     * is keyed by the instruction that produced it. The source timeline is untouched and any
+     * in-flight source load stays valid.</p>
      */
-    private void rebuildTranslationSession() {
+    private void rebuildLiveSession() {
         TranslationSessionId nextId = buildSessionId();
 
         cancelSessionState();
         mCache.clear();
-
-        if (!canStartWork()) {
-            mSession = null;
-            return;
-        }
-
         mSession = newSession(nextId);
-        recreateScheduler();
+
+        if (canStartWork()) recreateScheduler();
     }
 
     private TranslationSession newSession(TranslationSessionId sessionId) {
@@ -706,9 +700,18 @@ public class AiSubtitleCueBridge {
         return session;
     }
 
-    /** Whether the feature currently has everything it needs to start translation work. */
+    /**
+     * Whether translation work may start at all. The session is always kept, so lifecycle state
+     * and identity stay observable; this decides only whether a runnable scheduler exists.
+     *
+     * <p>"No selected track" is only meaningful once the player has told us about its tracks:
+     * before the first track event the bridge cannot tell "subtitles are off" from "nothing has
+     * been selected yet", and the displayed-cue fallback is the only mapping available.</p>
+     */
     private boolean canStartWork() {
-        return mEnabledState.isEnabled() && mProvider != null && mPromptProfile != null;
+        if (!mEnabledState.isEnabled() || mProvider == null || mPromptProfile == null) return false;
+
+        return !mTrackStateKnown || mSourceTrackId != null;
     }
 
     private void recreateScheduler() {
@@ -717,9 +720,9 @@ public class AiSubtitleCueBridge {
             mScheduler = null;
         }
 
-        // Without a resolvable provider and prompt there is nothing to schedule; the bridge
-        // stays in source-only mode instead of failing inside the scheduler constructor.
-        if (mProvider == null || mPromptProfile == null) return;
+        // Without something to translate and somewhere to send it there is nothing to schedule;
+        // the bridge stays in source-only mode instead of failing inside the constructor.
+        if (!canStartWork()) return;
 
         mScheduler = new TranslationScheduler(mSession, mProvider, mPromptProfile, mCache,
                 new TranslationScheduler.Listener() {

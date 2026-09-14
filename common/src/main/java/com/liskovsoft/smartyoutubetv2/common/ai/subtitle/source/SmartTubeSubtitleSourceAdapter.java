@@ -9,6 +9,7 @@ import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SubtitleSegment;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.SubtitleSegmentId;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.domain.TranslationUnit;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.segmentation.RuleSentenceBreaker;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.segmentation.SegmentationLimits;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.segmentation.TranslationChunker;
 
 import java.util.ArrayList;
@@ -36,7 +37,7 @@ public final class SmartTubeSubtitleSourceAdapter {
 
     public synchronized void configureSegmentation(int targetChars, int maxChars,
                                                    int longSentenceChars) {
-        if (targetChars < 1 || maxChars < targetChars || longSentenceChars <= 0) {
+        if (!SegmentationLimits.isValid(targetChars, maxChars, longSentenceChars)) {
             throw new IllegalArgumentException("invalid segmentation limits");
         }
         mTargetChars = targetChars;

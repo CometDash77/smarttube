@@ -8,6 +8,7 @@ import androidx.annotation.VisibleForTesting;
 import com.liskovsoft.sharedutils.prefs.SharedPreferencesBase;
 import com.liskovsoft.smartyoutubetv2.common.prefs.AppPrefs;
 import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.prompt.PromptRepository;
+import com.liskovsoft.smartyoutubetv2.common.ai.subtitle.segmentation.SegmentationLimits;
 
 /**
  * Dedicated versioned preference store for AI subtitle settings.
@@ -247,7 +248,7 @@ public class AiSubtitleData extends SharedPreferencesBase
 
     private static boolean isValidSegmentLimits(long targetChars, long maxChars,
                                                 long longSentenceChars) {
-        return targetChars >= 1 && maxChars >= targetChars && longSentenceChars > 0;
+        return SegmentationLimits.isValid(targetChars, maxChars, longSentenceChars);
     }
 
     private static boolean isPreset(long value, int[] presets) {

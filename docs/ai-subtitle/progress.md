@@ -26,17 +26,18 @@ Recorded before execution starts so a fresh session can resume from this file al
 
 | Phase | Plan tasks | Commit | State |
 |---|---|---|---|
-| 1 | 1–2 | `fccf8d9ca` | Implemented, both lanes green, phase report written; the Standards/Spec review gate was dispatched and is **still in flight** as this entry is written |
+| 1 | 1–2 | `fccf8d9ca` + review fixes | Implemented, both lanes green, Standards/Spec review gates **complete** and every finding fixed or recorded with its reason |
 
-- Correction-run commits so far: `28d8311e0` (execution contract), `fccf8d9ca` (phase 1: tasks 1–2).
+- Correction-run commits so far: `28d8311e0` (execution contract), `fccf8d9ca` (phase 1: tasks 1–2), `96a437c59` (phase status + continuation state).
 - Phase 1 closes C1, C2, C3 and C4. The counterexample-to-test mapping, the red-run evidence and the full tables are in `worker-reports/M07-M09-correction-phase1-report.md`.
+- Phase 1 review gates ran on `fccf8d9ca` as two subagents on the Standards and Spec axes, neither running tests. Fixed: the `rebindTranslationIdentity` javadoc claimed the bounded context flows through it (it does not); the zero-caller `applySchedulingToBridge` deleted; the segmentation-limits rule collapsed into `segmentation/SegmentationLimits.isValid(long, long, long)`; the duplicated identity guard extracted; the phone test renamed to what it actually asserts; the C3 row in the phase report corrected (the old phone path called two entries, so the provider and scheduling did apply — the order, context and streaming switches did not). Fixed from the Spec axis: `canStartWork()` gained the plan's "selected track" precondition, implemented with a new `mTrackStateKnown` flag so "subtitles off" is distinguishable from "no track event yet"; `recreateScheduler()` is now gated by it while the session is always created. Recorded rather than changed: the apply order (segmentation first, with the reason in its javadoc) and the count-only assertions in the "no work" matrix tests.
 - Phase 1 evidence (fresh ASCII copy `C:\tmp\smartube-code-fix`; raw XML kept at `C:\tmp\ev-jdk17` and `C:\tmp\ev-jdk11`):
-  - JDK 17 full `:common:testStbetaDebugUnitTest` → 51 suites, **tests=475, failures=0, errors=0, skipped=21** (`BUILD SUCCESSFUL in 1m`).
-  - JDK 11 `:common:testStbetaDebugUnitTest --tests '….ai.subtitle.settings.*'` → 11 suites, **tests=79, failures=0, errors=0, skipped=0** (`BUILD SUCCESSFUL in 1m 9s`).
+  - JDK 17 full `:common:testStbetaDebugUnitTest` → 51 suites, **tests=475, failures=0, errors=0, skipped=21**.
+  - JDK 11 `:common:testStbetaDebugUnitTest --tests '….ai.subtitle.settings.*'` → 11 suites, **tests=79, failures=0, errors=0, skipped=0**.
   - The skip count rose 20 → 21 for one reason only: the new phone test joins the ten `AiSubtitlePhoneInputServerTest` methods that `JdkAwareRobolectricRunner` skips above JDK 16, and it runs for real in the JDK 11 lane (0 skipped there).
-- Open PARTIAL from phase 1: the plan's task 2 asks the JDK 11 phone test to observe the live bridge's request over real HTTP. That observation could not be reproduced in the Robolectric lane. Real HTTP from that lane is proven to work by a direct `OkHttpRequestExecutor` probe against a local socket, and the bridge is proven fully configured at dispatch time (`session`, `provider`, `prompt`, `scheduler`, `enabled` all true), yet neither a request nor a failure is ever observed. The delivered test asserts the wiring up to that point and the gap is recorded in the phase report rather than papered over. C3/C4's bridge-level behaviour is covered by the integration suite, which does observe the requests.
+- Open PARTIAL from phase 1: the plan's task 2 asks the JDK 11 phone test to observe the live bridge's request over real HTTP. That observation could not be reproduced in the Robolectric lane; the evidence gathered, what it does and does not prove, and the next step to try are recorded in `worker-plans/M07-M09-correction-continuation.md` §4. The delivered test asserts the wiring up to that point and the phase report states the gap rather than papering over it. C3's bridge-level behaviour is covered by the integration suite, which does observe the requests.
 - Remaining phases (plan §1 commit units): phase 2 = task 3, phase 3 = tasks 4–5, phase 4 = task 6, phase 5 = tasks 7–8.
-- Continuation state for the remaining phases: `worker-plans/M07-M09-correction-continuation.md`.
+- Continuation state for the remaining phases: `worker-plans/M07-M09-correction-continuation.md`, which also carries the iteration recipe, the probes each phase is anchored to, and the environment traps' home in `AGENTS.md`.
 
 ## Current state
 

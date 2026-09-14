@@ -7,7 +7,6 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.io.BufferedReader;
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -237,15 +236,15 @@ public class AiSubtitlePhoneInputServerTest {
     /**
      * The phone page and the running player share one configuration. A save that only reached
      * storage, while the player kept using the previous one, is exactly the defect this covers:
-     * the bridge that is already live has to be the one the saved values apply to.
+     * the bridge that is already live has to be the one the saved values reach.
      *
-     * <p>This lane proves the wiring: one live bridge instance, the saved profile being the one
-     * resolution reads, the credential surviving a keep save, and the saved configuration still
-     * resolving to a runnable provider. What the live bridge then sends is covered at the bridge
-     * level in the integration suite.</p>
+     * <p>This lane proves the wiring up to the point it can observe: the saved profile is the one
+     * resolution reads, the credential survives a keep save, and the saved configuration still
+     * resolves to a runnable provider. Observing the request the live bridge then sends is the
+     * recorded PARTIAL — see the phase report.</p>
      */
     @Test
-    public void aPhoneSaveAppliesToTheLiveBridgeThatIsAlreadyPlaying() throws Exception {
+    public void aPhoneSaveLeavesTheLiveBridgeConfiguredAndResolvable() throws Exception {
         AiSubtitleData data = AiSubtitleData.instance(RuntimeEnvironment.getApplication());
         data.setEnabled(true);
         // The page edits the profile the player is already using; resolution reads the selected
@@ -264,7 +263,8 @@ public class AiSubtitlePhoneInputServerTest {
         assertEquals(200, response.code);
         assertTrue(response.body.contains("\"saveSucceeded\":true"));
 
-        assertSame("the save must apply to the bridge that is already live, not build a second one",
+        assertSame("the save must go through the singleton the player renders with, not build a"
+                        + " second bridge for the settings page",
                 bridge, AiSubtitleCueBridge.instance(RuntimeEnvironment.getApplication()));
 
         assertEquals("the saved profile must be the one the live bridge resolves",

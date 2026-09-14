@@ -28,10 +28,6 @@ public final class AiSubtitleRuntime {
                 data.prompts(), secrets).resolve(data.getTargetLanguage());
     }
 
-    public static void applySchedulingToBridge(Context context) {
-        applySettingsToBridge(AiSubtitleCueBridge.instance(context), AiSubtitleData.instance(context));
-    }
-
     /**
      * Applies the resolved Provider and Prompt plus every stored playback setting, in one pass.
      *
