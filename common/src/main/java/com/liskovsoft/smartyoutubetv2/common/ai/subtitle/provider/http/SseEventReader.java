@@ -27,7 +27,7 @@ public final class SseEventReader {
     public static final int MAX_RESPONSE_BYTES = 1024 * 1024;
 
     private static final Charset UTF_8 = Charset.forName("UTF-8");
-    private static final String BYTE_ORDER_MARK = "﻿";
+    private static final String BYTE_ORDER_MARK = "\uFEFF";
 
     /** Receives one complete event. */
     public interface Sink {
